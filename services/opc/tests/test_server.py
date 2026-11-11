@@ -19,44 +19,70 @@ def auth() -> dict:
 def test_api_requires_token(tmp_path):
     api = client(tmp_path)
     assert api.get("/api/health").status_code == 200
-    assert api.get("/api/projects", params={"workspace": str(tmp_path)}).status_code == 401
+    assert api.get("/api/project", params={"workspace": str(tmp_path)}).status_code == 401
 
 
 def test_api_needs_a_real_workspace(tmp_path):
-    response = client(tmp_path).get("/api/projects", params={"workspace": "relative/path"}, headers=auth())
+    response = client(tmp_path).get("/api/project", params={"workspace": "relative/path"}, headers=auth())
     assert response.status_code == 400
 
 
-def test_projects_space_and_files(tmp_path):
-    api, workspace = client(tmp_path), tmp_path / "ws"
+def test_workspace_is_the_project(tmp_path):
+    api, workspace = client(tmp_path), tmp_path / "笔记应用"
     workspace.mkdir()
     params = {"workspace": str(workspace)}
-    created = api.post("/api/projects", params=params, json={"name": "笔记应用"}, headers=auth()).json()
-    assert created["id"].startswith("project-")
-    listed = api.get("/api/projects", params=params, headers=auth()).json()["projects"]
-    assert created["id"] in {item["id"] for item in listed}
+    assert api.get("/api/project", params=params, headers=auth()).json()["name"] == "笔记应用"
+    created = api.post("/api/project", params=params, json={"description": "记笔记"}, headers=auth()).json()
+    assert "CONTEXT.md" in created["created"]
+    assert "记笔记" in (workspace / "CONTEXT.md").read_text()
+    # Existing files are kept.
+    assert api.post("/api/project", params=params, json={}, headers=auth()).json()["created"] == []
 
-    space = api.get("/api/space", params={**params, "project": created["id"]}, headers=auth()).json()
+    (workspace / ".opencode").mkdir()
+    (workspace / ".opencode" / "secret.md").write_text("x")
+    (workspace / "AGENTS.md").write_text("x")
+    space = api.get("/api/space", params=params, headers=auth()).json()
     names = {item["relative"] for item in space["items"]}
-    assert "project.json" not in names and "CONTEXT.md" in names
+    assert "CONTEXT.md" in names and "knowledge/README.md" in names
+    assert "AGENTS.md" not in names and not any(name.startswith(".opencode") for name in names)
 
     brief = next(item for item in space["items"] if item["relative"] == "CONTEXT.md")
+    assert brief["section"] == "brief"
     by_header = api.get("/api/file", params={**params, "path": brief["path"]}, headers=auth())
     by_query = api.get("/api/file", params={**params, "path": brief["path"], "token": TOKEN})
     assert by_header.status_code == by_query.status_code == 200
-    outside = api.get("/api/file", params={**params, "path": str(workspace / ".aiopc" / "accounts.json")}, headers=auth())
-    assert outside.status_code == 400
+    hidden = api.get("/api/file", params={**params, "path": str(workspace / ".opencode" / "secret.md")}, headers=auth())
+    outside = api.get("/api/file", params={**params, "path": str(tmp_path / "home")}, headers=auth())
+    assert hidden.status_code == outside.status_code == 400
+
+
+def test_accounts_are_shared_by_every_workspace(tmp_path):
+    from aiopc.accounts import AccountStore
+
+    home = tmp_path / "home"
+    AccountStore(home).upsert("小红书", {"id": "5f00", "name": "官方号"})
+    api = client(tmp_path)
+    for name in ("a", "b"):
+        (tmp_path / name).mkdir()
+        accounts = api.get("/api/accounts", params={"workspace": str(tmp_path / name)}, headers=auth()).json()["accounts"]
+        assert [account["name"] for account in accounts] == ["官方号"]
+
+
+def test_platform_catalog(tmp_path):
+    platforms = client(tmp_path).get("/api/platforms", headers=auth()).json()["platforms"]
+    assert len(platforms) > 40
+    assert {"cn", "global"} == {item["region"] for item in platforms}
 
 
 def test_cors_preflight(tmp_path):
-    response = client(tmp_path).options("/api/projects")
+    response = client(tmp_path).options("/api/project")
     assert response.status_code == 204 and response.headers["access-control-allow-origin"] == "*"
 
 
 def test_mcp_tools(tmp_path):
     tools = asyncio.run(create_server(tmp_path / "home", tmp_path).list_tools())
     names = {tool.name for tool in tools}
-    assert {"list_projects", "social_publish", "generate_image", "x_search"} <= names
+    assert {"get_project_brief", "init_project", "social_platforms", "social_publish", "generate_image", "x_search"} <= names
     assert not any(name.startswith("library_") for name in names)
 
 
@@ -74,7 +100,7 @@ def test_library_from_config(tmp_path, monkeypatch):
 def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
     import base64
 
-    import aiopc.social.service as service
+    from aiopc.social import service
 
     png = base64.b64encode(b"\x89PNG fake").decode()
 

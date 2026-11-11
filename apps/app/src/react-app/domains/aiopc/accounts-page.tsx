@@ -1,10 +1,9 @@
 /** @jsxImportSource react */
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert, ExternalLink, Plus, RefreshCw, Share2, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, PenLine, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -16,21 +15,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { currentLocale, t } from "@/i18n";
-import { usePlatform } from "@/react-app/kernel/platform";
 import { cn } from "@/lib/utils";
+import { usePlatform } from "@/react-app/kernel/platform";
 
 import {
   type AiopcAccount,
   type AiopcPlatform,
-  type AiopcProject,
   type ConnectResult,
-  readSelectedProject,
   useAiopc,
-  useAiopcProjects,
-  writeSelectedProject,
+  useAiopcPlatforms,
 } from "./aiopc-client";
 import { AiopcUnavailable } from "./aiopc-status";
-import { ProjectSwitcher } from "./project-switcher";
+import { PlatformIcon } from "./platform-icon";
 
 type HistoryEntry = {
   at: number;
@@ -49,53 +45,43 @@ function formatTime(seconds: number | null | undefined) {
 }
 
 /**
- * 账号: the social accounts the lab and each project use. Logins live in
- * AIOPC's built-in browser; this page connects, checks and shares them.
+ * 账号: the social accounts AIOPC knows. Logins live in AIOPC's built-in
+ * browser, which every project uses, so accounts are shared by all projects;
+ * the publishing log below belongs to the current project (workspace).
  */
 export function AccountsPage(props: { workspaceRoot: string }) {
-  const { connection, ready, request, invalidate } = useAiopc(props.workspaceRoot);
+  const { connection, ready, request } = useAiopc(props.workspaceRoot);
   const platformBridge = usePlatform();
-  const projectsQuery = useAiopcProjects(props.workspaceRoot);
-  const [projectId, setProjectId] = useState(() => readSelectedProject(props.workspaceRoot));
-  const [scope, setScope] = useState<"project" | "all">("project");
+  const platformsQuery = useAiopcPlatforms(props.workspaceRoot);
   const [connecting, setConnecting] = useState(false);
-  const [sharing, setSharing] = useState<AiopcAccount | null>(null);
+  const [renaming, setRenaming] = useState<AiopcAccount | null>(null);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
 
-  useEffect(() => setProjectId(readSelectedProject(props.workspaceRoot)), [props.workspaceRoot]);
-  const projects = projectsQuery.data ?? [];
-  const project = projects.find((item) => item.id === projectId) ?? projects[0];
-  const projectName = (id: string) => (id === "*" ? t("aiopc.accounts.all_projects") : projects.find((item) => item.id === id)?.name ?? id);
-
   const accountsQuery = useQuery({
-    queryKey: ["aiopc", props.workspaceRoot, "accounts", scope, project?.id ?? "lab"],
-    enabled: ready && Boolean(project),
-    queryFn: () => request<{ accounts: AiopcAccount[] }>("GET", "/api/accounts", {
-      params: { project: project?.id, all: scope === "all" ? "1" : undefined },
-    }).then((data) => data.accounts),
+    queryKey: ["aiopc", "accounts"],
+    enabled: ready,
+    queryFn: () => request<{ accounts: AiopcAccount[] }>("GET", "/api/accounts").then((data) => data.accounts),
   });
   const historyQuery = useQuery({
-    queryKey: ["aiopc", props.workspaceRoot, "history", project?.id ?? "lab"],
-    enabled: ready && Boolean(project),
-    queryFn: () => request<{ items: HistoryEntry[] }>("GET", "/api/history", { params: { project: project?.id } }).then((data) => data.items),
+    queryKey: ["aiopc", props.workspaceRoot, "history"],
+    enabled: ready,
+    queryFn: () => request<{ items: HistoryEntry[] }>("GET", "/api/history").then((data) => data.items),
     refetchInterval: 30_000,
   });
   const accounts = accountsQuery.data ?? [];
   const accountName = useMemo(() => new Map(accounts.map((account) => [account.account_id, account.name])), [accounts]);
+  const platformById = useMemo(() => new Map((platformsQuery.data ?? []).map((item) => [item.id, item])), [platformsQuery.data]);
 
   if (!connection || connection.status !== "ready") return <AiopcUnavailable connection={connection} title={t("aiopc.accounts.title")} />;
 
-  const chooseProject = (id: string) => {
-    setProjectId(id);
-    writeSelectedProject(props.workspaceRoot, id);
-  };
+  const refreshAccounts = () => accountsQuery.refetch();
   const act = async (accountId: string, action: () => Promise<unknown>) => {
     setBusyId(accountId);
     setError("");
     try {
       await action();
-      await invalidate("accounts");
+      await refreshAccounts();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -103,9 +89,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
     }
   };
   const recheck = (account: AiopcAccount) => act(account.account_id, async () => {
-    const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
-      body: { platform: account.platform, project: account.owner, check: true },
-    });
+    const result = await request<ConnectResult>("POST", "/api/accounts/connect", { body: { platform: account.platform, check: true } });
     if (result.status !== "connected") throw new Error(result.message);
   });
   const remove = (account: AiopcAccount) => {
@@ -118,20 +102,12 @@ export function AccountsPage(props: { workspaceRoot: string }) {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-6 pb-12 pt-8">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{t("aiopc.accounts.title")}</h1>
-          <ProjectSwitcher workspaceRoot={props.workspaceRoot} projects={projects} value={project?.id ?? "lab"} onChange={chooseProject} />
-          <Button className="ml-auto" onClick={() => setConnecting(true)}><Plus className="size-4" />{t("aiopc.accounts.connect")}</Button>
-        </div>
-        <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
-
-        <div className="flex items-center justify-between gap-3">
-          <ToggleGroup value={[scope]} onValueChange={(values) => { if (values[0]) setScope(values[0] as "project" | "all"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.scope")}>
-            <ToggleGroupItem value="project">{t("aiopc.accounts.scope_project", { project: project?.name ?? "" })}</ToggleGroupItem>
-            <ToggleGroupItem value="all">{t("aiopc.accounts.scope_all")}</ToggleGroupItem>
-          </ToggleGroup>
           <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.refresh")} onClick={() => void accountsQuery.refetch()}>
             <RefreshCw className={cn("size-4", accountsQuery.isFetching && "animate-spin")} />
           </Button>
+          <Button className="ml-auto" onClick={() => setConnecting(true)}><Plus className="size-4" />{t("aiopc.accounts.connect")}</Button>
         </div>
+        <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
 
         {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
         {accountsQuery.isError ? (
@@ -147,47 +123,47 @@ export function AccountsPage(props: { workspaceRoot: string }) {
           </div>
         ) : (
           <div role="list" className="flex flex-col divide-y divide-border/60 rounded-xl border border-border/60">
-            {accounts.map((account) => (
-              <div key={account.account_id} role="listitem" className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                  {account.platform_name.slice(0, 2)}
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium">{account.name}</span>
-                    {account.handle ? <span className="truncate text-xs text-muted-foreground">@{account.handle.replace(/^@/, "")}</span> : null}
-                    {account.status === "ready" ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400"><CheckCircle2 className="size-3" />{t("aiopc.accounts.ready")}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-warning"><CircleAlert className="size-3" />{t("aiopc.accounts.needs_login")}</span>
-                    )}
+            {accounts.map((account) => {
+              const platform = platformById.get(account.platform);
+              return (
+                <div key={account.account_id} role="listitem" className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <PlatformIcon id={account.platform} name={account.platform_name} color={platform?.color} className="size-9" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-medium">{account.name}</span>
+                      {account.handle ? <span className="truncate text-xs text-muted-foreground">@{account.handle.replace(/^@/, "")}</span> : null}
+                      {account.status === "ready" ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400"><CheckCircle2 className="size-3" />{t("aiopc.accounts.ready")}</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-warning"><CircleAlert className="size-3" />{t("aiopc.accounts.needs_login")}</span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {account.platform_name}
+                      {account.verified_at ? ` · ${t("aiopc.accounts.verified", { time: formatTime(account.verified_at) })}` : ""}
+                    </div>
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {account.platform_name} · {t("aiopc.accounts.owner", { project: projectName(account.owner) })}
-                    {account.shared_with.length ? ` · ${t("aiopc.accounts.shared", { projects: account.shared_with.map(projectName).join("、") })}` : ""}
-                    {account.verified_at ? ` · ${t("aiopc.accounts.verified", { time: formatTime(account.verified_at) })}` : ""}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {account.url ? (
-                    <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.open_profile")} title={t("aiopc.accounts.open_profile")}
-                      onClick={() => void platformBridge.openLink(account.url)}>
-                      <ExternalLink className="size-4" />
+                  <div className="flex items-center gap-1">
+                    {account.url ? (
+                      <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.open_profile")} title={t("aiopc.accounts.open_profile")}
+                        onClick={() => void platformBridge.openLink(account.url)}>
+                        <ExternalLink className="size-4" />
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.recheck")} title={t("aiopc.accounts.recheck")}
+                      disabled={busyId === account.account_id} onClick={() => void recheck(account)}>
+                      <RefreshCw className={cn("size-4", busyId === account.account_id && "animate-spin")} />
                     </Button>
-                  ) : null}
-                  <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.recheck")} title={t("aiopc.accounts.recheck")}
-                    disabled={busyId === account.account_id} onClick={() => void recheck(account)}>
-                    <RefreshCw className={cn("size-4", busyId === account.account_id && "animate-spin")} />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.share")} title={t("aiopc.accounts.share")} onClick={() => setSharing(account)}>
-                    <Share2 className="size-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.remove")} title={t("aiopc.accounts.remove")} onClick={() => remove(account)}>
-                    <Trash2 className="size-4" />
-                  </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.rename")} title={t("aiopc.accounts.rename")} onClick={() => setRenaming(account)}>
+                      <PenLine className="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.remove")} title={t("aiopc.accounts.remove")} onClick={() => remove(account)}>
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -220,16 +196,15 @@ export function AccountsPage(props: { workspaceRoot: string }) {
       <ConnectDialog
         open={connecting}
         workspaceRoot={props.workspaceRoot}
-        project={project}
+        platforms={platformsQuery.data ?? []}
         onOpenChange={setConnecting}
-        onConnected={() => void invalidate("accounts")}
+        onConnected={() => void refreshAccounts()}
       />
-      <ShareDialog
-        account={sharing}
-        projects={projects}
+      <RenameDialog
+        account={renaming}
         workspaceRoot={props.workspaceRoot}
-        onClose={() => setSharing(null)}
-        onSaved={() => void invalidate("accounts")}
+        onClose={() => setRenaming(null)}
+        onSaved={() => void refreshAccounts()}
       />
     </section>
   );
@@ -238,17 +213,13 @@ export function AccountsPage(props: { workspaceRoot: string }) {
 function ConnectDialog(props: {
   open: boolean;
   workspaceRoot: string;
-  project: AiopcProject | undefined;
+  platforms: AiopcPlatform[];
   onOpenChange: (open: boolean) => void;
   onConnected: () => void;
 }) {
-  const { ready, request } = useAiopc(props.workspaceRoot);
-  const platformsQuery = useQuery({
-    queryKey: ["aiopc", props.workspaceRoot, "platforms"],
-    enabled: ready && props.open,
-    queryFn: () => request<{ platforms: AiopcPlatform[] }>("GET", "/api/platforms").then((data) => data.platforms),
-    staleTime: Infinity,
-  });
+  const { request } = useAiopc(props.workspaceRoot);
+  const [region, setRegion] = useState<"cn" | "global">("cn");
+  const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<AiopcPlatform | null>(null);
   const [alias, setAlias] = useState("");
   const [step, setStep] = useState<"choose" | "login">("choose");
@@ -259,10 +230,26 @@ function ConnectDialog(props: {
     if (!props.open) {
       setPlatform(null);
       setAlias("");
+      setQuery("");
       setStep("choose");
       setMessage("");
     }
   }, [props.open]);
+
+  // Searching looks across both regions; otherwise one region, grouped by category, connectable first.
+  const groups = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    const shown = props.platforms.filter((item) => needle
+      ? item.name.toLocaleLowerCase().includes(needle) || item.id.includes(needle)
+      : item.region === region);
+    const byCategory = new Map<string, AiopcPlatform[]>();
+    for (const item of shown) {
+      const label = item.status === "planned" ? t("aiopc.accounts.planned_group") : item.category_name;
+      byCategory.set(label, [...(byCategory.get(label) ?? []), item]);
+    }
+    const planned = t("aiopc.accounts.planned_group");
+    return [...byCategory.entries()].sort(([a], [b]) => Number(a === planned) - Number(b === planned));
+  }, [props.platforms, query, region]);
 
   const connect = async (check: boolean) => {
     if (!platform) return;
@@ -270,7 +257,7 @@ function ConnectDialog(props: {
     setMessage("");
     try {
       const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
-        body: { platform: platform.id, project: props.project?.id ?? "lab", alias: alias.trim(), check },
+        body: { platform: platform.id, alias: alias.trim(), check },
       });
       if (result.status === "connected") {
         props.onConnected();
@@ -288,31 +275,60 @@ function ConnectDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="w-full max-w-lg sm:max-w-lg">
+      <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{t("aiopc.accounts.connect")}</DialogTitle>
-          <DialogDescription>{t("aiopc.accounts.connect_hint", { project: props.project?.name ?? "" })}</DialogDescription>
+          <DialogTitle>{step === "login" && platform ? t("aiopc.accounts.login_title", { platform: platform.name }) : t("aiopc.accounts.connect")}</DialogTitle>
+          <DialogDescription>{step === "login" ? t("aiopc.accounts.login_hint") : t("aiopc.accounts.connect_hint")}</DialogDescription>
         </DialogHeader>
         {step === "choose" ? (
-          <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {(platformsQuery.data ?? []).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setPlatform(item)}
-                  className={cn("rounded-lg border px-2 py-2.5 text-sm transition-colors",
-                    platform?.id === item.id ? "border-foreground bg-muted font-medium" : "border-border hover:bg-muted/60")}
-                >
-                  {item.name}
-                </button>
-              ))}
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
+                <ToggleGroupItem value="cn">{t("aiopc.accounts.region_cn")}</ToggleGroupItem>
+                <ToggleGroupItem value="global">{t("aiopc.accounts.region_global")}</ToggleGroupItem>
+              </ToggleGroup>
+              <div className="relative ml-auto w-56">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("aiopc.accounts.search_platform")} className="pl-8" />
+              </div>
             </div>
-            {platformsQuery.isPending ? <p className="text-xs text-muted-foreground">{t("aiopc.loading")}</p> : null}
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+              {groups.map(([label, items]) => (
+                <section key={label} className="pb-3">
+                  <h3 className="pb-1.5 text-[11px] font-medium text-muted-foreground">{label}</h3>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {items.map((item) => {
+                      const planned = item.status === "planned";
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={planned}
+                          onClick={() => setPlatform(item)}
+                          className={cn("flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left text-sm transition-colors",
+                            platform?.id === item.id ? "border-foreground bg-muted" : "border-border hover:bg-muted/60",
+                            planned && "cursor-not-allowed hover:bg-transparent")}
+                        >
+                          <PlatformIcon id={item.id} name={item.name} color={item.color} muted={planned} />
+                          <span className="flex min-w-0 flex-col">
+                            <span className={cn("truncate font-medium", planned && "text-muted-foreground")}>{item.name}</span>
+                            <span className="truncate text-[11px] text-muted-foreground">
+                              {planned ? t("aiopc.accounts.planned") : item.forms.map((form) => t(`aiopc.form.${form}`)).join(" · ")}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+              {groups.length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">{t("aiopc.accounts.no_platform")}</p> : null}
+            </div>
             <Input value={alias} onChange={(event) => setAlias(event.currentTarget.value)} placeholder={t("aiopc.accounts.alias")} maxLength={80} />
           </div>
         ) : (
-          <div className="flex flex-col gap-2 rounded-lg bg-muted/40 px-4 py-3 text-sm">
+          <div className="flex items-center gap-3 rounded-xl bg-muted/40 px-4 py-3 text-sm">
+            {platform ? <PlatformIcon id={platform.id} name={platform.name} color={platform.color} /> : null}
             <p>{t("aiopc.accounts.login_steps", { platform: platform?.name ?? "" })}</p>
           </div>
         )}
@@ -333,65 +349,37 @@ function ConnectDialog(props: {
   );
 }
 
-function ShareDialog(props: {
-  account: AiopcAccount | null;
-  projects: AiopcProject[];
-  workspaceRoot: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function RenameDialog(props: { account: AiopcAccount | null; workspaceRoot: string; onClose: () => void; onSaved: () => void }) {
   const { request } = useAiopc(props.workspaceRoot);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [alias, setAlias] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setSelected(new Set(props.account?.shared_with ?? []));
+    setAlias(props.account?.name ?? "");
     setError("");
   }, [props.account]);
-  const everyone = selected.has("*");
-  const toggle = (id: string) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  };
   const save = async () => {
     if (!props.account) return;
-    setBusy(true);
     try {
-      await request("PATCH", `/api/accounts/${props.account.account_id}`, { body: { shared_with: everyone ? ["*"] : [...selected] } });
+      await request("PATCH", `/api/accounts/${props.account.account_id}`, { body: { alias: alias.trim() } });
       props.onSaved();
       props.onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
     }
   };
-  const others = props.projects.filter((project) => project.id !== props.account?.owner);
   return (
     <Dialog open={Boolean(props.account)} onOpenChange={(open) => { if (!open) props.onClose(); }}>
       <DialogContent className="w-full max-w-md sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("aiopc.accounts.share_title", { name: props.account?.name ?? "" })}</DialogTitle>
-          <DialogDescription>{t("aiopc.accounts.share_hint")}</DialogDescription>
+          <DialogTitle>{t("aiopc.accounts.rename")}</DialogTitle>
+          <DialogDescription>{t("aiopc.accounts.rename_hint")}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={everyone} onCheckedChange={() => toggle("*")} />
-            {t("aiopc.accounts.all_projects")}
-          </label>
-          {others.map((project) => (
-            <label key={project.id} className={cn("flex items-center gap-2 text-sm", everyone && "opacity-50")}>
-              <Checkbox checked={everyone || selected.has(project.id)} disabled={everyone} onCheckedChange={() => toggle(project.id)} />
-              {project.name}
-            </label>
-          ))}
-        </div>
+        <Input autoFocus value={alias} onChange={(event) => setAlias(event.currentTarget.value)} maxLength={80}
+          onKeyDown={(event) => { if (event.key === "Enter") void save(); }} />
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={props.onClose}>{t("common.cancel")}</Button>
-          <Button disabled={busy} onClick={() => void save()}>{t("aiopc.save")}</Button>
+          <Button onClick={() => void save()}>{t("aiopc.save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

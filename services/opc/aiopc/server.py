@@ -1,7 +1,7 @@
 """AIOPC's OPC service: the AI's tools (MCP over stdio) and the app's pages (HTTP API).
 
 Both call the same per-workspace services, so a page and the AI always see the
-same projects, accounts and files.
+same project files and accounts. A workspace folder is a project; accounts and the methods library are shared.
 
     # MCP for the agent runtime; the workspace is the current directory unless given
     python -m aiopc.server --stdio [--workspace <dir>]
@@ -30,10 +30,10 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
-from aiopc.accounts import PLATFORMS
 from aiopc.media.image import ImageService
 from aiopc.media.video import VideoConfig, VideoService
-from aiopc.projects import ProjectError, ProjectService
+from aiopc.platforms import catalog
+from aiopc.project import Project, ProjectError
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
 from aiopc.xdata import XDataService
@@ -42,8 +42,8 @@ READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 EXTERNAL = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 INSTRUCTIONS = (
-    "Work on explicit projects (the lab or workspace/projects/<id>) through files. Before writing for a project, "
-    "read get_project_brief. Publishing always fills the platform's composer in the built-in browser and the user "
+    "The current workspace folder is the project (one product). Before writing for it, read get_project_brief; "
+    "keep its memory in its files. Publishing always fills the platform's composer in the built-in browser and the user "
     "presses publish; never claim something is published until the user confirms. Generated images and videos are "
     "saved into the project's assets; show their paths."
 )
@@ -55,7 +55,7 @@ class Workspace:
 
     def __init__(self, home: Path, workspace: Path):
         self.home, self.root = home.resolve(), workspace.resolve()
-        self.projects = ProjectService(self.root)
+        self.project = Project(self.root)
         self.social = SocialService(self.home, self.root)
         self.space = SpaceCatalog(self.root)
         self.images = ImageService(self.home, self.root)
@@ -96,21 +96,18 @@ def _tool(server: FastMCP, name: str, method: Any, description: str, annotations
 def create_server(home: Path, workspace: Path, library: Path | None = None) -> FastMCP:
     """The MCP server the agent runtime starts for one workspace."""
     ws = Workspace(home, workspace)
-    projects, social = ws.projects, ws.social
+    project, social = ws.project, ws.social
     server = FastMCP("aiopc", instructions=INSTRUCTIONS, log_level="WARNING")
 
-    def list_projects() -> list[dict]:
-        """The lab and every project: id, name, description, folder."""
-        return projects.list()
+    def get_project_brief() -> dict:
+        """What this project (the current workspace) knows: context, brand, memory, knowledge files, and the
+        accounts it can use with each account's voice for this project. Read before writing anything."""
+        return project.brief(social.accounts())
 
-    def create_project(name: str, description: str = "") -> dict:
-        """Create a project with starter brief, brand, knowledge/ and assets/. Use only facts the user gave."""
-        return projects.create(name=name, description=description)
-
-    def get_project_brief(project_id: str = "lab") -> dict:
-        """What a scope knows: lab then project context and brand (project overrides lab), knowledge files,
-        and the accounts it may use. Read before writing anything for a project."""
-        return projects.brief(project_id, social.store.list(project_id))
+    def init_project(description: str = "") -> dict:
+        """Create the project's starter files in this workspace (CONTEXT.md, brand.md, MEMORY.md, knowledge/, assets/).
+        Existing files are kept. Use only facts the user gave."""
+        return project.init(description)
 
     async def create_video(prompt: str, first_frame: str = "", options: dict | None = None, request_id: str = "") -> dict:
         """Create a video from a prompt and optional first-frame image. Keep request_id stable to avoid duplicates."""
@@ -124,12 +121,12 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         """Wait a bounded time for a video job."""
         return await ws.video().wait(job_id, timeout_s=timeout_s, download=False)
 
-    async def download_video(job_id: str, project_id: str = "lab") -> dict:
-        """Download a finished video into the project's assets/generated and return its path."""
+    async def download_video(job_id: str) -> dict:
+        """Download a finished video into this project's assets/generated and return its path."""
         result = await ws.video().download(job_id)
         source = Path(result.get("path") or result.get("file") or "")
         if source.is_file():
-            target = projects.scope_dir(project_id) / "assets" / "generated" / source.name
+            target = project.assets / "generated" / source.name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             result["path"] = str(target)
@@ -139,11 +136,11 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         """List saved video jobs."""
         return ws.video().list_jobs(limit)
 
-    async def social_connect(platform: str, project_id: str = "lab", alias: str = "", check: bool = False) -> Any:
+    async def social_connect(platform: str, alias: str = "", check: bool = False) -> Any:
         """Connect an account: the first call opens the platform's login page in the browser panel beside this chat
-        and shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it
-        (owner project_id, default lab)."""
-        result = await social.connect(platform, project_id, alias, check)
+        and shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it.
+        Accounts are shared by every project."""
+        result = await social.connect(platform, alias, check)
         screenshot = result.pop("screenshot", "")
         if not screenshot:
             return result
@@ -151,16 +148,16 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
 
     xdata = ws.xdata
     for name, method, description, annotation in [
-        ("list_projects", list_projects, list_projects.__doc__, READ),
-        ("create_project", create_project, create_project.__doc__, WRITE),
         ("get_project_brief", get_project_brief, get_project_brief.__doc__, READ),
-        ("social_accounts", social.accounts, "Accounts this project may use on every platform: status (ready / needs_login), forms (post / article / video) and readable data.", READ),
+        ("init_project", init_project, init_project.__doc__, WRITE),
+        ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海: which can be connected now (status available) and their forms.", READ),
+        ("social_accounts", social.accounts, "Connected accounts on every platform (shared by all projects): status (ready / needs_login), forms (post / article / video) and readable data.", READ),
         ("social_connect", social_connect, social_connect.__doc__, WRITE),
         ("social_publish", social.publish, "Fill a platform's composer in the built-in browser for one account; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),
         ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
-        ("social_history", social.history, "Recent publishing activity of a project (filled composers, published links).", READ),
+        ("social_history", social.history, "Recent publishing activity of this project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
-        ("generate_image", ws.images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into the project's assets/generated; returns paths.", EXTERNAL),
+        ("generate_image", ws.images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into this project's assets/generated; returns paths.", EXTERNAL),
         ("create_video", create_video, create_video.__doc__, EXTERNAL),
         ("get_video", get_video, get_video.__doc__, READ),
         ("wait_video", wait_video, wait_video.__doc__, READ),
@@ -234,19 +231,15 @@ def create_api(home: Path, token: str) -> Starlette:
     async def health(_request: Request) -> Response:
         return respond({"ok": True, "service": "aiopc"})
 
-    async def projects_route(request: Request) -> Response:
+    async def project_route(request: Request) -> Response:
         ws = workspace_of(request)
         if request.method == "POST":
             data = await body(request)
-            return respond(ws.projects.create(name=data.get("name", ""), description=data.get("description", "")))
-        return respond({"projects": ws.projects.list()})
-
-    async def project_route(request: Request) -> Response:
-        data = await body(request)
-        return respond(workspace_of(request).projects.update(request.path_params["project_id"], data.get("name"), data.get("description")))
+            return respond(ws.project.init(str(data.get("description") or "")))
+        return respond(ws.project.describe())
 
     async def space_route(request: Request) -> Response:
-        return respond(workspace_of(request).space.files(request.query_params.get("project") or "lab"))
+        return respond(workspace_of(request).space.files())
 
     async def file_route(request: Request) -> Response:
         ws = workspace_of(request)
@@ -254,20 +247,14 @@ def create_api(home: Path, token: str) -> Starlette:
         return FileResponse(target, media_type=ws.space.mime(target), headers={"Cache-Control": "no-store", **cors})
 
     async def platforms_route(_request: Request) -> Response:
-        from aiopc.social.openwork import MULTIPOST_KEYS
-
-        return respond({"platforms": [{"id": key, "name": name, "forms": list(MULTIPOST_KEYS.get(key, {}))}
-                                      for key, name in PLATFORMS.items() if key in MULTIPOST_KEYS]})
+        return respond({"platforms": catalog()})
 
     async def accounts_route(request: Request) -> Response:
-        everywhere = request.query_params.get("all") == "1"
-        project = request.query_params.get("project") or "lab"
-        return respond({"accounts": workspace_of(request).social.accounts(project, all_scopes=everywhere)})
+        return respond({"accounts": workspace_of(request).social.accounts()})
 
     async def connect_route(request: Request) -> Response:
         data = await body(request)
-        result = await workspace_of(request).social.connect(
-            data.get("platform", ""), data.get("project") or "lab", data.get("alias", ""), bool(data.get("check")))
+        result = await workspace_of(request).social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")))
         result.pop("screenshot", None)
         return respond(result)
 
@@ -277,17 +264,13 @@ def create_api(home: Path, token: str) -> Starlette:
             ws.social.remove(account_id)
             return respond({"deleted": True})
         data = await body(request)
-        changes = {key: data[key] for key in ("alias", "shared_with") if key in data}
-        if "project" in data:
-            changes["project_id"] = None if data["project"] in ("", "lab", None) else data["project"]
-        return respond(ws.social.update(account_id, **changes))
+        return respond(ws.social.update(account_id, alias=data.get("alias")))
 
     async def history_route(request: Request) -> Response:
-        return respond({"items": workspace_of(request).social.history(request.query_params.get("project") or "lab")})
+        return respond({"items": workspace_of(request).social.history()})
 
     routes = [
-        ("/api/projects", projects_route, ["GET", "POST"]),
-        ("/api/projects/{project_id}", project_route, ["PATCH"]),
+        ("/api/project", project_route, ["GET", "POST"]),
         ("/api/space", space_route, ["GET"]),
         ("/api/file", file_route, ["GET"]),
         ("/api/platforms", platforms_route, ["GET"]),

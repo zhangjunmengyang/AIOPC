@@ -16,7 +16,7 @@ from typing import Any
 
 from aiopc.accounts import PLATFORMS, AccountError, AccountStore, normalize_platform
 from aiopc.paths import inside
-from aiopc.projects import ProjectService
+from aiopc.project import Project
 
 from .openwork import LOGIN_PAGES, MULTIPOST_KEYS, OpenWorkBrowser, OpenWorkError
 
@@ -53,8 +53,8 @@ class SocialService:
     def __init__(self, instance: Path, workspace: Path, *, browser: OpenWorkBrowser | None = None, xdata: Any = None):
         self.instance = Path(instance)
         self.workspace = Path(workspace)
-        self.projects = ProjectService(self.workspace)
-        self.store = AccountStore(self.workspace)
+        self.project = Project(self.workspace)
+        self.store = AccountStore(self.instance)
         self._browser = browser
         self._xdata = xdata
 
@@ -77,36 +77,33 @@ class SocialService:
             "account_id": account["id"], "platform": platform, "platform_name": PLATFORMS.get(platform, platform),
             "name": account.get("alias") or identity.get("name") or PLATFORMS.get(platform, platform),
             "handle": identity.get("handle", ""), "url": identity.get("url", ""),
-            "owner": account.get("project_id") or "lab", "shared_with": account.get("shared_with") or [],
             "status": "ready" if identity.get("id") else "needs_login", "publish": "compose",
             "forms": list(MULTIPOST_KEYS.get(platform, {})),
             "reads": (["posts", "comments"] if platform == "x" else list(PAGES.get(platform, {}))),
             "verified_at": account.get("verified_at"),
         }
 
-    def accounts(self, project_id: str = "lab", *, all_scopes: bool = False) -> list[dict[str, Any]]:
+    def accounts(self) -> list[dict[str, Any]]:
+        """Every connected account; accounts are shared by all projects."""
         try:
-            return [self.describe(account) for account in self.store.list(project_id or "lab", all_scopes=all_scopes)]
+            return [self.describe(account) for account in self.store.list()]
         except AccountError as exc:
             raise SocialError(str(exc)) from None
 
-    def _account(self, account_id: str, project_id: str | None = None) -> dict[str, Any]:
+    def _account(self, account_id: str) -> dict[str, Any]:
         try:
-            account = self.store.get(account_id)
-            if project_id and account["id"] not in {item["id"] for item in self.store.list(project_id)}:
-                raise SocialError("这个账号不属于当前项目，也没有共享给它")
+            return self.store.get(account_id)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
-        return account
 
-    async def connect(self, platform: str, project_id: str = "lab", alias: str = "", check: bool = False) -> dict[str, Any]:
+    async def connect(self, platform: str, alias: str = "", check: bool = False) -> dict[str, Any]:
         """Open the login page in the built-in browser, or (check=True) save whoever is logged in."""
         try:
             platform = normalize_platform(platform)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
         if platform not in MULTIPOST_KEYS:
-            raise SocialError(f"{PLATFORMS[platform]} 暂不支持在内置浏览器里连接")
+            raise SocialError(f"{PLATFORMS[platform]} 即将支持，现在还不能连接")
         try:
             if not check:
                 handle = await self.browser.open_login(platform)
@@ -121,7 +118,7 @@ class SocialService:
                     "message": "还没有检测到登录。请先在内置浏览器里完成登录再检查。"}
         found = found or {"id": f"browser-{platform}", "name": alias or f"{PLATFORMS[platform]}账号"}
         try:
-            account = self.store.upsert(platform, found, project_id=None if project_id in ("", "lab") else project_id, alias=alias)
+            account = self.store.upsert(platform, found, alias=alias)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
         return {"status": "connected", "account": self.describe(account)}
@@ -151,11 +148,11 @@ class SocialService:
         return paths
 
     def check_publish(self, account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                      form: str = "post", project_id: str | None = None) -> dict[str, Any]:
+                      form: str = "post") -> dict[str, Any]:
         """Everything that can be checked before anything opens."""
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
             raise SocialError("正文不能为空，且不超过 20000 字")
-        account = self._account(account_id, project_id)
+        account = self._account(account_id)
         info = self.describe(account)
         if info["status"] != "ready":
             raise SocialError(f"{info['name']} 还没有登录，请先连接这个账号")
@@ -176,15 +173,16 @@ class SocialService:
         return {"account": account, "info": info, "media": paths}
 
     def _log(self, account: dict[str, Any], entry: dict[str, Any]) -> None:
-        root = self.projects.scope_dir(account.get("project_id")) / "social"
+        # The publishing log belongs to the project (workspace) the work was done in.
+        root = self.project.social
         root.mkdir(parents=True, exist_ok=True)
         with (root / "log.jsonl").open("a", encoding="utf-8") as stream:
             stream.write(json.dumps({"at": time.time(), "account_id": account["id"], "platform": account["platform"], **entry},
                                     ensure_ascii=False) + "\n")
 
     async def publish(self, account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                      form: str = "post", tags: list[str] | None = None, project_id: str | None = None) -> dict[str, Any]:
-        checked = self.check_publish(account_id, text, title, media, form, project_id)
+                      form: str = "post", tags: list[str] | None = None) -> dict[str, Any]:
+        checked = self.check_publish(account_id, text, title, media, form)
         account, info = checked["account"], checked["info"]
         digest = hashlib.sha256(text.strip().encode()).hexdigest()[:12]
         try:
@@ -204,18 +202,18 @@ class SocialService:
         self._log(account, {"action": "published", "status": "published", "url": url, "note": note[:500]})
         return {"recorded": True, "account": self.describe(account)["name"], "url": url}
 
-    def history(self, project_id: str = "lab", limit: int = 50) -> list[dict[str, Any]]:
-        path = self.projects.scope_dir(project_id) / "social" / "log.jsonl"
+    def history(self, limit: int = 50) -> list[dict[str, Any]]:
+        path = self.project.social / "log.jsonl"
         if not path.is_file():
             return []
         lines = path.read_text(encoding="utf-8").splitlines()[-max(1, min(limit, 500)):]
         return [json.loads(line) for line in reversed(lines) if line.strip()]
 
     # ── read ─────────────────────────────────────────────────────────────
-    async def read(self, account_id: str, what: str = "posts", project_id: str | None = None, post_id: str = "") -> dict[str, Any]:
+    async def read(self, account_id: str, what: str = "posts", post_id: str = "") -> dict[str, Any]:
         if what not in READ_KINDS:
             raise SocialError(f"what 取 {'、'.join(READ_KINDS)}")
-        account = self._account(account_id, project_id)
+        account = self._account(account_id)
         info = self.describe(account)
         identity = account.get("identity") or {}
         if account["platform"] == "x":

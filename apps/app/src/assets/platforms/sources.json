@@ -1,0 +1,274 @@
+[
+  {
+    "platform": "x",
+    "file": "x.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/x.svg",
+    "brand_source": "https://x.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #000000 from upstream metadata."
+  },
+  {
+    "platform": "wechat",
+    "file": "wechat.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/wechat.svg",
+    "brand_source": "https://wechat.design/tool/brand",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #07C160 from upstream metadata."
+  },
+  {
+    "platform": "zhihu",
+    "file": "zhihu.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/zhihu.svg",
+    "brand_source": "https://www.zhihu.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #0084FF from upstream metadata."
+  },
+  {
+    "platform": "github",
+    "file": "github.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/github.svg",
+    "brand_source": "https://github.com/logos",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #181717 from upstream metadata."
+  },
+  {
+    "platform": "huggingface",
+    "file": "huggingface.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/huggingface.svg",
+    "brand_source": "https://huggingface.co/brand",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FFD21E from upstream metadata."
+  },
+  {
+    "platform": "discord",
+    "file": "discord.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/discord.svg",
+    "brand_source": "https://discord.com/branding",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #5865F2 from upstream metadata."
+  },
+  {
+    "platform": "telegram",
+    "file": "telegram.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/telegram.svg",
+    "brand_source": "https://telegram.org/tour/screenshots",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #26A5E4 from upstream metadata."
+  },
+  {
+    "platform": "xhs",
+    "file": "xhs.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/xiaohongshu.svg",
+    "brand_source": "https://pro.xiaohongshu.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF2442 from upstream metadata."
+  },
+  {
+    "platform": "instagram",
+    "file": "instagram.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/instagram.svg",
+    "brand_source": "https://about.meta.com/brand/resources/instagram",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF0069 from upstream metadata."
+  },
+  {
+    "platform": "youtube",
+    "file": "youtube.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/youtube.svg",
+    "brand_source": "https://www.youtube.com/howyoutubeworks/resources/brand-resources/#logos-icons-and-colors",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF0000 from upstream metadata."
+  },
+  {
+    "platform": "facebook",
+    "file": "facebook.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/facebook.svg",
+    "brand_source": "https://about.meta.com/brand/resources/facebook/logo",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #0866FF from upstream metadata."
+  },
+  {
+    "platform": "threads",
+    "file": "threads.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/threads.svg",
+    "brand_source": "https://www.meta.com/brand/resources/instagram/threads",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #000000 from upstream metadata."
+  },
+  {
+    "platform": "bluesky",
+    "file": "bluesky.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/bluesky.svg",
+    "brand_source": "https://bsky.social/about/blog/press-faq",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #1185FE from upstream metadata."
+  },
+  {
+    "platform": "mastodon",
+    "file": "mastodon.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/mastodon.svg",
+    "brand_source": "https://github.com/mastodon/mastodon/blob/7ccf7a73f1c47a8c03712c39f7c591e837cf6d08/app/javascript/images/logo-symbol-icon.svg",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #6364FF from upstream metadata."
+  },
+  {
+    "platform": "pinterest",
+    "file": "pinterest.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/pinterest.svg",
+    "brand_source": "https://business.pinterest.com/en/brand-guidelines",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #BD081C from upstream metadata."
+  },
+  {
+    "platform": "tiktok",
+    "file": "tiktok.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/tiktok.svg",
+    "brand_source": "https://tiktok.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #000000 from upstream metadata."
+  },
+  {
+    "platform": "reddit",
+    "file": "reddit.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/reddit.svg",
+    "brand_source": "https://www.redditinc.com/brand",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF4500 from upstream metadata."
+  },
+  {
+    "platform": "bilibili",
+    "file": "bilibili.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/bilibili.svg",
+    "brand_source": "https://www.bilibili.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #00A1D6 from upstream metadata."
+  },
+  {
+    "platform": "kuaishou",
+    "file": "kuaishou.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/kuaishou.svg",
+    "brand_source": "https://www.kuaishou.com/official/material-lib",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF4906 from upstream metadata."
+  },
+  {
+    "platform": "weibo",
+    "file": "weibo.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/sinaweibo.svg",
+    "brand_source": "https://en.wikipedia.org/wiki/Sina_Weibo",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #E6162D from upstream metadata."
+  },
+  {
+    "platform": "devto",
+    "file": "devto.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/devdotto.svg",
+    "brand_source": "https://dev.to",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #0A0A0A from upstream metadata."
+  },
+  {
+    "platform": "wordpress",
+    "file": "wordpress.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/wordpress.svg",
+    "brand_source": "https://wordpress.org/about/logos",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #21759B from upstream metadata."
+  },
+  {
+    "platform": "linkedin",
+    "file": "linkedin.svg",
+    "source": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/840c215f894f429b26b8c1402a65da835dc5a450/svgs/brands/linkedin-in.svg",
+    "brand_source": "https://brand.linkedin.com/",
+    "license": "CC-BY-4.0",
+    "modifications": "Added LinkedIn blue fill #0A66C2; SVG path and attribution comment preserved."
+  },
+  {
+    "platform": "juejin",
+    "file": "juejin.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/juejin.svg",
+    "brand_source": "https://juejin.cn",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #007FFF from upstream metadata."
+  },
+  {
+    "platform": "csdn",
+    "file": "csdn.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/csdn.svg",
+    "brand_source": "https://www.csdn.net/company/index.html",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FC5531 from upstream metadata."
+  },
+  {
+    "platform": "v2ex",
+    "file": "v2ex.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/v2ex.svg",
+    "brand_source": "https://www.v2ex.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #1F1F1F from upstream metadata."
+  },
+  {
+    "platform": "douban",
+    "file": "douban.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/douban.svg",
+    "brand_source": "https://www.douban.com/about",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #2D963D from upstream metadata."
+  },
+  {
+    "platform": "medium",
+    "file": "medium.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/medium.svg",
+    "brand_source": "https://medium.design/logos-and-brand-guidelines-f1a01a733592",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #000000 from upstream metadata."
+  },
+  {
+    "platform": "substack",
+    "file": "substack.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/substack.svg",
+    "brand_source": "https://on.substack.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #FF6719 from upstream metadata."
+  },
+  {
+    "platform": "baijiahao",
+    "file": "baijiahao.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/baidu.svg",
+    "brand_source": "https://www.baidu.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #2932E1 from upstream metadata."
+  },
+  {
+    "platform": "douyin",
+    "file": "douyin.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/tiktok.svg",
+    "brand_source": "https://tiktok.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #000000 from upstream metadata."
+  },
+  {
+    "platform": "producthunt",
+    "file": "producthunt.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/producthunt.svg",
+    "brand_source": "https://www.producthunt.com/branding",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #DA552F from upstream metadata."
+  },
+  {
+    "platform": "hackernews",
+    "file": "hackernews.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/ycombinator.svg",
+    "brand_source": "https://www.ycombinator.com/press",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #F0652F from upstream metadata."
+  },
+  {
+    "platform": "indiehackers",
+    "file": "indiehackers.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/1bb2f6e6ea50f920de8d2f3d273ae48564a5eaee/icons/indiehackers.svg",
+    "brand_source": "https://www.indiehackers.com",
+    "license": "CC0-1.0",
+    "modifications": "Added fill #0E2439 from upstream metadata."
+  }
+]

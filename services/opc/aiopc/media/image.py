@@ -2,7 +2,7 @@
 
 The profile (media-profiles.json → image) describes an OpenAI-compatible images
 endpoint; credentials are ``${VAR}`` references resolved from the instance .env,
-which the company MCP loads at start. Results land in the project's (or lab's)
+which the AIOPC service loads at start. Results land in the workspace's
 assets/generated inside the workspace, where the desktop app can preview them.
 """
 
@@ -63,7 +63,7 @@ class ImageService:
         return path
 
     async def generate(self, prompt: str, aspect_ratio: str = "1:1", reference_images: list[str] | None = None,
-                       count: int = 1, project_id: str = "lab") -> dict[str, Any]:
+                       count: int = 1) -> dict[str, Any]:
         """Generate (or, with reference images, edit) images; returns local file paths."""
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
             raise ImageError("prompt 不能为空，且不超过 8000 字")
@@ -98,12 +98,8 @@ class ImageService:
             raise ImageError(f"生图服务返回 HTTP {response.status_code}：{response.text[:300]}")
         items = (response.json() or {}).get("data") or []
         suffix = "." + str(defaults.get("output_format", "png")).replace("jpeg", "jpg")
-        from aiopc.projects import ProjectError, ProjectService
-
-        try:
-            folder = ProjectService(self.workspace).scope_dir(project_id or "lab") / "assets" / "generated" / time.strftime("%Y-%m-%d")
-        except ProjectError as exc:
-            raise ImageError(exc.message) from None
+        # The workspace is the project: its images go into its own assets.
+        folder = self.workspace / "assets" / "generated" / time.strftime("%Y-%m-%d")
         folder.mkdir(parents=True, exist_ok=True)
         paths = []
         for item in items:

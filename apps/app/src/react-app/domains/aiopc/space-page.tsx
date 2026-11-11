@@ -34,17 +34,14 @@ import { cn } from "@/lib/utils";
 import {
   aiopcFileUrl,
   formatBytes,
-  readSelectedProject,
   type AiopcConnection,
   type SpaceItem,
   type SpaceKind,
   type SpaceSection,
   useAiopc,
-  useAiopcProjects,
-  writeSelectedProject,
+  useAiopcProject,
 } from "./aiopc-client";
 import { AiopcUnavailable } from "./aiopc-status";
-import { ProjectSwitcher } from "./project-switcher";
 
 type Filter = { type: "all" } | { type: "kind"; kind: SpaceKind } | { type: "section"; section: SpaceSection };
 type Tab = "all" | "starred" | "generated";
@@ -86,13 +83,12 @@ function formatModified(seconds: number) {
 }
 
 /**
- * 资料空间: every document, image, video and note the lab or a project keeps,
- * read from the workspace folders the AI writes into.
+ * 资料空间: every document, image, video and note of the current project. The
+ * workspace is the project, so this is the workspace folder the AI writes into.
  */
 export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: string) => void }) {
   const { connection, ready, request } = useAiopc(props.workspaceRoot);
-  const projectsQuery = useAiopcProjects(props.workspaceRoot);
-  const [projectId, setProjectId] = useState(() => readSelectedProject(props.workspaceRoot));
+  const projectQuery = useAiopcProject(props.workspaceRoot);
   const [filter, setFilter] = useState<Filter>({ type: "all" });
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
@@ -100,17 +96,12 @@ export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: stri
   const [starred, setStarred] = useState(readStarred);
   const [opened, setOpened] = useState<SpaceItem | null>(null);
 
-  useEffect(() => setProjectId(readSelectedProject(props.workspaceRoot)), [props.workspaceRoot]);
-  const projects = projectsQuery.data ?? [];
-  const project = projects.find((item) => item.id === projectId) ?? projects[0];
-  useEffect(() => {
-    if (projects.length > 0 && !projects.some((item) => item.id === projectId)) setProjectId("lab");
-  }, [projects, projectId]);
+  useEffect(() => setOpened(null), [props.workspaceRoot]);
 
   const spaceQuery = useQuery({
-    queryKey: ["aiopc", props.workspaceRoot, "space", project?.id ?? "lab"],
-    enabled: ready && Boolean(project),
-    queryFn: () => request<{ items: SpaceItem[]; truncated: boolean }>("GET", "/api/space", { params: { project: project?.id } }),
+    queryKey: ["aiopc", props.workspaceRoot, "space"],
+    enabled: ready,
+    queryFn: () => request<{ items: SpaceItem[]; truncated: boolean }>("GET", "/api/space"),
     refetchInterval: 15_000,
   });
   const items = spaceQuery.data?.items ?? [];
@@ -129,10 +120,6 @@ export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: stri
 
   if (!connection || connection.status !== "ready") return <AiopcUnavailable connection={connection} title={t("aiopc.space.title")} />;
 
-  const chooseProject = (id: string) => {
-    setProjectId(id);
-    writeSelectedProject(props.workspaceRoot, id);
-  };
   const toggleStar = (item: SpaceItem) => {
     const next = new Set(starred);
     if (next.has(item.path)) next.delete(item.path);
@@ -144,7 +131,7 @@ export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: stri
     setView(next);
     window.localStorage.setItem(VIEW_KEY, next);
   };
-  const scopeName = project?.name ?? t("aiopc.lab");
+  const scopeName = projectQuery.data?.name ?? props.workspaceRoot.split(/[\\/]/).filter(Boolean).pop() ?? "";
   const createPrompts = [
     { label: t("aiopc.space.create_document"), icon: FileText, prompt: t("aiopc.space.create_document_prompt", { project: scopeName }) },
     { label: t("aiopc.space.create_image"), icon: ImageIcon, prompt: t("aiopc.space.create_image_prompt", { project: scopeName }) },
@@ -206,13 +193,12 @@ export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: stri
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 pb-12 pt-8">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold tracking-tight">{t("aiopc.space.title")}</h1>
-            <ProjectSwitcher workspaceRoot={props.workspaceRoot} projects={projects} value={project?.id ?? "lab"} onChange={chooseProject} />
+            <span className="truncate text-sm text-muted-foreground" title={props.workspaceRoot}>{scopeName}</span>
             <div className="relative ml-auto w-72 max-w-full">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("aiopc.space.search")} className="pl-8" />
             </div>
           </div>
-          {project?.description ? <p className="-mt-2 text-sm text-muted-foreground">{project.description}</p> : null}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <ToggleGroup value={[tab]} onValueChange={(values) => { if (values[0]) setTab(values[0] as Tab); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.space.tabs")}>
@@ -275,7 +261,7 @@ export function SpacePage(props: { workspaceRoot: string; onAskAi: (prompt: stri
         onClose={() => setOpened(null)}
         onAskAi={(item) => {
           setOpened(null);
-          props.onAskAi(t("aiopc.space.ask_ai_prompt", { path: item.path, project: scopeName }));
+          props.onAskAi(t("aiopc.space.ask_ai_prompt", { path: item.relative }));
         }}
       />
     </section>

@@ -19,6 +19,8 @@ from typing import Any
 
 import httpx
 
+from aiopc.platforms import LOGIN_PAGES, MULTIPOST_KEYS
+
 HERE = Path(__file__).resolve().parent
 BUNDLE = HERE / "multipost" / "dist" / "multipost.js"
 # AIOPC first; the upstream OpenWork app is a fallback while both are installed.
@@ -26,40 +28,10 @@ DISCOVERY_CANDIDATES = [Path.home() / "Library/Application Support" / name / "op
                         for name in ("com.aiopc.desktop", "com.differentai.openwork")]
 MAX_MEDIA_BYTES = 60 * 1024 * 1024
 
-# Our platform ids → MultiPost keys by form.
-MULTIPOST_KEYS: dict[str, dict[str, str]] = {
-    "xhs": {"post": "DYNAMIC_REDNOTE", "video": "VIDEO_REDNOTE"},
-    "zhihu": {"post": "DYNAMIC_ZHIHU", "article": "ARTICLE_ZHIHU", "video": "VIDEO_ZHIHU"},
-    "jike": {"post": "DYNAMIC_OKJIKE", "video": "VIDEO_OKJIKE"},
-    "x": {"post": "DYNAMIC_X", "article": "ARTICLE_XARTICLE"},
-    "weibo": {"post": "DYNAMIC_WEIBO", "article": "ARTICLE_WEIBO", "video": "VIDEO_WEIBO"},
-    "douyin": {"post": "DYNAMIC_DOUYIN", "video": "VIDEO_DOUYIN"},
-    "bilibili": {"post": "DYNAMIC_BILIBILI", "article": "ARTICLE_BILIBILI", "video": "VIDEO_BILIBILI"},
-    "kuaishou": {"video": "VIDEO_KUAISHOU"},
-    "wechat": {"article": "ARTICLE_WEIXIN"},
-    "channels": {"post": "DYNAMIC_WEIXINCHANNEL", "video": "VIDEO_WEIXINCHANNEL"},
-    "linkedin": {"post": "DYNAMIC_LINKEDIN"},
-    "threads": {"post": "DYNAMIC_THREADS"},
-    "bluesky": {"post": "DYNAMIC_BLUESKY", "video": "VIDEO_BLUESKY"},
-    "juejin": {"post": "DYNAMIC_JUEJIN", "article": "ARTICLE_JUEJIN"},
-    "toutiao": {"post": "DYNAMIC_TOUTIAO", "article": "ARTICLE_TOUTIAO"},
-    "youtube": {"video": "VIDEO_YOUTUBE"},
-    "tiktok": {"video": "VIDEO_TIKTOK"},
-}
-
-
 # Where each platform's "who is logged in" check runs (its own origin) and where to log in.
 ACCOUNT_PAGES = {
     "x": "https://x.com/home", "xhs": "https://www.xiaohongshu.com/explore", "douyin": "https://creator.douyin.com",
     "bilibili": "https://t.bilibili.com", "tiktok": "https://www.tiktok.com", "zhihu": "https://www.zhihu.com",
-}
-LOGIN_PAGES = {
-    "x": "https://x.com/i/flow/login", "xhs": "https://creator.xiaohongshu.com/login", "zhihu": "https://www.zhihu.com/signin",
-    "jike": "https://web.okjike.com/login", "weibo": "https://weibo.com/login.php", "douyin": "https://creator.douyin.com",
-    "bilibili": "https://passport.bilibili.com/login", "kuaishou": "https://cp.kuaishou.com", "wechat": "https://mp.weixin.qq.com/",
-    "channels": "https://channels.weixin.qq.com/login.html", "linkedin": "https://www.linkedin.com/login",
-    "threads": "https://www.threads.net/login", "bluesky": "https://bsky.app/", "juejin": "https://juejin.cn/login",
-    "toutiao": "https://mp.toutiao.com/", "youtube": "https://studio.youtube.com/", "tiktok": "https://www.tiktok.com/login",
 }
 
 

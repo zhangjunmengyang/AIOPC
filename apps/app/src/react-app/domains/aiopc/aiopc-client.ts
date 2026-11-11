@@ -14,13 +14,8 @@ export type AiopcConnection = {
   home: string;
 };
 
-export type AiopcProject = {
-  id: string;
-  kind: "lab" | "project";
-  name: string;
-  description: string;
-  path: string;
-};
+/** The current workspace: in AIOPC a workspace is a project. */
+export type AiopcProject = { name: string; path: string };
 
 export type SpaceKind = "image" | "video" | "audio" | "document";
 export type SpaceSection = "brief" | "knowledge" | "assets" | "content" | "voices" | "other";
@@ -34,7 +29,18 @@ export type SpaceItem = {
   modified: number;
 };
 
-export type AiopcPlatform = { id: string; name: string; forms: string[] };
+export type AiopcPlatform = {
+  id: string;
+  name: string;
+  region: "cn" | "global";
+  region_name: string;
+  category: string;
+  category_name: string;
+  forms: string[];
+  status: "available" | "planned";
+  login_url: string;
+  color: string;
+};
 export type AiopcAccount = {
   account_id: string;
   platform: string;
@@ -42,8 +48,6 @@ export type AiopcAccount = {
   name: string;
   handle: string;
   url: string;
-  owner: string;
-  shared_with: string[];
   status: "ready" | "needs_login";
   forms: string[];
   reads: string[];
@@ -131,34 +135,24 @@ export function useAiopc(workspaceRoot: string) {
   return { connection, connectionQuery, ready, request, invalidate };
 }
 
-export function useAiopcProjects(workspaceRoot: string) {
+export function useAiopcProject(workspaceRoot: string) {
   const { ready, request } = useAiopc(workspaceRoot);
   return useQuery({
-    queryKey: ["aiopc", workspaceRoot, "projects"],
+    queryKey: ["aiopc", workspaceRoot, "project"],
     enabled: ready,
-    queryFn: () => request<{ projects: AiopcProject[] }>("GET", "/api/projects").then((data) => data.projects),
+    queryFn: () => request<AiopcProject>("GET", "/api/project"),
   });
 }
 
-/** The project a page shows, remembered per workspace. */
-const PROJECT_KEY = "aiopc.selectedProject";
-
-export function readSelectedProject(workspaceRoot: string) {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(PROJECT_KEY) ?? "{}") as Record<string, string>;
-    return stored[workspaceRoot] || "lab";
-  } catch {
-    return "lab";
-  }
-}
-
-export function writeSelectedProject(workspaceRoot: string, projectId: string) {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(PROJECT_KEY) ?? "{}") as Record<string, string>;
-    window.localStorage.setItem(PROJECT_KEY, JSON.stringify({ ...stored, [workspaceRoot]: projectId }));
-  } catch {
-    // Storage is optional; the page falls back to the lab.
-  }
+/** Platforms do not change while the app runs. */
+export function useAiopcPlatforms(workspaceRoot: string) {
+  const { ready, request } = useAiopc(workspaceRoot);
+  return useQuery({
+    queryKey: ["aiopc", "platforms"],
+    enabled: ready,
+    staleTime: Infinity,
+    queryFn: () => request<{ platforms: AiopcPlatform[] }>("GET", "/api/platforms").then((data) => data.platforms),
+  });
 }
 
 export function formatBytes(size: number) {
