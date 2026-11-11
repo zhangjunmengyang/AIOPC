@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "zod": "^4.6.6",
-    "jose": "6.2.8",
+    "jose": "6.2.15",
     "fast-xml-parser": "5.12.0"
   }
 }
