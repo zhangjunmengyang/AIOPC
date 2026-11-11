@@ -1,1 +1,0 @@
-CREATE INDEX `telemetry_event_org_ts_window` ON `telemetry_event` (`org_id`,`event_timestamp`,`event_type`,`member_id`,`session_id`,`source`,`duration_ms`);

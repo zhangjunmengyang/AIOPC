@@ -1,1 +1,0 @@
-ALTER TABLE `deviceCode` ADD `sso_provider_id` varchar(255);

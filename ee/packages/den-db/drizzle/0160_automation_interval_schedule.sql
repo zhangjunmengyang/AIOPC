@@ -1,1 +1,0 @@
-ALTER TABLE `automation_revision` MODIFY COLUMN `schedule_kind` enum('once','daily','weekly','interval') NOT NULL;

@@ -1,1 +1,0 @@
-ALTER TABLE `agent_member_check` ADD `sources` json;

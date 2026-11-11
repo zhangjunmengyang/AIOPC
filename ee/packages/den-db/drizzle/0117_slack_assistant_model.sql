@@ -1,1 +1,0 @@
-ALTER TABLE `slack_assistant_installation` ADD `model` varchar(255);

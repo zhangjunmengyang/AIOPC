@@ -1,1 +1,0 @@
-ALTER TABLE `slack_assistant_installation` ADD `progress_updates` boolean DEFAULT false NOT NULL;

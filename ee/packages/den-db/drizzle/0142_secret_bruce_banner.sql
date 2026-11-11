@@ -1,1 +1,0 @@
-ALTER TABLE `organization` ADD `team_membership_revision` varchar(36) DEFAULT '' NOT NULL;

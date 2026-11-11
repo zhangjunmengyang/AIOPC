@@ -1,4 +1,5 @@
-export const DEFAULT_POSTHOG_KEY = "phc_4YnPTlDVYPjgwKvLuNxhbHjV5kadgvd7XLzVHWnCXAI";
+// AIOPC sends no product analytics unless a key is configured explicitly.
+export const DEFAULT_POSTHOG_KEY = "";
 
 /**
  * Resolve the PostHog project key. `raw` is VITE_OPENWORK_POSTHOG_KEY.

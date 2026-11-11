@@ -1,2 +1,0 @@
-ALTER TABLE `automation_revision` MODIFY COLUMN `schedule_kind` enum('once','daily','weekly','interval','calendar') NOT NULL;--> statement-breakpoint
-ALTER TABLE `automation_run` ADD `trigger_context` mediumtext;

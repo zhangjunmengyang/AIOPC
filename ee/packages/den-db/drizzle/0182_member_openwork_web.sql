@@ -1,1 +1,0 @@
-ALTER TABLE `member` ADD `openwork_web` boolean DEFAULT true NOT NULL;
