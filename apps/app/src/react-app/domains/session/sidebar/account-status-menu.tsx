@@ -296,12 +296,18 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
   const serverLabel = isDefaultControlPlaneUrl(denBaseUrl, HOSTED_DEFAULT_DEN_BASE_URL)
     ? "OpenWork Cloud"
     : formatControlPlaneHost(denBaseUrl);
-  const accountLabel = signedIn
+  // Without cloud sign-in the row is the local app itself, never a "Sign in" prompt.
+  const localOnly = !shellConfig.cloudSignin && !signedIn;
+  const accountLabel = localOnly
+    ? shellConfig.appName
+    : signedIn
     ? user.name?.trim() || user.email
     : restoringSession ? serverLabel : "Sign in";
   // The sidebar row shows the name only; the email stays inside the account
   // menu so it is not permanently on screen (matches Claude Code and Codex).
-  const accountDetail = signedIn
+  const accountDetail = localOnly
+    ? t("account.local_only")
+    : signedIn
     ? serverLabel
     : restoringSession ? "Restoring your session" : "Sync with OpenWork Cloud";
 
@@ -514,7 +520,7 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
             <LogOut className="size-3.5" />
             Log out
           </DropdownMenuItem>
-        ) : restoringSession ? null : (
+        ) : restoringSession || localOnly ? null : (
           <div
             className="flex flex-col gap-2 px-2 py-2"
             onPointerDown={(event) => event.stopPropagation()}

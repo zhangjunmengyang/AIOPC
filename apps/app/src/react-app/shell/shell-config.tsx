@@ -42,7 +42,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   sidebar: true,
   docsButton: true,
   feedbackButton: true,
-  cloudSignin: true,
+  cloudSignin: false,
   welcomePage: true,
   starterCards: true,
   modelPicker: true,
@@ -63,7 +63,8 @@ function readShellConfig(): ShellConfig {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    // AIOPC has no cloud account: a stored older config cannot turn sign-in back on.
+    return { ...DEFAULT_SHELL_CONFIG, ...parsed, appName: DEFAULT_SHELL_CONFIG.appName, cloudSignin: false };
   } catch {
     return DEFAULT_SHELL_CONFIG;
   }

@@ -76,6 +76,9 @@ def multipost_key(platform: str, form: str) -> str:
 
 
 class OpenWorkBrowser:
+    """AIOPC's built-in browser: pages open as tabs in the panel beside the conversation
+    on screen (or beside the app page, such as Accounts, when there is none)."""
+
     def __init__(self, discovery: Path | None = None):
         configured = os.environ.get("OPENWORK_UI_CONTROL_DISCOVERY") or discovery
         self.discovery = Path(configured) if configured else next(
@@ -86,7 +89,7 @@ class OpenWorkBrowser:
             data = json.loads(self.discovery.read_text(encoding="utf-8"))
             return data["baseUrl"], data["token"]
         except (OSError, ValueError, KeyError):
-            raise OpenWorkError("没有找到运行中的 OpenWork。请先打开 OpenWork 桌面版。") from None
+            raise OpenWorkError("没有找到运行中的 AIOPC。请先打开 AIOPC 桌面应用。") from None
 
     async def execute(self, action_id: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         base, token = self._bridge()
@@ -95,19 +98,19 @@ class OpenWorkBrowser:
                 response = await client.post(f"{base}/execute", json={"actionId": action_id, "args": args or {}},
                                              headers={"Authorization": f"Bearer {token}"})
         except httpx.HTTPError:
-            raise OpenWorkError("OpenWork 没有响应；确认它正在运行。") from None
+            raise OpenWorkError("AIOPC 没有响应；确认它正在运行。") from None
         if response.status_code == 401:
-            raise OpenWorkError("OpenWork 拒绝了控制请求；重启 OpenWork 后再试。")
+            raise OpenWorkError("AIOPC 拒绝了控制请求；重启 AIOPC 后再试。")
         data = response.json()
         result = data.get("result", data) if isinstance(data, dict) else {}
         if isinstance(result, dict) and result.get("ok") is False:
-            raise OpenWorkError(str(result.get("error") or "OpenWork 执行失败"))
+            raise OpenWorkError(str(result.get("error") or "AIOPC 执行失败"))
         return result if isinstance(result, dict) else {}
 
     async def open(self, url: str) -> dict[str, Any]:
         handle = await self.execute("browser.open_url", {"url": url, "provider": "builtin"})
         if not handle.get("target_id") or not handle.get("browser_url"):
-            raise OpenWorkError("OpenWork 没有返回浏览器标签。如果出现“是否允许访问该网站”，请在 OpenWork 里允许后重试。")
+            raise OpenWorkError("AIOPC 没有返回浏览器标签。如果出现“是否允许访问该网站”，请在 AIOPC 里允许后重试。")
         return handle
 
     async def release(self, handle: dict[str, Any]) -> None:
@@ -205,8 +208,27 @@ class OpenWorkBrowser:
         url = LOGIN_PAGES.get(platform)
         if url is None:
             raise OpenWorkError(f"{platform} 还没有登录入口")
-        # Left open on purpose: the person logs in inside OpenWork's browser panel.
-        return await self.open(url)
+        # Left open on purpose: the person logs in in the browser panel.
+        handle = await self.open(url)
+        handle["screenshot"] = await self.screenshot(handle)
+        return handle
+
+    async def screenshot(self, handle: dict[str, Any], settle_seconds: float = 2.5) -> str:
+        """A PNG (base64) of the tab once it settles, e.g. a login QR code to show in the chat; empty if unavailable."""
+        import websockets
+
+        try:
+            await self.wait_loaded(handle, seconds=15)
+            await asyncio.sleep(settle_seconds)
+            async with websockets.connect(await self._socket_url(handle), max_size=None) as socket:
+                await socket.send(json.dumps({"id": 1, "method": "Page.captureScreenshot", "params": {"format": "png"}}))
+                async with asyncio.timeout(15):
+                    while True:
+                        message = json.loads(await socket.recv())
+                        if message.get("id") == 1:
+                            return str(message.get("result", {}).get("data") or "")
+        except (OpenWorkError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
+            return ""
 
     async def page_text(self, url: str, wait_seconds: float = 4) -> dict[str, Any]:
         handle = await self.open(url)

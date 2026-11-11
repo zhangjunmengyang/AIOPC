@@ -214,9 +214,11 @@ export const initLocale = (): Language => {
     console.warn("Failed to read language preference:", e);
   }
 
+  // AIOPC is made for Chinese one-person companies: Chinese until the person picks another language.
+  localeValue = "zh";
   if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", "zh");
   }
 
-  return "en";
+  return "zh";
 };

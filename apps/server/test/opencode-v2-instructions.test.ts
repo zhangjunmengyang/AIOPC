@@ -8,7 +8,8 @@ import { buildOpenWorkV2Instructions, readConfiguredInstructions } from "../src/
 
 test("V2 instructions support both individual Connect tools and capability search", () => {
   const instructions = buildOpenWorkV2Instructions(true);
-  for (const text of [instructions.operatingInstructions, instructions.connect]) {
+  // AIOPC's base prompt has no Connect routing; only the Connect section carries it.
+  for (const text of [instructions.connect]) {
     assert.match(text, /search\(\) to discover available tools/);
     assert.match(text, /individual service tools, call them directly/);
     // Both lists at once (OpenWork's engine with connectEngineTools): search covers what has no tool.

@@ -48,6 +48,7 @@ import {
 } from "./runtime-opencode-config-store.js";
 import { CONNECT_MCP_SERVER_NAME_PREFIX } from "./connect-mcp-server-catalog.js";
 import { appendOrganizationPrompts, OPENWORK_AGENT_PROMPT } from "./openwork-agent-prompt.js";
+import { AIOPC_ASK_TOOLS, aiopcSkillDirectories, withAiopcInstructions } from "./aiopc-runtime.js";
 
 export async function buildOpenworkRuntimeConfigObject(
   config?: ServerConfig,
@@ -75,20 +76,27 @@ export function buildOpenworkRuntimeConfigObjectFromSnapshot(
   const { managedPolicy: _managedPolicy, managedPrompt, ...engineConfig } = runtimeConfig;
   const provider = materializeLegacyFastProviders(runtimeProviderMap(runtimeConfig));
   const allowsProvider = organizationProviderGate(runtimeConfig.managedPolicy);
+  const aiopcSkills = aiopcSkillDirectories();
   return {
     ...engineConfig,
+    // The runtime DB has no skills of its own; workspace configs still add theirs.
+    ...(aiopcSkills.length ? { skills: { paths: aiopcSkills } } : {}),
     ...(allowsProvider ? { enabled_providers: [
       ...Object.keys(provider).filter((id) => ORGANIZATION_PROVIDER_ID.test(id)),
       ...(allowsProvider("opencode") ? ["opencode"] : []),
     ] } : {}),
-    permission: { ...engineConfig.permission, ...permissions },
+    permission: {
+      ...Object.fromEntries(AIOPC_ASK_TOOLS.map((tool) => [tool, "ask"])),
+      ...engineConfig.permission,
+      ...permissions,
+    },
     default_agent: runtimeConfig.default_agent ?? "openwork",
     agent: {
       openwork: {
-        description: "OpenWork default agent",
+        description: "AIOPC default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: appendOrganizationPrompts(OPENWORK_AGENT_PROMPT, managedPrompt),
+        prompt: appendOrganizationPrompts(withAiopcInstructions(OPENWORK_AGENT_PROMPT), managedPrompt),
         permission: {
           ...permissions,
           skill: {

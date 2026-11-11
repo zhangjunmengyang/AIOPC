@@ -51,6 +51,14 @@ export function automationsRoute() {
   return "/automations";
 }
 
+export function spaceRoute() {
+  return "/space";
+}
+
+export function accountsRoute() {
+  return "/accounts";
+}
+
 export function dashboardRoute() {
   return "/dashboard";
 }

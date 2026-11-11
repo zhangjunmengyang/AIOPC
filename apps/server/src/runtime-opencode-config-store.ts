@@ -1,4 +1,5 @@
 import { desktopConfigSchema, type DesktopConfig } from "@openwork/types/den/desktop-policies-runtime";
+import { aiopcMcpServers } from "./aiopc-runtime.js";
 import { existsSync } from "node:fs";
 import { importNodeSqlite, runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
@@ -98,7 +99,9 @@ export function runtimeDisabledProviderList(config: RuntimeOpencodeConfig): stri
 }
 
 export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
+  const stored = isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
+  // AIOPC's own server is always present and always current, whatever is stored.
+  return { ...stored, ...aiopcMcpServers() };
 }
 
 export function runtimeProviderMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {

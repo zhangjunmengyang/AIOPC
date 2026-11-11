@@ -57,7 +57,6 @@ run(pnpmCmd, ["--filter", "@openwork/sandbox", "--filter", "@openwork/sandbox-fr
 run(nodeCmd, [resolve(__dirname, "prepare-runtime-node-modules.mjs"), "--outdir", packagedRuntimeRoot], desktopRoot);
 writeSentryBuildConfig();
 // Records an explicit build-time Auto opt-out, if any.
-run(nodeCmd, [resolve(__dirname, "prepare-desktop-free-release.mjs")], desktopRoot);
 // The packaged server imports @openwork/free-auto, which plain node loads from its dist build.
 run(pnpmCmd, ["--filter", "@openwork/free-auto", "build"], repoRoot);
 // Build the server TS → JS so Electron can import it in-process

@@ -246,6 +246,16 @@ declare global {
         /** Escape was pressed inside the page of a conversation shown full screen. */
         onPresentationExit?: (callback: (payload: { sessionId: string | null; tabId: string }) => void) => () => void;
       };
+      /** AIOPC's OPC service (projects, Space, accounts), started by the desktop app. */
+      aiopc?: {
+        connection?: () => Promise<{
+          status: "stopped" | "starting" | "ready" | "failed" | "unavailable";
+          url: string;
+          token: string;
+          error: string;
+          home: string;
+        }>;
+      };
       terminal?: {
         create?: (options: { cwd: string; cols: number; rows: number }) => Promise<{ terminalId: string }>;
         write?: (terminalId: string, data: string) => Promise<void>;

@@ -539,6 +539,8 @@ export function AppRoot() {
                 }
               />
               <Route path="/activity" element={<DevProfiler id="ActivityRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/space" element={<DevProfiler id="SpaceRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/accounts" element={<DevProfiler id="AccountsRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/apps" element={<DevProfiler id="AppsRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/dashboard/apps/:appId" element={<DevProfiler id="DashboardAppRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/apps/:appId" element={<DevProfiler id="AppPreviewRoute"><SessionRoute /></DevProfiler>} />

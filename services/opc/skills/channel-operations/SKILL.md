@@ -18,8 +18,8 @@ description: 使用已连接的 GitHub、Hugging Face、社区 Bot、社媒聚�
 所有平台用同一组工具，不需要知道背后走哪条路：
 
 - `social_accounts(project_id)`：这个项目能用的账号，每个账号的状态（ready / needs_login）、发布方式（compose = 填好发布页由用户点发布；direct = 用户确认后直接发布）、支持的形式（post / article / video）和能读的数据。
-- `social_connect(platform, project_id)`：连接新账号。第一次调用在 OpenWork 内置浏览器打开登录页，请用户在浏览器面板里登录；用户说登好了，再用 `check=true` 调用，自动识别并保存账号。当前每个平台同时登录一个账号。
-- `social_publish(account_id, text, title, media, form, tags)`：发布。调用前先把最终文案和配图给用户看；调用时 OpenWork 会弹出确认，用户允许后才执行。compose 账号会在内置浏览器打开发布页并填好，**最后由用户检查并点发布**；返回后提醒用户去浏览器面板确认，发布后请用户把链接给你，写进项目的 `social/` 记录。
+- `social_connect(platform, project_id)`：连接新账号。第一次调用会在对话右侧的内置浏览器打开登录页，并把登录页截图（通常带二维码）返回到对话里，请用户直接扫码或在右侧面板里登录；用户说登好了，再用 `check=true` 调用，自动识别并保存账号。用户也可以在「账号」页自己连接。当前每个平台同时登录一个账号。
+- `social_publish(account_id, text, title, media, form, tags)`：发布。调用前先把最终文案和配图给用户看；调用时 AIOPC 会弹出确认，用户允许后才执行。compose 账号会在内置浏览器打开发布页并填好，**最后由用户检查并点发布**；返回后提醒用户去浏览器面板确认，发布后请用户把链接给你，写进项目的 `social/` 记录。
 - `social_read(account_id, what)`：读回自己的帖子与数据（posts / stats / comments），X 还能用 post_id 读某条帖子的回复。复盘时用它，结论写进 `marketing-plan.md`。
 
 规则：

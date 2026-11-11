@@ -1,14 +1,18 @@
-"""AIOPC's OPC service: one process serving the AI (MCP at /mcp) and the app's pages (HTTP at /api).
+"""AIOPC's OPC service: the AI's tools (MCP over stdio) and the app's pages (HTTP API).
 
-Both entry points call the same services, so a page and the AI always see the
-same projects, accounts and files. Run with:
+Both call the same per-workspace services, so a page and the AI always see the
+same projects, accounts and files.
 
-    python -m aiopc.server --workspace <dir> [--home ~/.aiopc] [--library <methods repo>] [--port 18800]
+    # MCP for the agent runtime; the workspace is the current directory unless given
+    python -m aiopc.server --stdio [--workspace <dir>]
+    # HTTP API for the desktop app, serving every workspace the app opens
+    python -m aiopc.server --port 18800      (token from AIOPC_TOKEN)
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import inspect
 import json
 import os
@@ -19,10 +23,12 @@ from pathlib import Path
 from typing import Any, get_type_hints
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ToolAnnotations
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.routing import Route
 
 from aiopc.accounts import PLATFORMS
 from aiopc.media.image import ImageService
@@ -41,6 +47,29 @@ INSTRUCTIONS = (
     "presses publish; never claim something is published until the user confirms. Generated images and videos are "
     "saved into the project's assets; show their paths."
 )
+ERRORS = (SocialError, ProjectError, ValueError)
+
+
+class Workspace:
+    """Every service for one workspace folder, built once and shared by tools and pages."""
+
+    def __init__(self, home: Path, workspace: Path):
+        self.home, self.root = home.resolve(), workspace.resolve()
+        self.projects = ProjectService(self.root)
+        self.social = SocialService(self.home, self.root)
+        self.space = SpaceCatalog(self.root)
+        self.images = ImageService(self.home, self.root)
+        self.xdata = XDataService(self.home)
+        self._video: VideoService | None = None
+
+    def video(self) -> VideoService:
+        # Built on first use: a missing video API must not take the whole service down.
+        if self._video is None:
+            try:
+                self._video = VideoService(self.home, workspace=self.root, config=VideoConfig.from_env())
+            except ValueError as exc:
+                raise ValueError(f"视频服务未配置：{exc}。在 {self.home / '.env'} 填写视频接口后重启 AIOPC。") from None
+        return self._video
 
 
 def _tool(server: FastMCP, name: str, method: Any, description: str, annotations: ToolAnnotations) -> None:
@@ -51,7 +80,7 @@ def _tool(server: FastMCP, name: str, method: Any, description: str, annotations
         try:
             result = method(**kwargs)
             return await result if inspect.isawaitable(result) else result
-        except (SocialError, ProjectError, ValueError) as exc:
+        except ERRORS as exc:
             raise ValueError(getattr(exc, "message", None) or str(exc)) from None
 
     hints = get_type_hints(method)
@@ -64,42 +93,12 @@ def _tool(server: FastMCP, name: str, method: Any, description: str, annotations
     server.tool(name=name, description=description, annotations=annotations)(invoke)
 
 
-def create_server(home: Path, workspace: Path, library: Path | None = None, token: str = "") -> FastMCP:
-    home, workspace = home.resolve(), workspace.resolve()
-    projects = ProjectService(workspace)
-    social = SocialService(home, workspace)
-    space = SpaceCatalog(workspace)
-    images = ImageService(home, workspace)
-    videos: list[VideoService] = []
+def create_server(home: Path, workspace: Path, library: Path | None = None) -> FastMCP:
+    """The MCP server the agent runtime starts for one workspace."""
+    ws = Workspace(home, workspace)
+    projects, social = ws.projects, ws.social
+    server = FastMCP("aiopc", instructions=INSTRUCTIONS, log_level="WARNING")
 
-    def video() -> VideoService:
-        # Built on first use: a missing video API must not take the whole service down.
-        if not videos:
-            try:
-                videos.append(VideoService(home, workspace=workspace, config=VideoConfig.from_env()))
-            except ValueError as exc:
-                raise ValueError(f"视频服务未配置：{exc}。在 {home / '.env'} 填写视频接口后重启 AIOPC。") from None
-        return videos[0]
-
-    async def create_video(prompt: str, first_frame: str = "", options: dict | None = None, request_id: str = "") -> dict:
-        """Create a video from a prompt and optional first-frame image. Keep request_id stable to avoid duplicates."""
-        return await video().create(prompt, first_frame=first_frame or None, options=options, request_id=request_id or None)
-
-    async def get_video(job_id: str) -> dict:
-        """Query a video job's real status."""
-        return await video().status(job_id)
-
-    async def wait_video(job_id: str, timeout_s: float = 60) -> dict:
-        """Wait a bounded time for a video job."""
-        return await video().wait(job_id, timeout_s=timeout_s, download=False)
-
-    def list_videos(limit: int = 20) -> list[dict]:
-        """List saved video jobs."""
-        return video().list_jobs(limit)
-    xdata = XDataService(home)
-    server = FastMCP("aiopc", instructions=INSTRUCTIONS)
-
-    # ── projects ─────────────────────────────────────────────────────────
     def list_projects() -> list[dict]:
         """The lab and every project: id, name, description, folder."""
         return projects.list()
@@ -111,13 +110,23 @@ def create_server(home: Path, workspace: Path, library: Path | None = None, toke
     def get_project_brief(project_id: str = "lab") -> dict:
         """What a scope knows: lab then project context and brand (project overrides lab), knowledge files,
         and the accounts it may use. Read before writing anything for a project."""
-        accounts = [account for account in social.store.list(project_id)]
-        return projects.brief(project_id, accounts)
+        return projects.brief(project_id, social.store.list(project_id))
 
-    # ── media ────────────────────────────────────────────────────────────
+    async def create_video(prompt: str, first_frame: str = "", options: dict | None = None, request_id: str = "") -> dict:
+        """Create a video from a prompt and optional first-frame image. Keep request_id stable to avoid duplicates."""
+        return await ws.video().create(prompt, first_frame=first_frame or None, options=options, request_id=request_id or None)
+
+    async def get_video(job_id: str) -> dict:
+        """Query a video job's real status."""
+        return await ws.video().status(job_id)
+
+    async def wait_video(job_id: str, timeout_s: float = 60) -> dict:
+        """Wait a bounded time for a video job."""
+        return await ws.video().wait(job_id, timeout_s=timeout_s, download=False)
+
     async def download_video(job_id: str, project_id: str = "lab") -> dict:
         """Download a finished video into the project's assets/generated and return its path."""
-        result = await video().download(job_id)
+        result = await ws.video().download(job_id)
         source = Path(result.get("path") or result.get("file") or "")
         if source.is_file():
             target = projects.scope_dir(project_id) / "assets" / "generated" / source.name
@@ -126,17 +135,32 @@ def create_server(home: Path, workspace: Path, library: Path | None = None, toke
             result["path"] = str(target)
         return result
 
+    def list_videos(limit: int = 20) -> list[dict]:
+        """List saved video jobs."""
+        return ws.video().list_jobs(limit)
+
+    async def social_connect(platform: str, project_id: str = "lab", alias: str = "", check: bool = False) -> Any:
+        """Connect an account: the first call opens the platform's login page in the browser panel beside this chat
+        and shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it
+        (owner project_id, default lab)."""
+        result = await social.connect(platform, project_id, alias, check)
+        screenshot = result.pop("screenshot", "")
+        if not screenshot:
+            return result
+        return [json.dumps(result, ensure_ascii=False), Image(data=base64.b64decode(screenshot), format="png")]
+
+    xdata = ws.xdata
     for name, method, description, annotation in [
         ("list_projects", list_projects, list_projects.__doc__, READ),
         ("create_project", create_project, create_project.__doc__, WRITE),
         ("get_project_brief", get_project_brief, get_project_brief.__doc__, READ),
         ("social_accounts", social.accounts, "Accounts this project may use on every platform: status (ready / needs_login), forms (post / article / video) and readable data.", READ),
-        ("social_connect", social.connect, "Connect an account: first call opens the platform login page in the built-in browser; after the user logs in, call again with check=true to detect and save it (owner project_id, default lab).", WRITE),
+        ("social_connect", social_connect, social_connect.__doc__, WRITE),
         ("social_publish", social.publish, "Fill a platform's composer in the built-in browser for one account; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),
         ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
         ("social_history", social.history, "Recent publishing activity of a project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
-        ("generate_image", images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into the project's assets/generated; returns paths.", EXTERNAL),
+        ("generate_image", ws.images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into the project's assets/generated; returns paths.", EXTERNAL),
         ("create_video", create_video, create_video.__doc__, EXTERNAL),
         ("get_video", get_video, get_video.__doc__, READ),
         ("wait_video", wait_video, wait_video.__doc__, READ),
@@ -148,125 +172,167 @@ def create_server(home: Path, workspace: Path, library: Path | None = None, toke
         ("x_mentions", xdata.mentions, "Read posts mentioning an X account.", READ),
         ("x_replies", xdata.replies, "Read replies to an X post (ID or URL).", READ),
         ("x_posts", xdata.posts, "Refresh metrics for up to 50 X posts by ID.", READ),
+        ("x_data_usage", xdata.usage, "Estimated third-party X data requests and cost over recent days.", READ),
     ]:
         _tool(server, name, method, description, annotation)
 
-    if library is not None:
+    if library is not None and library.is_dir():
         from aiopc.library import Library
 
         methods = Library(library)
         _tool(server, "library_list", methods.list, "List workflow/reference files in the methods library.", READ)
         _tool(server, "library_read", methods.read, "Read lines from a methods-library document.", READ)
         _tool(server, "library_search", methods.search, "Find literal text in the methods library.", READ)
-
-    # ── HTTP for the app's own pages ─────────────────────────────────────
-    def authorized(request: Request) -> bool:
-        return not token or secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}")
-
-    def json_response(data: Any, status: int = 200) -> JSONResponse:
-        return JSONResponse(data, status_code=status, headers={"Cache-Control": "no-store"})
-
-    def route(path: str, methods: list[str]):
-        def decorator(handler):
-            async def wrapped(request: Request) -> Response:
-                if request.method == "OPTIONS":
-                    return Response(status_code=204)
-                if not authorized(request):
-                    return json_response({"error": "unauthorized"}, 401)
-                try:
-                    return await handler(request)
-                except (SocialError, ProjectError, ValueError) as exc:
-                    return json_response({"error": getattr(exc, "message", None) or str(exc)}, getattr(exc, "status", 400))
-            server.custom_route(path, methods=[*methods, "OPTIONS"])(wrapped)
-            return wrapped
-        return decorator
-
-    @server.custom_route("/api/health", methods=["GET"])
-    async def health(_request: Request) -> Response:
-        return json_response({"ok": True, "service": "aiopc", "workspace": str(workspace)})
-
-    @route("/api/projects", ["GET", "POST"])
-    async def projects_route(request: Request) -> Response:
-        if request.method == "POST":
-            body = await request.json()
-            return json_response(projects.create(name=body.get("name", ""), description=body.get("description", "")))
-        return json_response({"projects": projects.list()})
-
-    @route("/api/projects/{project_id}", ["PATCH"])
-    async def project_route(request: Request) -> Response:
-        body = await request.json()
-        return json_response(projects.update(request.path_params["project_id"], body.get("name"), body.get("description")))
-
-    @route("/api/space", ["GET"])
-    async def space_route(request: Request) -> Response:
-        return json_response(space.files(request.query_params.get("project") or "lab"))
-
-    @route("/api/file", ["GET"])
-    async def file_route(request: Request) -> Response:
-        target = space.resolve(request.query_params.get("path", ""))
-        return FileResponse(target, media_type=space.mime(target), headers={"Cache-Control": "no-store"})
-
-    @route("/api/platforms", ["GET"])
-    async def platforms_route(_request: Request) -> Response:
-        from aiopc.social.openwork import MULTIPOST_KEYS
-
-        return json_response({"platforms": [{"id": key, "name": name, "forms": list(MULTIPOST_KEYS.get(key, {}))}
-                                            for key, name in PLATFORMS.items() if key in MULTIPOST_KEYS]})
-
-    @route("/api/accounts", ["GET"])
-    async def accounts_route(request: Request) -> Response:
-        everywhere = request.query_params.get("all") == "1"
-        return json_response({"accounts": social.accounts(request.query_params.get("project") or "lab", all_scopes=everywhere)})
-
-    @route("/api/accounts/connect", ["POST"])
-    async def connect_route(request: Request) -> Response:
-        body = await request.json()
-        return json_response(await social.connect(body.get("platform", ""), body.get("project") or "lab",
-                                                  body.get("alias", ""), bool(body.get("check"))))
-
-    @route("/api/accounts/{account_id}", ["PATCH", "DELETE"])
-    async def account_route(request: Request) -> Response:
-        account_id = request.path_params["account_id"]
-        if request.method == "DELETE":
-            social.remove(account_id)
-            return json_response({"deleted": True})
-        body = await request.json()
-        changes = {key: body[key] for key in ("alias", "shared_with") if key in body}
-        if "project" in body:
-            changes["project_id"] = None if body["project"] in ("", "lab", None) else body["project"]
-        return json_response(social.update(account_id, **changes))
-
-    @route("/api/history", ["GET"])
-    async def history_route(request: Request) -> Response:
-        return json_response({"items": social.history(request.query_params.get("project") or "lab")})
-
     return server
 
 
+def create_api(home: Path, token: str) -> Starlette:
+    """The HTTP API behind the app's pages. Every request names its workspace folder."""
+    workspaces: dict[Path, Workspace] = {}
+    cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type",
+            "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS"}
+
+    def respond(data: Any, status: int = 200) -> JSONResponse:
+        return JSONResponse(data, status_code=status, headers={"Cache-Control": "no-store", **cors})
+
+    def workspace_of(request: Request) -> Workspace:
+        value = request.query_params.get("workspace", "")
+        path = Path(value).expanduser()
+        if not value or not path.is_absolute() or not path.is_dir():
+            raise ValueError("缺少有效的工作区路径")
+        path = path.resolve()
+        if path not in workspaces:
+            workspaces[path] = Workspace(home, path)
+        return workspaces[path]
+
+    def authorized(request: Request) -> bool:
+        # Images load through <img src>, which cannot send headers, so files also accept ?token=.
+        supplied = request.headers.get("authorization", "").removeprefix("Bearer ") or request.query_params.get("token", "")
+        return secrets.compare_digest(supplied, token)
+
+    def endpoint(handler):
+        async def wrapped(request: Request) -> Response:
+            if request.method == "OPTIONS":
+                return Response(status_code=204, headers=cors)
+            if not authorized(request):
+                return respond({"error": "unauthorized"}, 401)
+            try:
+                return await handler(request)
+            except ERRORS as exc:
+                return respond({"error": getattr(exc, "message", None) or str(exc)}, getattr(exc, "status", 400))
+        return wrapped
+
+    async def body(request: Request) -> dict[str, Any]:
+        try:
+            data = await request.json()
+        except ValueError:
+            raise ValueError("请求内容不是 JSON") from None
+        if not isinstance(data, dict):
+            raise ValueError("请求内容应为对象")  # noqa: TRY004 - surfaces as a 400 like every input error
+        return data
+
+    async def health(_request: Request) -> Response:
+        return respond({"ok": True, "service": "aiopc"})
+
+    async def projects_route(request: Request) -> Response:
+        ws = workspace_of(request)
+        if request.method == "POST":
+            data = await body(request)
+            return respond(ws.projects.create(name=data.get("name", ""), description=data.get("description", "")))
+        return respond({"projects": ws.projects.list()})
+
+    async def project_route(request: Request) -> Response:
+        data = await body(request)
+        return respond(workspace_of(request).projects.update(request.path_params["project_id"], data.get("name"), data.get("description")))
+
+    async def space_route(request: Request) -> Response:
+        return respond(workspace_of(request).space.files(request.query_params.get("project") or "lab"))
+
+    async def file_route(request: Request) -> Response:
+        ws = workspace_of(request)
+        target = ws.space.resolve(request.query_params.get("path", ""))
+        return FileResponse(target, media_type=ws.space.mime(target), headers={"Cache-Control": "no-store", **cors})
+
+    async def platforms_route(_request: Request) -> Response:
+        from aiopc.social.openwork import MULTIPOST_KEYS
+
+        return respond({"platforms": [{"id": key, "name": name, "forms": list(MULTIPOST_KEYS.get(key, {}))}
+                                      for key, name in PLATFORMS.items() if key in MULTIPOST_KEYS]})
+
+    async def accounts_route(request: Request) -> Response:
+        everywhere = request.query_params.get("all") == "1"
+        project = request.query_params.get("project") or "lab"
+        return respond({"accounts": workspace_of(request).social.accounts(project, all_scopes=everywhere)})
+
+    async def connect_route(request: Request) -> Response:
+        data = await body(request)
+        result = await workspace_of(request).social.connect(
+            data.get("platform", ""), data.get("project") or "lab", data.get("alias", ""), bool(data.get("check")))
+        result.pop("screenshot", None)
+        return respond(result)
+
+    async def account_route(request: Request) -> Response:
+        ws, account_id = workspace_of(request), request.path_params["account_id"]
+        if request.method == "DELETE":
+            ws.social.remove(account_id)
+            return respond({"deleted": True})
+        data = await body(request)
+        changes = {key: data[key] for key in ("alias", "shared_with") if key in data}
+        if "project" in data:
+            changes["project_id"] = None if data["project"] in ("", "lab", None) else data["project"]
+        return respond(ws.social.update(account_id, **changes))
+
+    async def history_route(request: Request) -> Response:
+        return respond({"items": workspace_of(request).social.history(request.query_params.get("project") or "lab")})
+
+    routes = [
+        ("/api/projects", projects_route, ["GET", "POST"]),
+        ("/api/projects/{project_id}", project_route, ["PATCH"]),
+        ("/api/space", space_route, ["GET"]),
+        ("/api/file", file_route, ["GET"]),
+        ("/api/platforms", platforms_route, ["GET"]),
+        ("/api/accounts", accounts_route, ["GET"]),
+        ("/api/accounts/connect", connect_route, ["POST"]),
+        ("/api/accounts/{account_id}", account_route, ["PATCH", "DELETE"]),
+        ("/api/history", history_route, ["GET"]),
+    ]
+    return Starlette(routes=[Route("/api/health", health, methods=["GET"]),
+                             *[Route(path, endpoint(handler), methods=[*methods, "OPTIONS"]) for path, handler, methods in routes]])
+
+
+def library_from(home: Path) -> Path | None:
+    """The methods library: AIOPC_LIBRARY, else "library" in ~/.aiopc/config.json."""
+    value = os.environ.get("AIOPC_LIBRARY", "").strip()
+    if not value:
+        try:
+            config = json.loads((home / "config.json").read_text(encoding="utf-8"))
+            value = str(config.get("library") or "").strip() if isinstance(config, dict) else ""
+        except (OSError, ValueError):
+            value = ""
+    return Path(value).expanduser() if value else None
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", type=Path, default=os.environ.get("AIOPC_WORKSPACE"))
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--workspace", type=Path, default=None, help="Workspace for --stdio (default: current directory)")
     parser.add_argument("--home", type=Path, default=Path(os.environ.get("AIOPC_HOME", "~/.aiopc")).expanduser())
-    parser.add_argument("--library", type=Path, default=os.environ.get("AIOPC_LIBRARY") or None)
+    parser.add_argument("--library", type=Path, default=None, help="Methods library folder (default: AIOPC_LIBRARY)")
     parser.add_argument("--port", type=int, default=int(os.environ.get("AIOPC_PORT", "18800")))
-    parser.add_argument("--stdio", action="store_true", help="Serve MCP over stdio instead of HTTP")
+    parser.add_argument("--stdio", action="store_true", help="Serve MCP over stdio for one workspace")
     args = parser.parse_args()
-    if args.workspace is None:
-        sys.exit("--workspace (or AIOPC_WORKSPACE) is required")
     args.home.mkdir(parents=True, exist_ok=True, mode=0o700)
     load_dotenv(args.home / ".env", override=True)
+    library = args.library or library_from(args.home)
     if args.stdio:
-        create_server(args.home, args.workspace, args.library).run(transport="stdio")
+        create_server(args.home, args.workspace or Path.cwd(), library).run(transport="stdio")
         return
-    token = secrets.token_urlsafe(24)
-    server = create_server(args.home, args.workspace, args.library, token)
-    server.settings.host, server.settings.port = "127.0.0.1", args.port
-    # The app reads this to reach the HTTP pages API; the MCP endpoint is for the agent runtime.
-    state = args.home / "service.json"
-    state.write_text(json.dumps({"url": f"http://127.0.0.1:{args.port}", "token": token, "pid": os.getpid(),
-                                 "workspace": str(args.workspace.resolve())}) + "\n")
-    state.chmod(0o600)
-    server.run(transport="streamable-http")
+    token = os.environ.get("AIOPC_TOKEN") or secrets.token_urlsafe(24)
+    if not os.environ.get("AIOPC_TOKEN"):
+        # Run by hand: tell whoever started it how to reach the API.
+        print(json.dumps({"url": f"http://127.0.0.1:{args.port}", "token": token}), file=sys.stderr, flush=True)
+    import uvicorn
+
+    uvicorn.run(create_api(args.home, token), host="127.0.0.1", port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

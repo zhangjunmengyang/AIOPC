@@ -2,7 +2,6 @@
 import {
   ArrowRight,
   ArrowUpRight,
-  Cloud,
   Cog,
   FolderLock,
   Keyboard,
@@ -40,7 +39,6 @@ const workspaceCards: SettingsCardDefinition[] = [
 
 const globalCards: SettingsCardDefinition[] = [
   { tab: "ai", icon: Sparkles, title: "AI Providers", desc: "Connect services that provide AI models." },
-  { tab: "cloud-account", icon: Cloud, title: "Cloud", desc: "OpenWork Cloud account and organization." },
   { tab: "appearance", icon: Paintbrush, title: "Appearance", desc: "Theme, font size, and display." },
   { tab: "shortcuts", icon: Keyboard, title: "Keyboard shortcuts", desc: "Keys that switch to your saved models." },
   { tab: "environment", icon: Terminal, title: "Environment", desc: "Environment variables and paths." },

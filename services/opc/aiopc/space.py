@@ -30,7 +30,8 @@ def section_of(relative: Path) -> str:
     first = relative.parts[0] if len(relative.parts) > 1 else ""
     if relative.name in {"CONTEXT.md", "brand.md", "marketing-plan.md", "MEMORY.md", "decisions.md"} and len(relative.parts) == 1:
         return "brief"
-    return {"knowledge": "knowledge", "assets": "assets", "content": "content", "accounts": "voices"}.get(first, "other")
+    return {"knowledge": "knowledge", "content-rules": "knowledge", "assets": "assets", "content": "content",
+            "accounts": "voices"}.get(first, "other")
 
 
 class SpaceCatalog:

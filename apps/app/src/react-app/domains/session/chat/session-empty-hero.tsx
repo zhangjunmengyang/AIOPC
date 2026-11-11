@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, X, Zap } from "lucide-react";
 
 import { DEFAULT_MODEL } from "@/app/constants";
+import { t } from "@/i18n";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DescriptiveButton, DescriptiveButtonTitle } from "@/components/descriptive-button";
 import type { ComposerAttachment } from "@/app/types";
@@ -35,28 +36,14 @@ type HeroSuggestion = {
   prompt: string;
 };
 
-const DEFAULT_SUGGESTIONS: HeroSuggestion[] = [
-  {
-    title: "Summarize my week",
-    description: "Pull highlights from email and calendar.",
-    prompt: "Summarize my week: pull the highlights from my connected email and calendar and give me a short digest of what happened and what needs my attention.",
-  },
-  {
-    title: "Clean up a spreadsheet",
-    description: "Drop in a CSV and describe the result you want.",
-    prompt: "Create a sample CSV file with 20 rows of fake customer data (name, email, company, revenue). Then show me a summary of the data.",
-  },
-  {
-    title: "Draft a document",
-    description: "Reports, emails, or briefs from a few bullet points.",
-    prompt: "Draft a one-page project brief. Ask me for the bullet points you need, then turn them into a clear, well-structured document.",
-  },
-  {
-    title: "Automate a web task",
-    description: "Use the built-in browser for repetitive steps.",
-    prompt: "Open craigslist.org in the browser and search for couches for sale. Show me the top 5 results with prices.",
-  },
-];
+/** AIOPC's starting points: the work of taking a product to market. */
+function defaultSuggestions(): HeroSuggestion[] {
+  return [1, 2, 3, 4].map((index) => ({
+    title: t(`aiopc.starter_${index}_title`),
+    description: t(`aiopc.starter_${index}_description`),
+    prompt: t(`aiopc.starter_${index}_prompt`),
+  }));
+}
 
 export type SessionEmptyHeroProps = {
   providerCount: number;
@@ -173,7 +160,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
       });
       return { title: card.title, description: card.description, prompt: card.selectionPrompt };
     })
-    : DEFAULT_SUGGESTIONS;
+    : defaultSuggestions();
 
   const submit = async (
     resolvedPrompt: string,
@@ -209,7 +196,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
     <div data-chat-empty-hero className="mx-auto flex w-full max-w-[640px] flex-col gap-6 px-4 max-lg:h-full max-lg:min-h-0 max-lg:gap-4 max-lg:overflow-y-auto max-lg:px-3 max-lg:pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-6">
       <div data-empty-greeting hidden={hideIntroduction} className="text-center max-lg:pt-6">
         <h2 className="text-lg font-medium tracking-tight text-foreground">
-          What do you need done?
+          {t("aiopc.hero_title")}
         </h2>
       </div>
 

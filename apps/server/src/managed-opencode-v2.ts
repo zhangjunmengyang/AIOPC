@@ -70,7 +70,7 @@ export interface ManagedOpencodeV2ServerOptions {
   contextTools?: { url: string; token: string; browser?: { url: string; token: string } };
   /** Session capability travels once over an inherited pipe, never environment or config. */
   providerSession?: { url: string; token: string };
-  permissions?: () => Promise<EnginePermissionRule[]>;
+  permissions?: () => Promise<EngineV2PermissionRule[]>;
   /** Extra absolute skill directories registered before boot, so no later config write reloads the catalog. */
   skills?: string[];
   /**
@@ -223,7 +223,7 @@ export function renderOpencodeV2Config(input: {
   providers: OpencodeV2ProviderSpec[];
   /** v1 `disabled_providers` equivalent; applied through the catalog filter plugin. */
   disabledProviderIds?: string[];
-  permissions?: EnginePermissionRule[];
+  permissions?: EngineV2PermissionRule[];
   skills: string[];
   gatewayQuotaPluginDirectory?: string;
   providerSyncPluginDirectory?: string;

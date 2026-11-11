@@ -225,10 +225,8 @@ export function getGlobalSettingsTabs(
   return tabs;
 }
 
-export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
-  "cloud-account",
-  "usage",
-];
+/** AIOPC has no cloud account, so no cloud settings. */
+export const CLOUD_SETTINGS_TABS: SettingsTab[] = [];
 
 export function isSettingsTabBeta(_tab: SettingsTab) {
   return false;

@@ -336,6 +336,9 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
       dismiss() { return ipcRenderer.invoke("openwork:context-menu:dismiss"); },
     },
   } : {}),
+  aiopc: {
+    connection() { return ipcRenderer.invoke("openwork:aiopc:connection"); },
+  },
   terminal: {
     create(options) { return ipcRenderer.invoke("openwork:terminal:create", options); },
     write(terminalId, data) { return ipcRenderer.invoke("openwork:terminal:write", terminalId, data); },

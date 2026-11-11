@@ -74,7 +74,7 @@ test("provider sync stores the organization's prompts and both engines append th
 
     const v2 = buildOpenWorkV2Instructions(true, runtime.managedPrompt);
     assert.ok(v2.operatingInstructions.endsWith("## Organization instructions\n\nEveryone prompt\n\nDesign prompt"));
-    assert.ok(v2.operatingInstructions.startsWith("You are OpenWork."));
+    assert.ok(v2.operatingInstructions.startsWith("You are AIOPC"));
 
     // The same prompts again are not a change.
     assert.equal((await sync.run("test")).status, "noop");

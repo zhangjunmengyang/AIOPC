@@ -2,7 +2,6 @@
 import {
   buildDenAuthUrl,
   getDenInferenceUrl,
-  isSelfHostedControlPlane,
   HOSTED_DEFAULT_DEN_BASE_URL,
   readDenBootstrapConfig,
   readDenSettings,
@@ -19,12 +18,8 @@ export const openWorkModelsPromoChangedEvent = "openwork-openwork-models-promo-c
 export const OPENWORK_MODELS_PROMO_REPEAT_MS = 6 * 60 * 60 * 1000;
 
 export function areOpenWorkModelsPromosDisabled() {
-  if (/^(1|true|yes|on)$/i.test(String(import.meta.env.VITE_DISABLE_OPENWORK_MODELS ?? "").trim())) {
-    return true;
-  }
-  // OpenWork Models are a hosted OpenWork Cloud offering; self-hosted
-  // deployments should never see the upsell surfaces.
-  return isSelfHostedControlPlane();
+  // AIOPC runs on the user's own providers and never offers OpenWork's hosted models.
+  return true;
 }
 
 export function isOpenWorkModelsPromoEligibleForDenBaseUrl(baseUrl: string) {

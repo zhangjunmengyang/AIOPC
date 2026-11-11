@@ -92,7 +92,7 @@ import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTa
 import { fileOriginForRuntime, nativeFileAction, planFileOpen, resolveCollectibleOpenTarget, unavailableFileMessage } from "../artifacts/resolve-open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
-import { getSidePanelSessionKey } from "../panel/side-panel-session";
+import { getSidePanelSessionKey, NO_SESSION_SIDE_PANEL_KEY } from "../panel/side-panel-session";
 import { useCreateTab, useOpenBrowserRailPane } from "../panel/use-side-panel-tabs";
 import { useBrowserPresentationController } from "../panel/use-browser-presentation";
 import { useBrowserAgentTurns } from "../panel/agent-viewport";
@@ -201,6 +201,10 @@ export type SessionPageSidebarProps = {
   onRetryWorkspace: (workspaceId: string) => Promise<unknown> | void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  spaceActive?: boolean;
+  onOpenSpace?: () => void;
+  accountsActive?: boolean;
+  onOpenAccounts?: () => void;
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
@@ -912,8 +916,9 @@ export function SessionPage(props: SessionPageProps) {
       }
       // The tab belongs to the conversation whose agent asked for it. When that
       // is a background conversation the page loads silently there; the
-      // conversation on screen is never interrupted.
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? null;
+      // conversation on screen is never interrupted. AIOPC's own pages (Accounts)
+      // have no conversation: their tabs belong to the page's panel, like a draft's.
+      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
       if (!placeOpenedBrowser(ownerSessionId)) openOwnerSidePanel(ownerSessionId);
       return window.__OPENWORK_ELECTRON__?.browser?.openUrl?.(url, provider, { sessionId: ownerSessionId });
     },
@@ -932,7 +937,7 @@ export function SessionPage(props: SessionPageProps) {
       if (!tabId) return { ok: false, error: "Missing tabId." };
       const restoreTab = window.__OPENWORK_ELECTRON__?.browser?.restoreTab;
       if (!restoreTab) return { ok: false, error: "Built-in browser is not available." };
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? null;
+      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
       return restoreTab(tabId, ownerSessionId);
     },
   }), [props.selectedSessionId]);
@@ -950,7 +955,7 @@ export function SessionPage(props: SessionPageProps) {
       if (!tabId) return { ok: false, error: "Missing tabId." };
       const releaseTab = window.__OPENWORK_ELECTRON__?.browser?.releaseTab;
       if (!releaseTab) return { ok: false, error: "Built-in browser is not available." };
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? null;
+      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
       return releaseTab(tabId, ownerSessionId);
     },
   }), [props.selectedSessionId]);
@@ -1526,6 +1531,10 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          spaceActive={props.sidebar.spaceActive}
+          onOpenSpace={props.sidebar.onOpenSpace}
+          accountsActive={props.sidebar.accountsActive}
+          onOpenAccounts={props.sidebar.onOpenAccounts}
           automationsActive={props.sidebar.automationsActive}
           automationsNeedAttention={props.sidebar.automationsNeedAttention}
           onOpenAutomations={props.sidebar.onOpenAutomations}

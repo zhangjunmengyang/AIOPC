@@ -11,6 +11,7 @@ import { hasPendingComposerAutoSend, subscribeComposerAutoSend } from "../surfac
 import { getQueuedDrainState, subscribeQueuedDrain } from "../surface/queued-drain-machine";
 import {
   AlertCircle,
+  AtSign,
   AlertTriangle,
   Archive,
   ArchiveRestore,
@@ -636,6 +637,10 @@ export type AppSidebarProps = {
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  spaceActive?: boolean;
+  onOpenSpace?: () => void;
+  accountsActive?: boolean;
+  onOpenAccounts?: () => void;
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
@@ -823,6 +828,22 @@ export function AppSidebar(props: AppSidebarProps) {
                 </kbd>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            {props.onOpenSpace ? (
+              <SidebarDestination
+                active={props.spaceActive === true}
+                icon={FolderOpen}
+                label={t("aiopc.nav.space")}
+                onSelect={props.onOpenSpace}
+              />
+            ) : null}
+            {props.onOpenAccounts ? (
+              <SidebarDestination
+                active={props.accountsActive === true}
+                icon={AtSign}
+                label={t("aiopc.nav.accounts")}
+                onSelect={props.onOpenAccounts}
+              />
+            ) : null}
             {props.onOpenDashboard ? (
               <SidebarDestination
                 active={props.dashboardActive === true}

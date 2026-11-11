@@ -58,7 +58,7 @@ description: Consultant-style project intake. Use when the user hands over mater
 
 ## 5. 诊断当前瓶颈，给出下三步
 
-用方法库判断现在卡在哪：有产品读 `workflows/from-existing-product.md`，只有想法读 `workflows/from-idea.md`（通过 `market_library` 工具按需读取，不要一次读完）。找到**最早有证据的问题**，给出下三步，每步写清：
+用方法库判断现在卡在哪：有产品读 `workflows/from-existing-product.md`，只有想法读 `workflows/from-idea.md`（通过 `library_read` 等方法库工具按需读取，不要一次读完）。找到**最早有证据的问题**，给出下三步，每步写清：
 
 - 做什么、为什么现在做（对应哪条证据或未知）；
 - 产物是什么、放在哪个文件；

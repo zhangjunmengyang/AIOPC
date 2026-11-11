@@ -104,7 +104,7 @@ export function aiProvidersDescription(input: { signedIn: boolean; organizationN
   const base = "Models your agents can use in this workspace. Keys you add here stay on this device.";
   return input.signedIn
     ? `${base} Providers from ${input.organizationName || "your organization"} are included automatically and run through the OpenWork Gateway.`
-    : `${base} Sign in to OpenWork to also get the providers your organization already pays for.`;
+    : base;
 }
 
 export function AiSettingsView(props: AiSettingsViewProps) {
@@ -120,7 +120,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
   const local = props.connectedProviders.filter((provider) => provider.id !== CLAUDE_AGENT_PROVIDER_ID && !managed(provider) && provider.id !== AUTO_PROVIDER_ID && !isKeylessZenProvider(provider));
   const organization = props.connectedProviders.filter(managed);
   const disabled = props.onEnableProvider ? props.disabledProviders ?? [] : [];
-  const showAuto = !props.autoSwitchedOff && Boolean(props.autoPreferences || props.connectedProviders.some((provider) => provider.id === AUTO_PROVIDER_ID));
+  // AIOPC never offers OpenWork's hosted free models.
+  const showAuto = false;
   const autoOff = props.autoPreferences?.enabled === false;
   const autoAvailable = props.autoPreferences?.available ?? ready;
   const locked = !props.canAddProviders;

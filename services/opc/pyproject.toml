@@ -9,6 +9,8 @@ dependencies = [
   "filelock>=3.12",
   "python-dotenv>=1.0",
   "websockets>=13",
+  "starlette>=0.40",
+  "uvicorn>=0.30",
 ]
 
 [dependency-groups]
@@ -23,6 +25,8 @@ packages = ["aiopc"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 [tool.ruff]
 line-length = 140

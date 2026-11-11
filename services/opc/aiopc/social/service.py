@@ -109,9 +109,10 @@ class SocialService:
             raise SocialError(f"{PLATFORMS[platform]} 暂不支持在内置浏览器里连接")
         try:
             if not check:
-                await self.browser.open_login(platform)
+                handle = await self.browser.open_login(platform)
                 return {"status": "login_opened", "platform": platform, "login_url": LOGIN_PAGES.get(platform),
-                        "message": "已在内置浏览器打开登录页。请在浏览器面板里登录，完成后再检查一次（check=true）。"}
+                        "message": "已在右侧内置浏览器打开登录页。请在那里登录（扫码或输入密码），完成后再检查一次（check=true）。",
+                        **({"screenshot": handle["screenshot"]} if handle.get("screenshot") else {})}
             found = await self.browser.account(platform)
         except OpenWorkError as exc:
             raise SocialError(str(exc)) from None

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
-import { freeAutoSwitchedOff, modelForNewTask, openComposerModelPickerEvent } from "@/app/lib/inference-access";
-import { useAutoAccess, useObservedAutoAccessSnapshot } from "@/react-app/domains/cloud/auto-access-ui";
+import { modelForNewTask, openComposerModelPickerEvent } from "@/app/lib/inference-access";
+import { useObservedAutoAccessSnapshot } from "@/react-app/domains/cloud/auto-access-ui";
 import { newSessionDraftSlot, newSessionDraftOwnerKey, openNewSessionDraft } from "@/react-app/domains/session/chat/new-session-destination";
 import { getSessionDraft, clearSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { acknowledgePendingSession, beginPendingConversation, bindPendingConversationWorkspace, createPendingConversation, ensurePendingConversationGroup, pendingConversationAutoSendPayload, pendingConversationForRoute, publishPendingSideChat, usePendingConversationStore, withPendingSessionPublication, type PendingConversation } from "@/react-app/domains/session/chat/pending-conversation-store";
@@ -71,9 +71,11 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
+import { DEFAULT_MODEL } from "@/app/constants";
 import {
   isDesktopRuntime,
   normalizeDirectoryPath,
+  parseModelRef,
   normalizeSessionStatus,
   resolveModelDisplayName,
   safeStringify,
@@ -188,7 +190,7 @@ import {
 import { assignedModelOptions, mergeModelOptions } from "@/react-app/domains/connections/provider-auth/assigned-model-options";
 import { runtimeModelOptions } from "@/react-app/domains/models/catalog";
 import { pickerFallbackModels } from "@/react-app/domains/connections/provider-auth/live-provider-sync";
-import { withImportedModelMetadata, isAutoModel, shouldSelectInitialAuto, starterModel, openWorkModelsLunaReplacement, EXPLICIT_MODEL_CHOICE_KEY } from "@/react-app/domains/models/model-catalog";
+import { withImportedModelMetadata, isAutoModel, starterModel, EXPLICIT_MODEL_CHOICE_KEY } from "@/react-app/domains/models/model-catalog";
 import {
   filterEntitledModelOptions,
   keylessProviderIds,
@@ -212,6 +214,8 @@ import {
   type CloudMcpSubmissionResult,
 } from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { AccountsPage } from "@/react-app/domains/aiopc/accounts-page";
+import { SpacePage } from "@/react-app/domains/aiopc/space-page";
 import { cloudSurfaceAvailable } from "@/react-app/domains/cloud/cloud-surface-availability";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import {
@@ -292,8 +296,10 @@ import {
   globalExtensionsRoute,
   legacySessionRoute,
   mergeWorkspaceRouteSession,
+  accountsRoute,
   automationsRoute,
   dashboardRoute,
+  spaceRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
   workspaceSettingsRoute,
@@ -443,6 +449,10 @@ export function SessionRoute() {
     && (dashboardAvailabilityLoading || dashboardSurfaceAvailable);
   const { config: shellConfig } = useShellConfig();
   const activityRouteActive = shellConfig.notifications && activityRouteRequested;
+  // AIOPC's own pages: the project Space and the social accounts.
+  const spaceRouteActive = location.pathname === "/space";
+  const accountsRouteActive = location.pathname === "/accounts";
+  const pageRouteActive = activityRouteActive || spaceRouteActive || accountsRouteActive;
   const local = useLocal();
   const automationDeploymentEnabled = useAutomationDeploymentEnabled();
   // Desktop and Web share one Automations surface; the runtime only decides
@@ -579,7 +589,7 @@ export function SessionRoute() {
   } = useWorkspaceRouteState({
     preservePendingConversationRoute: Boolean(requestedPendingId && pendingConversations[requestedPendingId]?.scope === sessionDraftScope),
     developerMode,
-    workspaceRoute: activityRouteActive ? "activity" : appsRouteActive ? "apps" : automationsRouteActive ? "automations" : dashboardWorkspaceRoute ? "dashboard" : "session",
+    workspaceRoute: activityRouteActive ? "activity" : spaceRouteActive ? "space" : accountsRouteActive ? "accounts" : appsRouteActive ? "apps" : automationsRouteActive ? "automations" : dashboardWorkspaceRoute ? "dashboard" : "session",
     onServerSettingsChanged: () => undefined,
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -1223,25 +1233,23 @@ export function SessionRoute() {
     providerListQuery.data,
     restrictToCloudProviders,
   ]);
-  // Members whose organization has Luna in OpenWork Models move off free Auto onto their own usage.
-  const newTaskLunaReplacement = openWorkModelsLunaReplacement(configuredNewTaskModel, entitledModelOptions);
+  // AIOPC's default is the model the person configured for the runtime (opencode.json "model"),
+  // until they pick another one in the app.
   useEffect(() => {
-    if (newTaskLunaReplacement) changeNewTaskModel(newTaskLunaReplacement, null);
-  }, [newTaskLunaReplacement?.providerID, newTaskLunaReplacement?.modelID, changeNewTaskModel]);
-  const { query: initialAutoAccess } = useAutoAccess(entitledModelOptions.some(isAutoModel) || Boolean(configuredNewTaskModel && isAutoModel(configuredNewTaskModel)), autoAccessWorkspace);
-  useEffect(() => {
-    if ((initialAutoAccess.isPending && initialAutoAccess.fetchStatus !== "idle") || freeAutoSwitchedOff(initialAutoAccess.data)) return;
-    if (!isDesktopRuntime() || loading || selectedSessionId || workspaceDefault || workspaceSessionGroups.some((group) => group.status !== "ready")) return;
-    const available = providerListModelEntitlementOptions(cloudProviderList ?? providerListQuery.data);
-    try {
-      if (!shouldSelectInitialAuto({ available, current: local.prefs.defaultModel ?? null,
-        empty: !Object.values(sessionsByWorkspaceId).some((sessions) => sessions.length > 0),
-        explicit: localStorage.getItem(EXPLICIT_MODEL_CHOICE_KEY) !== null,
-      })) return;
-      const starter = starterModel(available);
-      if (starter) local.setPrefs((previous) => ({ ...previous, defaultModel: starter, modelVariant: null }));
-    } catch {}
-  }, [initialAutoAccess.isPending, initialAutoAccess.fetchStatus, initialAutoAccess.data, cloudProviderList, providerListQuery.data, loading, selectedSessionId, sessionsByWorkspaceId, workspaceSessionGroups, local, workspaceDefault]);
+    if (!opencodeClient || workspaceDefault) return;
+    const current = local.prefs.defaultModel;
+    // OpenWork's hosted models are gone in AIOPC, so a saved choice of one is replaced too.
+    const hosted = Boolean(current && (current.providerID === "openwork" || current.providerID.startsWith("openwork-")));
+    const placeholder = !current || isAutoModel(current) || hosted
+      || (current.providerID === DEFAULT_MODEL.providerID && current.modelID === DEFAULT_MODEL.modelID);
+    if (!placeholder || (!hosted && localStorage.getItem(EXPLICIT_MODEL_CHOICE_KEY) !== null)) return;
+    let cancelled = false;
+    void opencodeClient.config.get().then((response) => {
+      const configured = parseModelRef(String(unwrap(response)?.model ?? ""));
+      if (!cancelled && configured) local.setPrefs((previous) => ({ ...previous, defaultModel: configured, modelVariant: null }));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [opencodeClient, workspaceDefault, local]);
   // OpenCode Zen is retired (using the existing Zen
   // policy): disable the provider in the engine on the screen everyone uses,
   // not only while Settings is open, and move a Zen default to a model the
@@ -1310,8 +1318,7 @@ export function SessionRoute() {
   const entitledOrgDefaultModel = useMemo(() => {
     const runtimeProviderList = cloudProviderList ?? providerListQuery.data;
     return resolveOrgDefaultModelReplacement({
-      runtimeOptions: providerListModelEntitlementOptions(runtimeProviderList).filter((option) => !isAutoModel(option)
-        || (!freeAutoSwitchedOff(initialAutoAccess.data) && !(initialAutoAccess.isPending && initialAutoAccess.fetchStatus !== "idle"))),
+      runtimeOptions: providerListModelEntitlementOptions(runtimeProviderList).filter((option) => !isAutoModel(option)),
       // Same pending rule as computeModelAvailability: a connected workspace
       // engine whose catalog has not answered (e.g. still reloading after a
       // provider was configured) must not be read as "provider missing".
@@ -1324,9 +1331,6 @@ export function SessionRoute() {
   }, [
     checkDesktopRestriction,
     cloudProviderList,
-    initialAutoAccess.data,
-    initialAutoAccess.isPending,
-    initialAutoAccess.fetchStatus,
     local.prefs.defaultModel,
     opencodeClient,
     organizationAssignedModelOptions,
@@ -1455,7 +1459,7 @@ export function SessionRoute() {
 
   useEffect(() => {
     if (hasPendingGatewayModelSelection()) return;
-    if (!selectedModelUnavailableKey || activityRouteActive) {
+    if (!selectedModelUnavailableKey || pageRouteActive) {
       // The active composer's model is fine (or pending): a later loss of it
       // is handled again.
       autoOpenedUnavailableModelRef.current = null;
@@ -1507,7 +1511,7 @@ export function SessionRoute() {
     if (targetSessionId) useSessionModelStore.getState().setModel(targetSessionId, replacement, null);
     else changeNewTaskModel(replacement, null);
     if (previous) useModelRecoveryStore.getState().record(recoveryChatKey, { previous, replacement });
-  }, [activityRouteActive, activeComposerModel, activeComposerTargetsSession, changeNewTaskModel, cloudProviderList, cloudProviderSyncReady, denAuth.isSignedIn, entitledModelOptions, entitledOrgDefaultModel, providerListQuery.data, organizationModelsEmpty, resolveModelAvailability, selectedModelUnavailableKey, selectedSessionId, workspaceDefault, organizationRemovalConfirmed, recoveryChatKey, modelPicker.actionOptions, rememberedModelTitles, modelRemovalConfirmation.assignedModels]);
+  }, [pageRouteActive, activeComposerModel, activeComposerTargetsSession, changeNewTaskModel, cloudProviderList, cloudProviderSyncReady, denAuth.isSignedIn, entitledModelOptions, entitledOrgDefaultModel, providerListQuery.data, organizationModelsEmpty, resolveModelAvailability, selectedModelUnavailableKey, selectedSessionId, workspaceDefault, organizationRemovalConfirmed, recoveryChatKey, modelPicker.actionOptions, rememberedModelTitles, modelRemovalConfirmation.assignedModels]);
 
   // Optimistic model selection: a remembered model is treated as valid until
   // the availability gate CONFIRMS it absent (selectedModelUnavailable).
@@ -1676,7 +1680,7 @@ export function SessionRoute() {
 
   // A task on another computer opens in the main pane under
   // `remote:<threadKey>` and returns to its chat like a helper.
-  const remoteTaskRouteActive = Boolean(remoteThreadKey) && !activityRouteActive && !pendingConversation;
+  const remoteTaskRouteActive = Boolean(remoteThreadKey) && !pageRouteActive && !pendingConversation;
   const remoteHelperNavigation = useMemo(() => ({
     // The same scope the chat pane remembers its return in (session-page.tsx).
     scope: JSON.stringify([opencodeBaseUrl?.trim() ?? "", selectedWorkspaceEndpoint?.workspaceId || null, sessionDraftScope]),
@@ -3936,7 +3940,7 @@ export function SessionRoute() {
           ? t("status.connected")
           : (modelUnavailableMessage ?? t("session.loading_detail"))
       }
-      busyHint={activityRouteActive || cloudWorkspaceMainContentTakeover ? null : organizationModelsEmpty ? t("models.organization_models_empty") : effectiveLoading ? t("session.loading_detail") : null}
+      busyHint={pageRouteActive || cloudWorkspaceMainContentTakeover ? null : organizationModelsEmpty ? t("models.organization_models_empty") : effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
       hasUsableModel={hasUsableModel}
@@ -4004,10 +4008,10 @@ export function SessionRoute() {
         />
       }
       // Page titles match their sidebar labels.
-      primaryTitle={activityRouteActive ? t("activity.title") : appsRouteActive ? artifactsLabel : automationsRouteActive ? "Automations" : dashboardRouteActive ? artifactsLabel : undefined}
+      primaryTitle={activityRouteActive ? t("activity.title") : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title") : appsRouteActive ? artifactsLabel : automationsRouteActive ? "Automations" : dashboardRouteActive ? artifactsLabel : undefined}
       // Dashboard, Automations and Library share one flat page surface.
-      primarySurface={activityRouteActive || dashboardRouteActive || automationsRouteActive || extensionsMainOpen ? "flat" : undefined}
-      primarySlotIsConversation={!activityRouteActive && Boolean(pendingConversation || remoteTaskRouteActive)}
+      primarySurface={pageRouteActive || dashboardRouteActive || automationsRouteActive || extensionsMainOpen ? "flat" : undefined}
+      primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation || remoteTaskRouteActive)}
       primaryHeader={remoteTaskRouteActive && remoteThreadKey ? <RemoteSessionHeader key={remoteThreadKey} threadKey={remoteThreadKey} navigation={remoteHelperNavigation} /> : undefined}
       onOpenRemoteTask={openRemoteTask}
       retainedArtifactSlot={retainedArtifactsScope ? {
@@ -4029,7 +4033,11 @@ export function SessionRoute() {
           />
         </WorkspaceProvider>,
       } : undefined}
-      primarySlot={activityRouteActive ? <ActivityPage onTrySkill={trySkillInNewSession} /> : remoteTaskRouteActive && remoteThreadKey ? (
+      primarySlot={activityRouteActive ? <ActivityPage onTrySkill={trySkillInNewSession} /> : spaceRouteActive ? (
+        <SpacePage workspaceRoot={selectedWorkspaceRoot} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
+      ) : accountsRouteActive ? (
+        <AccountsPage workspaceRoot={selectedWorkspaceRoot} />
+      ) : remoteTaskRouteActive && remoteThreadKey ? (
         <RemoteSessionSurface key={remoteThreadKey} threadKey={remoteThreadKey} navigation={remoteHelperNavigation} />
       ) : pendingConversation ? <PendingConversationView conversation={pendingConversation} composer={newTaskComposerContext} /> : appsRouteActive ? (
         <WorkspaceProvider
@@ -4091,6 +4099,10 @@ export function SessionRoute() {
               navigate(automationsRoute());
             }
           : undefined,
+        spaceActive: spaceRouteActive,
+        onOpenSpace: () => navigate(spaceRoute()),
+        accountsActive: accountsRouteActive,
+        onOpenAccounts: () => navigate(accountsRoute()),
         dashboardActive: dashboardRouteActive || appsRouteActive,
         dashboardLabel: artifactsLabel,
         onOpenDashboard: dashboardSurfaceAvailable
@@ -4235,9 +4247,9 @@ export function SessionRoute() {
         reloadError: reloadCoordinator.reloadError,
         openWorkConnectState: sessionMcpMaintenance,
       }}
-      notFoundMessage={activityRouteActive ? null : gatedRouteNotFoundMessage}
+      notFoundMessage={pageRouteActive ? null : gatedRouteNotFoundMessage}
       mainContentTakeover={
-        activityRouteActive ? null : extensionsMainOpen ? (
+        pageRouteActive ? null : extensionsMainOpen ? (
           <SettingsSurface
             standaloneExtensions
             libraryHeaderActionsTarget={libraryHeaderActionsTarget}

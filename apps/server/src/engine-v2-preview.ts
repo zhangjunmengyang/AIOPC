@@ -58,6 +58,7 @@ export function engineInstanceId(env: NodeJS.ProcessEnv = process.env): string |
 }
 import { findManagedEngineWorkspace, hasExternalOpencode } from "./workspaces.js";
 import { globalSkillDirectories } from "./skills.js";
+import { AIOPC_ASK_TOOLS, aiopcSkillDirectories } from "./aiopc-runtime.js";
 import {
   environmentProviderKey,
   localProviderDefinitions,
@@ -1172,12 +1173,14 @@ export function createEngineV2Preview(options: {
       env: { OPENCODE_MODELS_URL: opencodeModelsUrl },
       permissions: async () => {
         const runtime = await readGlobalRuntimeOpencodeConfig(config);
-        return executionRules(runtime.managedPolicy?.execution);
+        // AIOPC's outward actions ask first; managed denials still come last and win.
+        const asks = AIOPC_ASK_TOOLS.map((action) => ({ action, resource: "*", effect: "ask" as const }));
+        return [...asks, ...executionRules(runtime.managedPolicy?.execution)];
       },
       // The engine reads ~/.claude/skills and ~/.agents/skills itself, but its
       // config folder is OpenWork's own, so it never sees these two global
       // folders the skill picker lists, and a picked skill there can't be sent.
-      skills: [globalSkills.openwork, globalSkills.agentLegacy],
+      skills: [globalSkills.openwork, globalSkills.agentLegacy, ...aiopcSkillDirectories()],
       agentPermissions: async () => {
         const rules = agentPermissionRulesOf((await readGlobalRuntimeOpencodeConfig(config)).managedPolicy);
         if (rules.length === 0) return { rules, organizationMcp: {} };

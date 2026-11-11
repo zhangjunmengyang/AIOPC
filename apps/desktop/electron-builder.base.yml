@@ -25,6 +25,16 @@ extraResources:
       - "**/*.md"
       - "**/*.mdx"
       - "docs.json"
+  # AIOPC's OPC service; its Python environment is created in ~/.aiopc/venv on first launch.
+  - from: ../../services/opc
+    to: aiopc-service
+    filter:
+      - pyproject.toml
+      - uv.lock
+      - instructions.md
+      - "aiopc/**/*"
+      - "skills/**/*"
+      - "!**/__pycache__/**"
 asar: true
 asarUnpack:
   # Keep Windows native code outside ASAR so it can be signed and audited.

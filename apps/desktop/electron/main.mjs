@@ -92,7 +92,6 @@ import { createWindowsShortcutScheduler, readWindowsShortcutMarker } from "./win
 import { resetMacDockIcon } from "./brand-icon-darwin.mjs";
 import { createDesktopVaultKeyProvider } from "./secure-vault-key.mjs";
 import { desktopFreeBootstrapEligible } from "./desktop-free-eligibility.mjs";
-import { applyDesktopFreeBuildSettings } from "./desktop-free-release.mjs";
 import {
   captureStartupException,
   clearOpenworkSentrySession,
@@ -106,6 +105,8 @@ import {
   runDetachedTask,
 } from "./process-resilience.mjs";
 import { createQuitSequencer } from "./quit-sequence.mjs";
+import { createAiopcService } from "./aiopc-service.mjs";
+import { useStandardUserAgent } from "./aiopc-user-agent.mjs";
 import { createKeepAwake } from "./keep-awake.mjs";
 import { attachFloatingViewWindow, floatingViewWindowOptions } from "./floating-view-window.mjs";
 import { createStartupLog, startupPhase, withStartupPhase } from "./startup-log.mjs";
@@ -1308,6 +1309,7 @@ const browserUploadPermissions = createBrowserUploadPermissions({
     const server = await runtimeManager.openworkServerInfo();
     if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) throw new Error("OpenWork server unavailable");
     // Trusted local service verifies the current Den organization, member and rollout.
+    // loopback-fetch: the local OpenWork server on 127.0.0.1
     const response = await fetch(`${server.baseUrl}/managed-policy/browser-upload-permissions`, {
       headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}` }, signal: AbortSignal.timeout(15_000),
     });
@@ -1527,8 +1529,11 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
-// Apply the build opt-out before the runtime captures inherited environment values.
-await applyDesktopFreeBuildSettings({ appVersion: resolveAppVersion(app) });
+// AIOPC runs only on the user's own model providers: OpenWork's hosted free models stay off.
+process.env.OPENWORK_DISABLE_FREE_INFERENCE = "1";
+process.env.OPENWORK_DISABLE_HOSTED_MODELS = "1";
+const aiopcService = createAiopcService({ app, desktopRoot: path.resolve(__dirname, "..") });
+aiopcService.configureEnvironment();
 const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
@@ -1698,6 +1703,7 @@ const quitSequencer = createQuitSequencer({
       disposeRuntimeBeforeQuit(),
       uiControlServer.stop(),
       computerControl.reset(true),
+      aiopcService.stop(),
     ]);
   },
   quit: () => {
@@ -3121,6 +3127,7 @@ ipcMain.handle("openwork:shell:relaunch", async () => {
   app.quit();
 });
 ipcMain.handle("openwork:system:architecture", async () => resolveArchitectureInfo());
+ipcMain.handle("openwork:aiopc:connection", async () => aiopcService.connection());
 
 // ── Terminal IPC ────────────────────────────────────────────────────────
 ipcMain.handle("openwork:terminal:create", async (event, options = {}) => {
@@ -3245,6 +3252,8 @@ or use: pnpm dev:worktree`);
 
   app.whenReady().then(() => withStartupPhase("bootstrap.apply", async () => {
     endAppReady();
+    useStandardUserAgent();
+    void aiopcService.start();
     holdSpellcheckerUntilActivation(workspaceStore.readDesktopBootstrapConfigSync());
     const systemCaCertificates = await runtimeManager.systemCaCertificates();
     session.defaultSession.setCertificateVerifyProc(createSystemCaCertificateVerifyProc(systemCaCertificates));
