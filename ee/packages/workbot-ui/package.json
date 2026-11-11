@@ -38,6 +38,6 @@
     "@tanstack/react-query": "^5.96.2",
     "@types/react": "19.2.14",
     "react": "catalog:",
-    "typescript": "5.4.5"
+    "typescript": "7.0.2"
   }
 }

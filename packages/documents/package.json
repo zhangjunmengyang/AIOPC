@@ -85,7 +85,7 @@
     "@types/react": "19.2.14",
     "react": "catalog:",
     "@tanstack/react-query": "^5.96.2",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "react-dom": "catalog:",
     "@types/react-dom": "19.2.3"
   },
