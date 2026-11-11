@@ -130,7 +130,7 @@ export type AutoPickerState = "ready" | "exhausted" | "update_required" | "unava
 /** "v0.18.51 or newer" when the gateway told us the lowest version it accepts. */
 export function autoUpdateTarget(minimumVersion?: string | null) {
   const version = minimumVersion?.trim().replace(/^v/, "");
-  return version ? `OpenWork v${version} or newer` : "OpenWork";
+  return version ? `AIOPC v${version} or newer` : "AIOPC";
 }
 export function autoPickerCopy(state: AutoPickerState, signedIn: boolean, minimumVersion?: string | null, code?: string | null, resetsAt?: string | null) {
   switch (state) {

@@ -42,8 +42,8 @@ afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
 publish:
   - provider: github
-    owner: different-ai
-    repo: openwork
+    owner: zhangjunmengyang
+    repo: AIOPC
     releaseType: release
 mac:
   icon: resources/icons/icon.icns

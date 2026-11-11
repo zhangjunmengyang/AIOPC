@@ -10,7 +10,7 @@
     "dev:ui": "OPENWORK_DEV_MODE=1 pnpm --filter @openwork/app dev",
     "build": "pnpm --filter @openwork/desktop build",
     "build:ui": "pnpm --filter @openwork/app build",
-    "package": "pnpm --filter @openwork/desktop package:electron:dir",
+    "package": "pnpm --filter @openwork/desktop build:electron && cd apps/desktop && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --config electron-builder.yml --dir -c.mac.identity=null",
     "typecheck": "pnpm --filter @openwork/app typecheck"
   },
   "devDependencies": {

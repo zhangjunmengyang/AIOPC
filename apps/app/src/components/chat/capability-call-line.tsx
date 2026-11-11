@@ -47,7 +47,7 @@ type CapabilityCallLineProps = ChatToolReconnectCallbacks & {
 /** OpenWork's own skill tools are first-party work: they carry the OpenWork mark. */
 export const OPENWORK_IDENTITY: ConnectorToolIdentity = {
   id: "openwork",
-  name: "OpenWork",
+  name: "AIOPC",
   iconUrl: resolveExtensionIconSrc("/openwork-sidebar-mark.svg"),
   serviceUrl: null,
   toolNamespace: null,

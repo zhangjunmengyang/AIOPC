@@ -1,8 +1,8 @@
 export const PUBLIC_DESKTOP_DISTRIBUTION = Object.freeze({
   flavor: "public",
-  appName: "OpenWork",
-  appIdentifier: "com.differentai.openwork",
-  protocolScheme: "openwork",
+  appName: "AIOPC",
+  appIdentifier: "com.aiopc.desktop",
+  protocolScheme: "aiopc",
   requireSignin: false,
   requireActivation: false,
 });

@@ -42,7 +42,7 @@ const USERDATA_WORKSPACE_FILENAMES = [
   "openwork-server-state.json",
 ];
 const LEGACY_ORCHESTRATOR_DIR_NAME = ["openwork", "orchestrator"].join("-");
-const SHIP_IT_CACHE_DOMAIN = "com.differentai.openwork.ShipIt";
+const SHIP_IT_CACHE_DOMAIN = "com.aiopc.desktop.ShipIt";
 const NUKE_WORKER_FILENAME = "nuke-worker.mjs";
 const NUKE_WORKER_DEADLINE_MS = 60_000;
 const NUKE_WORKER_PARENT_WAIT_MS = 30_000;

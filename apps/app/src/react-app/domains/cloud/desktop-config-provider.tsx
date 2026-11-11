@@ -350,7 +350,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     const brandAppNameAction = actions.find((action) => action.item === "brandAppName");
     if (brandAppNameAction) {
       const appName = typeof brandAppNameAction.nextValue === "string" ? brandAppNameAction.nextValue : null;
-      document.title = appName ?? "OpenWork";
+      document.title = appName ?? "AIOPC";
       void applyBrandAppName(appName).catch(() => null);
     }
 

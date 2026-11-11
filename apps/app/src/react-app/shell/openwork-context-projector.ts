@@ -131,7 +131,7 @@ export function buildOpenworkContext(
   const resources: OpenworkResourceDescriptor[] = [{
     ref: `screen:${input.route}`,
     kind: "screen",
-    title: screen.kind === "settings" ? `${screen.panel} settings` : "OpenWork",
+    title: screen.kind === "settings" ? `${screen.panel} settings` : "AIOPC",
     provider,
     state: { kind: screen.kind, route: input.route },
   }];

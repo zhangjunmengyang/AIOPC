@@ -15,7 +15,7 @@ AIOPC 是给一人公司用的 AI 桌面工作台：从一个想法出发，把�
 pnpm install
 pnpm dev          # 以开发模式启动桌面应用
 pnpm build        # 构建
-pnpm package      # 打包为本机可运行的应用目录
+pnpm package      # 打包为本机可运行的 AIOPC.app（不签名，输出在 apps/desktop/dist-electron/）
 ```
 
 ## 致谢与许可

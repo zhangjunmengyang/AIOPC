@@ -107,6 +107,6 @@ export function openWorkNativeSentence(part: DynamicToolUIPart): CapabilityCallS
   // Unknown affordances still read as plain words: "workspace.list" → "workspace list".
   const words = id.split(/[._-]+/).filter(Boolean).join(" ")
   return tool === "query"
-    ? sentence(`Looking up ${words || "OpenWork"}`, `Looked up ${words || "OpenWork"}`, `Couldn't look up ${words || "OpenWork"}`)
-    : sentence(`Updating ${words || "OpenWork"}`, `Updated ${words || "OpenWork"}`, `Couldn't update ${words || "OpenWork"}`)
+    ? sentence(`Looking up ${words || "AIOPC"}`, `Looked up ${words || "AIOPC"}`, `Couldn't look up ${words || "AIOPC"}`)
+    : sentence(`Updating ${words || "AIOPC"}`, `Updated ${words || "AIOPC"}`, `Couldn't update ${words || "AIOPC"}`)
 }

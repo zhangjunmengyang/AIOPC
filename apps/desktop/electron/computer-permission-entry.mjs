@@ -10,7 +10,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const OPENWORK_BUNDLE_PREFIX = "com.differentai.openwork";
+const OPENWORK_BUNDLE_PREFIX = "com.aiopc.desktop";
 
 /** @typedef {{ name: string, bundleId: string | null, ours: boolean }} PermissionEntry */
 /** @typedef {(file: string, args: string[], options: { timeout: number }) => Promise<{ stdout: string }>} Exec */
