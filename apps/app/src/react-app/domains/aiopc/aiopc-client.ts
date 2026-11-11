@@ -74,7 +74,9 @@ export type AiopcAccount = {
   name: string;
   handle: string;
   url: string;
-  status: "ready" | "needs_login";
+  /** ready: AIOPC saw who is logged in; unverified: a platform it cannot check; needs_login: the login is gone. */
+  status: "ready" | "unverified" | "needs_login";
+  checked_at?: number | null;
   /** direct: an official API publishes after approval; compose: the AI fills the composer; browser: the AI works on the site. */
   publish: "direct" | "compose" | "browser";
   forms: string[];

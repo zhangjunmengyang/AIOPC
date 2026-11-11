@@ -81,7 +81,7 @@ class AccountStore:
             elif alias:
                 existing["alias"] = alias.strip()[:80]
             existing.update(identity={key: str(identity.get(key) or "")[:500] for key in ("id", "name", "handle", "url")},
-                            verified_at=now, updated_at=now)
+                            verified_at=now, updated_at=now, logged_in=True, checked_at=now)
             if engine:
                 # Where this login physically lives: "sandbox" (the project's own computer) or
                 # "embedded" (AIOPC's built-in browser). A sandbox login belongs to that project alone.
@@ -89,6 +89,17 @@ class AccountStore:
                 existing["project"] = str(project or "") if engine == "sandbox" else ""
             self._write(accounts)
             return dict(existing)
+
+    def mark_checked(self, account_id: str, logged_in: bool) -> None:
+        """Record whether the login was still there when AIOPC last looked."""
+        with self._lock:
+            accounts = self._read()
+            account = next((item for item in accounts if item["id"] == account_id), None)
+            if account is None:
+                return
+            account["logged_in"] = bool(logged_in)
+            account["checked_at"] = time.time()
+            self._write(accounts)
 
     def update(self, account_id: str, *, alias: str | None = None) -> dict[str, Any]:
         with self._lock:

@@ -69,7 +69,8 @@ export function AccountsPage(props: { workspaceRoot: string }) {
     // Accounts also change from chat (the AI connects them): keep the list current without a refresh button.
     refetchInterval: 5_000,
     refetchOnWindowFocus: true,
-    queryFn: () => request<{ accounts: AiopcAccount[] }>("GET", "/api/accounts").then((data) => data.accounts),
+    // check=1: AIOPC looks again (in the background, at most every few minutes) at whether each login is still there.
+    queryFn: () => request<{ accounts: AiopcAccount[] }>("GET", "/api/accounts", { params: { check: "1" } }).then((data) => data.accounts),
   });
   const historyQuery = useQuery({
     queryKey: ["aiopc", props.workspaceRoot, "history"],
@@ -125,7 +126,8 @@ export function AccountsPage(props: { workspaceRoot: string }) {
                       <span key={route.id} className={cn("rounded-md px-1.5 py-px text-[11px]",
                         route.kind === "browser" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary")}>{route.name}</span>
                     ))}
-                    {account.status !== "ready" ? <span className="text-warning">{t("aiopc.accounts.needs_login")}</span> : null}
+                    {account.status === "needs_login" ? <span className="text-warning">{t("aiopc.accounts.needs_login")}</span> : null}
+                    {account.status === "unverified" ? <span>{t("aiopc.accounts.unverified")}</span> : null}
                   </div>
                 </div>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />

@@ -129,7 +129,7 @@ def test_built_in_accounts_move_with_their_logins(tmp_path):
     social = SocialService(tmp_path / "home", tmp_path / "shop")
     social.store.upsert("xhs", {"id": "u1", "name": "老号"}, engine="embedded")
     social.store.upsert("x", {"id": "x1", "name": "gone"}, engine="embedded")
-    social.store.upsert("wechat", {"id": "browser-wechat", "name": "公众号账号"}, engine="embedded")
+    social.store.upsert("producthunt", {"id": "browser-producthunt", "name": "Product Hunt账号"}, engine="embedded")
 
     class Sandbox:
         async def account(self, platform):
@@ -138,9 +138,35 @@ def test_built_in_accounts_move_with_their_logins(tmp_path):
 
     adopted = asyncio.run(social._adopt_builtin_accounts(Sandbox()))
 
-    assert sorted(adopted) == ["wechat", "xhs"]
+    # Product Hunt cannot be checked, so its moved login is trusted, and shown as such.
+    assert sorted(adopted) == ["producthunt", "xhs"]
     social.set_engine("sandbox")
-    assert sorted(account["platform"] for account in social.accounts()) == ["wechat", "xhs"]
+    status = {account["platform"]: account["status"] for account in social.accounts()}
+    assert status == {"producthunt": "unverified", "xhs": "ready"}
+
+
+def test_a_login_that_lapsed_is_noticed(tmp_path):
+    from aiopc.social.service import SocialService
+
+    social = SocialService(tmp_path / "home", tmp_path / "shop")
+    social.set_engine("embedded")
+    social.store.upsert("xhs", {"id": "u1", "name": "老号"}, engine="embedded")
+    social.store.upsert("discord", {"id": "d1", "name": "旧号"}, engine="embedded")
+    # Both were last checked long ago.
+    social.store._write([dict(item, checked_at=0) for item in social.store.list()])
+
+    class Browser:
+        async def account(self, platform):
+            return {"id": "u1", "name": "老号"} if platform == "xhs" else None
+
+    social._browser = Browser()
+    result = asyncio.run(social.check_logins())
+
+    assert sorted((item["platform"], item["logged_in"]) for item in result["checked"]) == [("discord", False), ("xhs", True)]
+    status = {account["platform"]: account["status"] for account in social.accounts()}
+    assert status == {"discord": "needs_login", "xhs": "ready"}
+    # Checked just now: opening the page again does not visit the sites again.
+    assert asyncio.run(social.check_logins()) == {"checked": []}
 
 
 def test_the_choice_of_browser_is_remembered(tmp_path):

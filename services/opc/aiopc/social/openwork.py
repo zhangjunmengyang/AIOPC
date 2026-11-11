@@ -47,6 +47,26 @@ OWN_DETECTORS: dict[str, tuple[str, str]] = {
       return { accountId: user.userId, username: user.userName || "", profileUrl: "https://www.xiaohongshu.com/user/profile/" + user.userId,
                extraData: { handle: user.redId || "" } };
     })()"""),
+    # The Official Accounts backend sends a logged-in visitor to its home page, which carries the account.
+    "wechat": ("https://mp.weixin.qq.com/", """(() => {
+      const data = window.wx && window.wx.data;
+      if (!data || !data.uin || !location.href.includes("token=")) return null;
+      return { accountId: String(data.uin), username: data.nick_name_decode || data.user_name || "",
+               profileUrl: "", extraData: { handle: data.alias || data.user_name || "" } };
+    })()"""),
+    # Discord keeps its token in page storage (hidden from its own page; a fresh frame can still read it).
+    "discord": ("https://discord.com/robots.txt", """(async () => {
+      const frame = document.createElement("iframe");
+      document.body.appendChild(frame);
+      const raw = frame.contentWindow.localStorage.getItem("token");
+      frame.remove();
+      if (!raw) return null;
+      const response = await fetch("/api/v9/users/@me", { headers: { Authorization: JSON.parse(raw) } });
+      if (!response.ok) return null;
+      const user = await response.json();
+      return { accountId: user.id, username: user.global_name || user.username, profileUrl: "",
+               extraData: { handle: user.username } };
+    })()"""),
 }
 
 

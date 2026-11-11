@@ -4,6 +4,7 @@
  */
 
 export default {
+  "aiopc.accounts.unverified": "Login not checked",
   "aiopc.environment.not_running": "This project's environment is not running.",
   "aiopc.environment.refresh": "Refresh",
   "aiopc.environment.starting": "Starting the environment…",

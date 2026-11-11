@@ -7,6 +7,7 @@
  */
 
 export default {
+  "aiopc.accounts.unverified": "无法自动确认登录",
   "aiopc.environment.not_running": "这个项目的环境还没有启动。",
   "aiopc.environment.refresh": "刷新",
   "aiopc.environment.starting": "正在启动环境……",

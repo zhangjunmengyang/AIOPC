@@ -42,7 +42,8 @@ MAX_TEXT = 20_000
 MAX_MEDIA = 18
 READ_KINDS = ("posts", "stats", "comments")
 # Platforms whose logged-in identity we can read; others are saved as "the browser's account".
-DETECTED = {"x", "xhs", "douyin", "bilibili", "tiktok", "zhihu"}
+# Platforms where AIOPC can tell who is logged in; elsewhere it can only trust that the person did log in.
+DETECTED = {"x", "xhs", "douyin", "bilibili", "tiktok", "zhihu", "wechat", "discord"}
 # Shared data services configured on the Accounts page (not tied to one account).
 SERVICES: dict[str, dict[str, Any]] = {
     "twitterapi": {
@@ -303,7 +304,10 @@ class SocialService:
             "account_id": account["id"], "platform": platform, "platform_name": PLATFORMS.get(platform, platform),
             "name": account.get("alias") or identity.get("name") or PLATFORMS.get(platform, platform),
             "handle": identity.get("handle", ""), "url": identity.get("url", ""),
-            "status": "ready" if identity.get("id") else "needs_login",
+            # ready: AIOPC saw who is logged in; unverified: a platform it cannot check, taken on the person's word.
+            "status": ("needs_login" if not identity.get("id") or account.get("logged_in") is False
+                       else "ready" if platform in DETECTED or account.get("routes") else "unverified"),
+            "checked_at": account.get("checked_at"),
             # direct: an official API publishes after the person approves; compose: the AI fills the composer and the
             # person presses publish; browser: the AI works on the site in the built-in browser.
             "publish": "direct" if direct else "compose" if platform in MULTIPOST_KEYS else "browser",
@@ -329,6 +333,42 @@ class SocialService:
                 if (account.get("engine") or "embedded") == engine
                 and (engine != "sandbox" or str(account.get("project") or "") == self.project_path)]
         return [self.describe(account) for account in here]
+
+    async def check_logins(self, *, max_age: float = 600) -> dict[str, Any]:
+        """Look again at whether each account here is still logged in, where AIOPC can tell.
+        Accounts checked within ``max_age`` seconds are left alone, so opening the page often stays cheap."""
+        engine = self.engine_for()
+        due = [account for account in self.store.list()
+               if account["platform"] in DETECTED and (account.get("engine") or "embedded") == engine
+               and (engine != "sandbox" or str(account.get("project") or "") == self.project_path)
+               and time.time() - float(account.get("checked_at") or 0) > max_age]
+        if not due:
+            return {"checked": []}
+        browser = await self.sandbox_browser() if engine == "sandbox" else self.browser
+        checked = []
+        for account in due:
+            found = None
+            for _ in range(2):
+                try:
+                    found = await browser.account(account["platform"])
+                except OpenWorkError:
+                    found = None
+                if found:
+                    break
+            old_id = str((account.get("identity") or {}).get("id") or "")
+            same = bool(found) and str(found.get("id")) == old_id
+            if found and not same:
+                # A different identity is logged in there now: that is its own account.
+                self.store.upsert(account["platform"], found, alias=account.get("alias") or "", engine=engine,
+                                  project=self.project_path if engine == "sandbox" else "")
+                if old_id.startswith("browser-"):
+                    # The old record only stood in for "someone is logged in"; now we know who, so it goes.
+                    self.store.delete(account["id"])
+                    checked.append({"platform": account["platform"], "logged_in": True})
+                    continue
+            self.store.mark_checked(account["id"], same)
+            checked.append({"platform": account["platform"], "logged_in": same})
+        return {"checked": checked}
 
     def _account(self, account_id: str) -> dict[str, Any]:
         try:
@@ -507,7 +547,7 @@ class SocialService:
             raise SocialError("正文不能为空，且不超过 20000 字")
         account = self._account(account_id)
         info = self.describe(account)
-        if info["status"] != "ready":
+        if info["status"] == "needs_login":
             raise SocialError(f"{info['name']} 还没有登录，请先连接这个账号")
         post = Post(text=text.strip(), title=(title or "").strip(), media=self._media(media), form=form,
                     tags=[tag.strip().lstrip("#") for tag in tags or [] if tag.strip()])
@@ -523,7 +563,7 @@ class SocialService:
         route = next((route for route in self._routes_for(account) if route.publishes(account, post)), None)
         if route is None:
             if not info["forms"]:
-                raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请在内置浏览器里直接操作这个网站（已保存登录）")
+                raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请直接在网站上操作（登录已保存在项目环境里）")
             raise SocialError(f"{info['platform_name']} 可用的形式：{'、'.join(info['forms'])}")
         return {"account": account, "info": info, "post": post, "route": route}
 

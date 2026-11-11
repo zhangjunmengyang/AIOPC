@@ -12,6 +12,7 @@ same project files and accounts. A workspace folder is a project; accounts and t
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import inspect
 import json
@@ -284,8 +285,16 @@ def create_api(home: Path, token: str) -> Starlette:
         # Every platform connects through the built-in browser; some also offer official ways in.
         return respond({"platforms": [{**item, "methods": ENHANCEMENTS.get(item["id"], [])} for item in catalog()]})
 
+    checking: dict[str, asyncio.Task[Any]] = {}
+
     async def accounts_route(request: Request) -> Response:
-        return respond({"accounts": workspace_of(request).social.accounts()})
+        ws = workspace_of(request)
+        if request.query_params.get("check"):
+            # Re-checking visits each platform; it runs in the background while the page keeps polling.
+            key = str(ws.root)
+            if key not in checking or checking[key].done():
+                checking[key] = asyncio.get_running_loop().create_task(ws.social.check_logins())
+        return respond({"accounts": ws.social.accounts()})
 
     async def connect_route(request: Request) -> Response:
         data = await body(request)
