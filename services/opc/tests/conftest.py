@@ -21,6 +21,14 @@ class MemoryKeyring(KeyringBackend):
 
 
 @pytest.fixture(autouse=True)
+def no_container_engine(monkeypatch):
+    """Tests run as if this machine had no container engine, so the built-in browser is the default."""
+    from aiopc.sandbox import local
+
+    monkeypatch.setattr(local, "find_docker", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def memory_keyring(monkeypatch):
     """Tests never touch the real macOS Keychain."""
     backend = MemoryKeyring()

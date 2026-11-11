@@ -107,8 +107,9 @@ class BrowserRoute(Route):
 
     id, kind, name = "browser", "browser", "内置浏览器"
 
-    def __init__(self, browser: Any):
-        self._browser = browser
+    def __init__(self, browser_for: Any):
+        # await browser_for(account) -> the browser wherever that account is logged in.
+        self._browser = browser_for
 
     def attached(self, account: dict[str, Any]) -> bool:
         return True
@@ -117,10 +118,12 @@ class BrowserRoute(Route):
         return post.form in MULTIPOST_KEYS.get(account["platform"], {})
 
     async def publish(self, account: dict[str, Any], post: Post) -> dict[str, Any]:
-        result = await self._browser().compose(account["platform"], post.form, text=post.text, title=post.title,
-                                               media=post.media, tags=post.tags)
+        browser = await self._browser(account)
+        result = await browser.compose(account["platform"], post.form, text=post.text, title=post.title,
+                                       media=post.media, tags=post.tags)
+        where = "项目环境的画面里" if account.get("engine") == "sandbox" else "右侧内置浏览器"
         return {"status": "composer_filled", **result,
-                "message": "已在内置浏览器填好发布页。请在右侧检查后点发布；发布后把链接告诉我，会记录到项目。"}
+                "message": f"已在{where}填好发布页。请检查后点发布；发布后把链接告诉我，会记录到项目。"}
 
     def reads(self, account: dict[str, Any], what: str) -> bool:
         return what in PAGES.get(account["platform"], {})
@@ -128,7 +131,8 @@ class BrowserRoute(Route):
     async def read(self, account: dict[str, Any], what: str, post_id: str = "") -> dict[str, Any]:
         identity = account.get("identity") or {}
         url = PAGES[account["platform"]][what].format(handle=identity.get("handle", "").lstrip("@"), id=identity.get("id", ""))
-        return await self._browser().page_text(url)
+        browser = await self._browser(account)
+        return await browser.page_text(url)
 
 
 # ── third-party X data (twitterapi.io): cheap reads ────────────────────

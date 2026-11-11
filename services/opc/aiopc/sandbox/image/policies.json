@@ -1,0 +1,16 @@
+{
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "AutoplayAllowed": true,
+  "BookmarkBarEnabled": false,
+  "BrowserAddPersonEnabled": false,
+  "BrowserGuestModeEnabled": false,
+  "BrowserLabsEnabled": false,
+  "CommandLineFlagSecurityWarningsEnabled": false,
+  "DefaultNotificationsSetting": 2,
+  "DefaultPopupsSetting": 1,
+  "FullscreenAllowed": true,
+  "PasswordManagerEnabled": false,
+  "PromptForDownloadLocation": false,
+  "VideoCaptureAllowed": true
+}

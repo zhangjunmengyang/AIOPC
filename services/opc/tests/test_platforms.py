@@ -40,10 +40,12 @@ def test_every_platform_connects_in_the_browser(tmp_path, monkeypatch):
 
     monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
     social = SocialService(tmp_path / "home", tmp_path)
-    assert asyncio.run(social.connect("Product Hunt"))["status"] == "login_opened"
+    opened_login = asyncio.run(social.connect("Product Hunt"))
+    assert opened_login["status"] == "login_opened" and opened_login["engine"] == "embedded"
     # No detector for Product Hunt: the person's "I've logged in" saves the browser's account.
     saved = asyncio.run(social.connect("producthunt", check=True))
     assert saved["status"] == "connected" and saved["account"]["publish"] == "browser"
+    assert saved["account"]["engine"] == "embedded"
     assert opened == ["producthunt"]
 
 

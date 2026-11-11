@@ -139,10 +139,13 @@ class OpenWorkBrowser:
         return result.get("result", {}).get("value")
 
     async def wait_loaded(self, handle: dict[str, Any], seconds: float = 30) -> str:
+        """Wait for the page the tab was opened for — a tab starts out empty, which is also "complete"."""
         for _ in range(int(seconds * 2)):
             state = await self.evaluate(handle, "document.readyState + '|' + location.href")
             if state and state.startswith("complete"):
-                return state.split("|", 1)[1]
+                url = state.split("|", 1)[1]
+                if not url.startswith(("about:", "chrome://")):
+                    return url
             await asyncio.sleep(0.5)
         return ""
 

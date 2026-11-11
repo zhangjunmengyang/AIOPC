@@ -20,7 +20,10 @@ from aiopc.accounts import PLATFORMS, AccountError, AccountStore, normalize_plat
 from aiopc.github import DEVICE_URL, GitHubAuth, GitHubError
 from aiopc.paths import inside
 from aiopc.project import Project
+from aiopc.sandbox import SandboxError, Sandboxes
 
+from .login import Login
+from .migrate import migrate_logins
 from .openwork import LOGIN_PAGES, MULTIPOST_KEYS, OpenWorkBrowser, OpenWorkError
 from .routes import (
     ENHANCEMENTS,
@@ -33,6 +36,7 @@ from .routes import (
     XApiRoute,
     XDataRoute,
 )
+from .sandbox_browser import SandboxBrowser
 
 MAX_TEXT = 20_000
 MAX_MEDIA = 18
@@ -79,22 +83,172 @@ def service_secret(service: str) -> dict[str, Any] | None:
 
 
 class SocialService:
-    def __init__(self, instance: Path, workspace: Path, *, browser: OpenWorkBrowser | None = None, xdata: Any = None):
+    def __init__(self, instance: Path, workspace: Path, *, browser: OpenWorkBrowser | None = None, xdata: Any = None,
+                 sandboxes: Sandboxes | None = None):
         self.instance = Path(instance)
+        self.sandboxes = sandboxes or Sandboxes(self.instance)
         self.workspace = Path(workspace)
         self.project = Project(self.workspace)
         self.store = AccountStore(self.instance)
         self._browser = browser
         self._xdata = xdata
+        self._login: Login | None = None
+        self._login_platform = ""
         self.routes: list[Route] = [
             XApiRoute(), BlueskyRoute(), GitHubCliRoute(self.instance),
             XDataRoute(lambda: self.xdata, lambda: service_secret("twitterapi") is not None),
-            BrowserRoute(lambda: self.browser),
+            BrowserRoute(self.browser_for),
         ]
 
     @property
     def browser(self) -> OpenWorkBrowser:
         return self._browser or OpenWorkBrowser()
+
+    # ── where this project's browser runs ───────────────────────────────
+    @property
+    def project_path(self) -> str:
+        return str(self.workspace)
+
+    def engine_for(self, platform: str = "", method: str = "auto") -> str:
+        """sandbox (this project's own computer) or embedded (AIOPC's built-in browser)."""
+        if method in ("sandbox", "embedded"):
+            return method
+        if method == "browser":
+            return "embedded"
+        chosen = self.sandboxes.record(self.project_path).get("engine")
+        if chosen:
+            return chosen
+        # An environment is the right home for a login, but only when this machine can actually run one.
+        return "sandbox" if self.sandboxes.can_run_environment() else "embedded"
+
+    async def sandbox_browser(self) -> SandboxBrowser:
+        """The project's environment, started if needed, ready to be driven."""
+        try:
+            environment = await self.sandboxes.ensure(self.project_path)
+        except SandboxError as exc:
+            raise SocialError(str(exc)) from None
+        browser = SandboxBrowser(environment.cdp_url)
+        if not self.sandboxes.migrated(self.project_path):
+            # First run: bring over whatever the built-in browser was already logged in to.
+            try:
+                await migrate_logins(self.browser, browser)
+            except (OpenWorkError, OSError, ValueError):
+                pass
+            self.sandboxes.mark_migrated(self.project_path)
+        return browser
+
+    async def browser_for(self, account: dict[str, Any]) -> OpenWorkBrowser:
+        """Where this account's login lives."""
+        return await self.sandbox_browser() if account.get("engine") == "sandbox" else self.browser
+
+    async def environment(self) -> dict[str, Any]:
+        """What the project's environment is doing, for the Accounts page."""
+        status = await self.sandboxes.status(self.project_path)
+        record = self.sandboxes.record(self.project_path)
+        return {**status.describe(), "engine": self.engine_for(), "provider_id": record["provider"],
+                "migrated": record["migrated"], "providers": await self.sandboxes.describe_providers()}
+
+    async def start_environment(self) -> dict[str, Any]:
+        browser = await self.sandbox_browser()
+        status = await self.sandboxes.status(self.project_path)
+        return {**status.describe(), "cdp_ready": bool(browser.endpoint)}
+
+    # ── logging in by talking ───────────────────────────────────────────
+    async def login_open(self, platform: str) -> dict[str, Any]:
+        """Open a platform's login page in this project's browser and report what is on it."""
+        try:
+            platform = normalize_platform(platform)
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+        url = LOGIN_PAGES.get(platform)
+        if url is None:
+            raise SocialError(f"{PLATFORMS.get(platform, platform)} 还没有登录入口")
+        engine = self.engine_for(platform)
+        browser = await self.sandbox_browser() if engine == "sandbox" else self.browser
+        # Already logged in there (often because AIOPC brought the login over): nothing to do.
+        try:
+            found = await browser.account(platform)
+        except OpenWorkError:
+            found = None
+        if found:
+            account = self.store.upsert(platform, found, engine=engine,
+                                        project=self.project_path if engine == "sandbox" else "")
+            return {"platform": platform, "engine": engine, "status": "already_connected",
+                    "account": self.describe(account),
+                    "message": f"这个项目的环境里已经登录了 {found.get('name') or platform}，不用再登录一次。"}
+        self._login = Login(browser)
+        self._login_platform = platform
+        try:
+            page = await self._login.open(url)
+            qr = await self._login.qr_code()
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+        return {"platform": platform, "engine": engine, **page, "qr_code": qr}
+
+    def _active_login(self) -> Login:
+        if self._login is None:
+            raise SocialError("还没有打开登录页，先调用 login_open")
+        return self._login
+
+    async def login_look(self) -> dict[str, Any]:
+        """Look at the login page again: what changed, and the QR code if one is showing."""
+        login = self._active_login()
+        try:
+            page = await login.settle(seconds=8)
+            qr = await login.qr_code()
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+        return {"platform": self._login_platform, **page, "qr_code": qr}
+
+    async def login_fill(self, label: str, value: str) -> dict[str, Any]:
+        """Type into the login field whose label, placeholder or name contains ``label``."""
+        try:
+            await self._active_login().fill(label, value)
+            return await self._active_login().read()
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+
+    async def login_click(self, text: str) -> dict[str, Any]:
+        """Press the button or tab whose visible text contains ``text``."""
+        try:
+            await self._active_login().click(text)
+            return await self._active_login().read()
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+
+    async def login_screenshot(self) -> str:
+        """A picture of the whole login page, for when the AI needs to see it."""
+        try:
+            return await self._active_login().screenshot()
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+
+    async def login_finish(self, alias: str = "") -> dict[str, Any]:
+        """Check whether the login worked and save the account; closes the login page when it did."""
+        platform = self._login_platform or ""
+        if not platform:
+            raise SocialError("还没有开始登录")
+        result = await self.connect(platform, alias, check=True, screenshot=False)
+        if result.get("status") == "connected" and self._login is not None:
+            await self._login.close()
+            self._login, self._login_platform = None, ""
+        return result
+
+    async def migrate_logins_now(self) -> dict[str, Any]:
+        """Copy the built-in browser's logins into this project's environment again, on request."""
+        browser = await self.sandbox_browser()
+        try:
+            return await migrate_logins(self.browser, browser)
+        except OpenWorkError as exc:
+            raise SocialError(str(exc)) from None
+
+    def set_engine(self, engine: str) -> dict[str, Any]:
+        if engine not in ("sandbox", "embedded"):
+            raise SocialError("只能选沙箱或内置浏览器")
+        record = self.sandboxes.record(self.project_path)
+        record["engine"] = engine
+        self.sandboxes.save(self.project_path, record)
+        return {"engine": engine}
 
     @property
     def xdata(self) -> Any:
@@ -124,18 +278,26 @@ class SocialService:
             "publish": "direct" if direct else "compose" if platform in MULTIPOST_KEYS else "browser",
             "forms": list(MULTIPOST_KEYS.get(platform, {})),
             "reads": sorted({what for what in READ_KINDS for route in routes if route.reads(account, what)}),
-            "routes": [{"id": route.id, "kind": route.kind, "name": route.name} for route in routes],
+            "routes": [{"id": route.id, "kind": route.kind,
+                        "name": ("项目环境里的浏览器" if route.id == "browser" and account.get("engine") == "sandbox"
+                                 else route.name)} for route in routes],
+            "engine": account.get("engine") or "embedded",
             "enhancements": [{**item, "attached": item["route"] in attached} for item in ENHANCEMENTS.get(platform, [])],
             "services": [service for service in self.services() if service.get("platform") == platform],
             "verified_at": account.get("verified_at"),
         }
 
     def accounts(self) -> list[dict[str, Any]]:
-        """Every connected account; accounts are shared by all projects."""
+        """The accounts this project can use: the ones whose login lives where its browser runs."""
+        engine = self.engine_for()
         try:
-            return [self.describe(account) for account in self.store.list()]
+            saved = self.store.list()
         except AccountError as exc:
             raise SocialError(str(exc)) from None
+        here = [account for account in saved
+                if (account.get("engine") or "embedded") == engine
+                and (engine != "sandbox" or str(account.get("project") or "") == self.project_path)]
+        return [self.describe(account) for account in here]
 
     def _account(self, account_id: str) -> dict[str, Any]:
         try:
@@ -151,23 +313,27 @@ class SocialService:
             platform = normalize_platform(platform)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
-        if platform == "github" and method != "browser":
+        if platform == "github" and method == "auto":
             return await self._connect_github(alias, check)
+        engine = self.engine_for(platform, method)
+        browser = await self.sandbox_browser() if engine == "sandbox" else self.browser
         try:
             if not check:
-                handle = await self.browser.open_login(platform, screenshot=screenshot)
-                return {"status": "login_opened", "platform": platform, "login_url": LOGIN_PAGES.get(platform),
-                        "message": "已在右侧内置浏览器打开登录页。请在那里登录（扫码或输入密码），完成后再检查一次（check=true）。",
+                handle = await browser.open_login(platform, screenshot=screenshot)
+                where = "项目环境的画面里" if engine == "sandbox" else "右侧内置浏览器"
+                return {"status": "login_opened", "platform": platform, "engine": engine, "login_url": LOGIN_PAGES.get(platform),
+                        "message": f"已在{where}打开登录页。请在那里登录（扫码或输入密码），完成后再检查一次（check=true）。",
                         **({"screenshot": handle["screenshot"]} if handle.get("screenshot") else {})}
-            found = await self.browser.account(platform)
+            found = await browser.account(platform)
         except OpenWorkError as exc:
             raise SocialError(str(exc)) from None
         if found is None and platform in DETECTED:
             return {"status": "not_logged_in", "platform": platform,
-                    "message": "还没有检测到登录。请先在内置浏览器里完成登录再检查。"}
+                    "message": "还没有检测到登录。请先在浏览器里完成登录再检查。"}
         found = found or {"id": f"browser-{platform}", "name": alias or f"{PLATFORMS[platform]}账号"}
         try:
-            account = self.store.upsert(platform, found, alias=alias)
+            account = self.store.upsert(platform, found, alias=alias, engine=engine,
+                                        project=self.project_path if engine == "sandbox" else "")
         except AccountError as exc:
             raise SocialError(str(exc)) from None
         return {"status": "connected", "account": self.describe(account)}

@@ -34,6 +34,7 @@ from aiopc.media.image import ImageService
 from aiopc.media.video import VideoConfig, VideoService
 from aiopc.platforms import catalog
 from aiopc.project import Project, ProjectError
+from aiopc.sandbox import Sandboxes
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
 from aiopc.xdata import XDataService
@@ -56,7 +57,8 @@ class Workspace:
     def __init__(self, home: Path, workspace: Path):
         self.home, self.root = home.resolve(), workspace.resolve()
         self.project = Project(self.root)
-        self.social = SocialService(self.home, self.root)
+        self.sandboxes = Sandboxes(self.home)
+        self.social = SocialService(self.home, self.root, sandboxes=self.sandboxes)
         self.space = SpaceCatalog(self.root)
         self.images = ImageService(self.home, self.root)
         self.xdata = XDataService(self.home)
@@ -70,6 +72,13 @@ class Workspace:
             except ValueError as exc:
                 raise ValueError(f"视频服务未配置：{exc}。在 {self.home / '.env'} 填写视频接口后重启 AIOPC。") from None
         return self._video
+
+
+def _with_image(result: dict[str, Any], png_base64: str) -> Any:
+    """A tool answer that carries a picture (a QR code, a login page) alongside its data."""
+    if not png_base64:
+        return result
+    return [json.dumps(result, ensure_ascii=False), Image(data=base64.b64decode(png_base64), format="png")]
 
 
 def _tool(server: FastMCP, name: str, method: Any, description: str, annotations: ToolAnnotations) -> None:
@@ -136,24 +145,47 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         """List saved video jobs."""
         return ws.video().list_jobs(limit)
 
-    async def social_connect(platform: str, alias: str = "", check: bool = False) -> Any:
-        """Connect an account: the first call opens the platform's login page in the browser panel beside this chat
-        and shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it.
-        Accounts are shared by every project."""
-        result = await social.connect(platform, alias, check)
-        screenshot = result.pop("screenshot", "")
-        if not screenshot:
-            return result
-        return [json.dumps(result, ensure_ascii=False), Image(data=base64.b64decode(screenshot), format="png")]
+    async def login_open(platform: str) -> Any:
+        """Start logging in to a platform, in the chat. Opens its login page in this project's browser and returns
+        what is on it: the fields, the buttons, and the QR code cut out as an image when there is one.
+        Then: show the QR code to the user, or ask for the phone number, fill it with login_fill, press 获取验证码
+        with login_click, ask for the code that arrived, fill it, press the login button, and call login_finish."""
+        result = await social.login_open(platform)
+        return _with_image(result, result.pop("qr_code", ""))
+
+    async def login_look() -> Any:
+        """Look at the login page again after the user did something (scanned, entered a code)."""
+        result = await social.login_look()
+        return _with_image(result, result.pop("qr_code", ""))
+
+    async def login_screenshot() -> Any:
+        """A picture of the whole login page, when the fields and buttons are not enough to tell what is going on."""
+        return Image(data=base64.b64decode(await social.login_screenshot() or ""), format="png")
+
+    async def social_connect(platform: str, alias: str = "", check: bool = False, method: str = "auto") -> Any:
+        """Connect an account: the first call opens the platform's login page where this project's browser runs and
+        shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it.
+        method: auto (this project's own environment), sandbox or embedded (AIOPC's built-in browser). An account
+        belongs to the environment it logged in to."""
+        result = await social.connect(platform, alias, check, method=method)
+        return _with_image(result, result.pop("screenshot", ""))
 
     xdata = ws.xdata
     for name, method, description, annotation in [
         ("get_project_brief", get_project_brief, get_project_brief.__doc__, READ),
         ("init_project", init_project, init_project.__doc__, WRITE),
         ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海. All connect by logging in once in the built-in browser; fills_composer platforms can also get a post filled in via social_publish, the others you operate in the browser directly.", READ),
-        ("social_accounts", social.accounts, "Connected accounts on every platform (shared by all projects): status (ready / needs_login), forms (post / article / video) and readable data.", READ),
+        ("social_accounts", social.accounts, "Connected accounts this project can use: status (ready / needs_login), forms (post / article / video) and readable data.", READ),
+        ("project_environment", social.environment, "This project's environment: the computer its browser runs on (local sandbox or a cloud browser), whether it is running, and which providers are set up.", READ),
+        ("start_project_environment", social.start_environment, "Start this project's environment if it is not running. Do this before connecting accounts or publishing when the environment is not up.", WRITE),
         ("social_connect", social_connect, social_connect.__doc__, WRITE),
-        ("social_publish", social.publish, "Fill a platform's composer in the built-in browser for one account; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),
+        ("login_open", login_open, login_open.__doc__, WRITE),
+        ("login_look", login_look, login_look.__doc__, READ),
+        ("login_fill", social.login_fill, "Type into a login field, found by the words next to it (e.g. 手机号, 验证码, password).", WRITE),
+        ("login_click", social.login_click, "Press a login button or tab by its visible text (e.g. 获取验证码, 登录, 密码登录).", WRITE),
+        ("login_screenshot", login_screenshot, login_screenshot.__doc__, READ),
+        ("login_finish", social.login_finish, "Check whether the login worked and save the account. Call after the user scanned or after pressing the login button.", WRITE),
+        ("social_publish", social.publish, "Fill a platform's composer for one account, where that account is logged in; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),
         ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
         ("social_history", social.history, "Recent publishing activity of this project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
@@ -263,6 +295,38 @@ def create_api(home: Path, token: str) -> Starlette:
         result.pop("screenshot", None)
         return respond(result)
 
+    async def environment_route(request: Request) -> Response:
+        """The project's environment: where its browser runs, and whether it is up."""
+        ws = workspace_of(request)
+        if request.method == "GET":
+            return respond(await ws.social.environment())
+        data = await body(request)
+        action = str(data.get("action") or "start")
+        if action == "start":
+            return respond(await ws.social.start_environment())
+        if action == "stop":
+            return respond(await ws.sandboxes.stop(str(ws.root)))
+        if action == "destroy":
+            return respond(await ws.sandboxes.destroy(str(ws.root)))
+        if action == "engine":
+            return respond(ws.social.set_engine(str(data.get("engine") or "sandbox")))
+        if action == "provider":
+            return respond((await ws.sandboxes.move(str(ws.root), str(data.get("provider") or "local"))).describe())
+        if action == "migrate":
+            return respond(await ws.social.migrate_logins_now())
+        if action == "install-engine":
+            from aiopc.sandbox import install_engine
+
+            return respond(await install_engine(str(data.get("engine_name") or "orbstack")))
+        raise ValueError(f"不认识的操作：{action}")
+
+    async def environment_providers_route(request: Request) -> Response:
+        ws = workspace_of(request)
+        if request.method == "PUT":
+            data = await body(request)
+            return respond(ws.sandboxes.configure(request.path_params["provider_id"], data.get("fields") or {}))
+        return respond({"providers": await ws.sandboxes.describe_providers()})
+
     async def connect_route_route(request: Request) -> Response:
         data = await body(request)
         return respond(await workspace_of(request).social.connect_with_route(
@@ -301,6 +365,9 @@ def create_api(home: Path, token: str) -> Starlette:
         ("/api/accounts", accounts_route, ["GET"]),
         ("/api/accounts/connect", connect_route, ["POST"]),
         ("/api/accounts/connect-route", connect_route_route, ["POST"]),
+        ("/api/environment", environment_route, ["GET", "POST"]),
+        ("/api/environment/providers", environment_providers_route, ["GET"]),
+        ("/api/environment/providers/{provider_id}", environment_providers_route, ["PUT"]),
         ("/api/accounts/{account_id}", account_route, ["PATCH", "DELETE"]),
         ("/api/accounts/{account_id}/routes", account_routes_route, ["POST"]),
         ("/api/accounts/{account_id}/routes/{route_id}", account_routes_route, ["DELETE"]),
