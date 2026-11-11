@@ -38,6 +38,16 @@ const privateAddress = (address) => {
 };
 
 /** Agent-chosen pages may reach the public web only; the VM firewall enforces the same boundary. */
+/** Private targets by address alone: no name lookup, for a browser whose DNS is not this machine's. */
+export function publicAddressOnly(value) {
+  let url;
+  try { url = new URL(value); } catch { return false; }
+  if (!["http:", "https:"].includes(url.protocol)) return url.href === "about:blank";
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) return false;
+  return isIP(host) ? !privateAddress(host) : true;
+}
+
 export async function publicDestination(value) {
   let url;
   try { url = new URL(value); } catch { return false; }
@@ -108,9 +118,10 @@ const verifyLocalEgress = async () => {
   if (!(await browserEgressStatus()).ok) throw Object.assign(new Error("The cloud browser's private-network filter is unavailable. Reconnect the computer."), { code: "egress_unavailable" });
 };
 
-export function createCloudBrowser({ statePath, assertActive, enabled, beforeInput, endpoint = "http://127.0.0.1:9222", privateBrowsing = false, verifyEgress = verifyLocalEgress }) {
-  // privateBrowsing is only for operator diagnostics on a dedicated VM.
-  const allowedDestination = privateBrowsing ? async () => true : publicDestination;
+export function createCloudBrowser({ statePath, assertActive, enabled, beforeInput, endpoint = "http://127.0.0.1:9222", privateBrowsing = false, verifyEgress = verifyLocalEgress, allowDestination }) {
+  // privateBrowsing is only for operator diagnostics on a dedicated VM. A host whose own DNS
+  // differs from the browser's (a sandbox elsewhere) supplies its own allowDestination.
+  const allowedDestination = allowDestination ?? (privateBrowsing ? async () => true : publicDestination);
   const tabs = new Map();
   const owners = new Map();
   let loaded = false;
