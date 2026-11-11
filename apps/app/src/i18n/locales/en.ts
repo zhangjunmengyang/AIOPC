@@ -4,6 +4,7 @@
  */
 
 export default {
+  "aiopc.accounts.not_logged_in": "{platform} login not detected yet. Finish logging in on the right, then try again.",
   "aiopc.space.ask_ai_prompt": "About {path}: ",
   "aiopc.accounts.subtitle": "Accounts are shared by every project. Log in once in AIOPC's built-in browser; the AI drafts and fills each platform's composer, and you press publish.",
   "aiopc.accounts.empty_hint": "Connect the accounts you post from: Xiaohongshu, WeChat, X, Douyin, Bilibili and more.",

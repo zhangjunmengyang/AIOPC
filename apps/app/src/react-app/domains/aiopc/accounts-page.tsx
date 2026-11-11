@@ -54,6 +54,8 @@ export function AccountsPage(props: { workspaceRoot: string }) {
   const platformBridge = usePlatform();
   const platformsQuery = useAiopcPlatforms(props.workspaceRoot);
   const [connecting, setConnecting] = useState(false);
+  // An open login: the page stays usable so the browser panel on the right can be used to log in.
+  const [login, setLogin] = useState<{ platform: AiopcPlatform; alias: string } | null>(null);
   const [renaming, setRenaming] = useState<AiopcAccount | null>(null);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -108,6 +110,19 @@ export function AccountsPage(props: { workspaceRoot: string }) {
           <Button className="ml-auto" onClick={() => setConnecting(true)}><Plus className="size-4" />{t("aiopc.accounts.connect")}</Button>
         </div>
         <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
+        {login ? (
+          <LoginBar
+            key={login.platform.id}
+            workspaceRoot={props.workspaceRoot}
+            platform={login.platform}
+            alias={login.alias}
+            onDone={() => {
+              setLogin(null);
+              void refreshAccounts();
+            }}
+            onCancel={() => setLogin(null)}
+          />
+        ) : null}
 
         {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
         {accountsQuery.isError ? (
@@ -198,6 +213,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
         workspaceRoot={props.workspaceRoot}
         platforms={platformsQuery.data ?? []}
         onOpenChange={setConnecting}
+        onLoginOpened={(platform, alias) => setLogin({ platform, alias })}
         onConnected={() => void refreshAccounts()}
       />
       <RenameDialog
@@ -215,6 +231,8 @@ function ConnectDialog(props: {
   workspaceRoot: string;
   platforms: AiopcPlatform[];
   onOpenChange: (open: boolean) => void;
+  /** The login page is open in the browser panel; the dialog closes so the panel can be used. */
+  onLoginOpened: (platform: AiopcPlatform, alias: string) => void;
   onConnected: () => void;
 }) {
   const { request } = useAiopc(props.workspaceRoot);
@@ -222,7 +240,6 @@ function ConnectDialog(props: {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<AiopcPlatform | null>(null);
   const [alias, setAlias] = useState("");
-  const [step, setStep] = useState<"choose" | "login">("choose");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -231,7 +248,6 @@ function ConnectDialog(props: {
       setPlatform(null);
       setAlias("");
       setQuery("");
-      setStep("choose");
       setMessage("");
     }
   }, [props.open]);
@@ -251,21 +267,17 @@ function ConnectDialog(props: {
     return [...byCategory.entries()].sort(([a], [b]) => Number(a === planned) - Number(b === planned));
   }, [props.platforms, query, region]);
 
-  const connect = async (check: boolean) => {
+  const openLogin = async () => {
     if (!platform) return;
     setBusy(true);
     setMessage("");
     try {
       const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
-        body: { platform: platform.id, alias: alias.trim(), check },
+        body: { platform: platform.id, alias: alias.trim() },
       });
-      if (result.status === "connected") {
-        props.onConnected();
-        props.onOpenChange(false);
-        return;
-      }
-      setStep("login");
-      setMessage(result.message);
+      if (result.status === "connected") props.onConnected();
+      else props.onLoginOpened(platform, alias.trim());
+      props.onOpenChange(false);
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -277,10 +289,10 @@ function ConnectDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{step === "login" && platform ? t("aiopc.accounts.login_title", { platform: platform.name }) : t("aiopc.accounts.connect")}</DialogTitle>
-          <DialogDescription>{step === "login" ? t("aiopc.accounts.login_hint") : t("aiopc.accounts.connect_hint")}</DialogDescription>
+          <DialogTitle>{t("aiopc.accounts.connect")}</DialogTitle>
+          <DialogDescription>{t("aiopc.accounts.connect_hint")}</DialogDescription>
         </DialogHeader>
-        {step === "choose" ? (
+        {(
           <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex items-center gap-2">
               <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
@@ -326,26 +338,50 @@ function ConnectDialog(props: {
             </div>
             <Input value={alias} onChange={(event) => setAlias(event.currentTarget.value)} placeholder={t("aiopc.accounts.alias")} maxLength={80} />
           </div>
-        ) : (
-          <div className="flex items-center gap-3 rounded-xl bg-muted/40 px-4 py-3 text-sm">
-            {platform ? <PlatformIcon id={platform.id} name={platform.name} color={platform.color} /> : null}
-            <p>{t("aiopc.accounts.login_steps", { platform: platform?.name ?? "" })}</p>
-          </div>
         )}
-        {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
+        {message ? <p className="text-xs text-destructive">{message}</p> : null}
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>{t("common.cancel")}</Button>
-          {step === "choose" ? (
-            <Button disabled={!platform || busy} onClick={() => void connect(false)}>{t("aiopc.accounts.open_login")}</Button>
-          ) : (
-            <>
-              <Button variant="outline" disabled={busy} onClick={() => void connect(false)}>{t("aiopc.accounts.reopen_login")}</Button>
-              <Button disabled={busy} onClick={() => void connect(true)}>{busy ? t("aiopc.accounts.checking") : t("aiopc.accounts.logged_in")}</Button>
-            </>
-          )}
+          <Button disabled={!platform || busy} onClick={() => void openLogin()}>{t("aiopc.accounts.open_login")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Shown above the list while a login page is open in the browser panel; nothing here covers the panel. */
+function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias: string; onDone: () => void; onCancel: () => void }) {
+  const { request } = useAiopc(props.workspaceRoot);
+  const [busy, setBusy] = useState<"" | "check" | "reopen">("");
+  const [message, setMessage] = useState("");
+  const call = async (check: boolean) => {
+    setBusy(check ? "check" : "reopen");
+    setMessage("");
+    try {
+      const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
+        body: { platform: props.platform.id, alias: props.alias, check },
+      });
+      if (result.status === "connected") props.onDone();
+      else if (result.status === "not_logged_in") setMessage(t("aiopc.accounts.not_logged_in", { platform: props.platform.name }));
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+      <PlatformIcon id={props.platform.id} name={props.platform.name} color={props.platform.color} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-sm font-medium">{t("aiopc.accounts.login_title", { platform: props.platform.name })}</span>
+        <span className="text-xs text-muted-foreground">{message || t("aiopc.accounts.login_steps")}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Button variant="ghost" size="sm" disabled={Boolean(busy)} onClick={props.onCancel}>{t("common.cancel")}</Button>
+        <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void call(false)}>{t("aiopc.accounts.reopen_login")}</Button>
+        <Button size="sm" disabled={Boolean(busy)} onClick={() => void call(true)}>{busy === "check" ? t("aiopc.accounts.checking") : t("aiopc.accounts.logged_in")}</Button>
+      </div>
+    </div>
   );
 }
 

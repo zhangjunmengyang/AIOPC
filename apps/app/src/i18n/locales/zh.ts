@@ -7,6 +7,7 @@
  */
 
 export default {
+  "aiopc.accounts.not_logged_in": "还没检测到{platform}的登录。请在右侧完成登录后再点一次。",
   "workspace_list.title": "项目",
   "aiopc.space.ask_ai_prompt": "关于 {path}：",
   "aiopc.accounts.subtitle": "账号所有项目共用。在 AIOPC 内置浏览器里登录一次即可；AI 起草并填好各平台的发布页，由你点发布。",
