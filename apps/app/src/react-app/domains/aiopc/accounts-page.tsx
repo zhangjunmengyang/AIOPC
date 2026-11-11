@@ -10,6 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { usePlatform } from "@/react-app/kernel/platform";
+import { useStartSeededChat } from "@/react-app/shell/use-start-seeded-chat";
 
 import {
   type AiopcAccount,
@@ -20,6 +21,8 @@ import {
   useAiopcPlatforms,
 } from "./aiopc-client";
 import { AiopcUnavailable } from "./aiopc-status";
+import { EnvironmentCard } from "./environment-card";
+import { useEnvironmentViewer } from "./environment-view";
 import { EnhancementCard, HelpLink, KeyFields, ServiceCard } from "./connection-methods";
 import { PlatformIcon } from "./platform-icon";
 
@@ -33,9 +36,6 @@ type HistoryEntry = {
   url?: string;
   error?: string;
 };
-
-/** A login in progress: through the browser, or GitHub's own authorization. */
-type PendingLogin = { platform: AiopcPlatform; method: "auto" | "browser" };
 
 function formatTime(seconds: number | null | undefined) {
   if (!seconds) return "";
@@ -52,7 +52,14 @@ export function AccountsPage(props: { workspaceRoot: string }) {
   const platformBridge = usePlatform();
   const platformsQuery = useAiopcPlatforms(props.workspaceRoot);
   const [connecting, setConnecting] = useState(false);
-  const [login, setLogin] = useState<PendingLogin | null>(null);
+  const startChat = useStartSeededChat();
+  const viewer = useEnvironmentViewer(props.workspaceRoot);
+  // Logging in happens in the chat: the AI opens the page, shows the QR code or asks for the code.
+  const askAiToLogIn = (platform: AiopcPlatform) => {
+    setConnecting(false);
+    setOpenId("");
+    startChat(t("aiopc.accounts.login_prompt", { platform: platform.name }));
+  };
   // Kept by ID so the dialog always shows the account's latest state.
   const [openId, setOpenId] = useState("");
 
@@ -88,19 +95,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
           <Button className="ml-auto" onClick={() => setConnecting(true)}>{t("aiopc.accounts.connect")}</Button>
         </div>
         <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
-        {login ? (
-          <LoginBar
-            key={`${login.platform.id}-${login.method}`}
-            workspaceRoot={props.workspaceRoot}
-            platform={login.platform}
-            method={login.method}
-            onDone={() => {
-              setLogin(null);
-              void refreshAccounts();
-            }}
-            onCancel={() => setLogin(null)}
-          />
-        ) : null}
+        <EnvironmentCard workspaceRoot={props.workspaceRoot} onWatch={viewer.open} />
 
         {accountsQuery.isError ? (
           <p className="text-sm text-destructive">{accountsQuery.error instanceof Error ? accountsQuery.error.message : String(accountsQuery.error)}</p>
@@ -170,19 +165,17 @@ export function AccountsPage(props: { workspaceRoot: string }) {
         workspaceRoot={props.workspaceRoot}
         platforms={platforms}
         onOpenChange={setConnecting}
-        onLogin={(platform, method) => setLogin({ platform, method })}
+        onLogin={(platform) => askAiToLogIn(platform)}
         onConnected={() => void refreshAccounts()}
       />
+      {viewer.element}
       <AccountDialog
         account={opened}
         platform={opened ? platformById.get(opened.platform) ?? null : null}
         workspaceRoot={props.workspaceRoot}
         onClose={() => setOpenId("")}
         onChanged={() => void refreshAccounts()}
-        onRelogin={(platform, method) => {
-          setOpenId("");
-          setLogin({ platform, method });
-        }}
+        onRelogin={(platform) => askAiToLogIn(platform)}
       />
     </section>
   );
@@ -210,7 +203,7 @@ function ConnectDialog(props: {
   workspaceRoot: string;
   platforms: AiopcPlatform[];
   onOpenChange: (open: boolean) => void;
-  onLogin: (platform: AiopcPlatform, method: "auto" | "browser") => void;
+  onLogin: (platform: AiopcPlatform) => void;
   onConnected: () => void;
 }) {
   const [region, setRegion] = useState<"cn" | "global">("cn");
@@ -229,12 +222,8 @@ function ConnectDialog(props: {
     return [...byCategory.entries()];
   }, [props.platforms, region]);
 
-  const login = (platform: AiopcPlatform, method: "auto" | "browser") => {
-    props.onLogin(platform, method);
-    props.onOpenChange(false);
-  };
   const choose = (platform: AiopcPlatform) => {
-    if (platform.methods.length === 0) login(platform, "browser");
+    if (platform.methods.length === 0) props.onLogin(platform);
     else setChosen(platform);
   };
 
@@ -246,7 +235,7 @@ function ConnectDialog(props: {
             platform={chosen}
             workspaceRoot={props.workspaceRoot}
             onBack={() => setChosen(null)}
-            onLogin={(method) => login(chosen, method)}
+            onLogin={() => props.onLogin(chosen)}
             onConnected={() => {
               props.onConnected();
               props.onOpenChange(false);
@@ -293,7 +282,7 @@ function MethodPicker(props: {
   platform: AiopcPlatform;
   workspaceRoot: string;
   onBack: () => void;
-  onLogin: (method: "auto" | "browser") => void;
+  onLogin: () => void;
   onConnected: () => void;
 }) {
   const { request } = useAiopc(props.workspaceRoot);
@@ -341,7 +330,7 @@ function MethodPicker(props: {
         <div className="flex flex-col gap-3">
           {props.platform.methods.map((method) => (
             <button key={method.route} type="button"
-              onClick={() => (method.automatic ? props.onLogin("auto") : setForm(method))}
+              onClick={() => (method.automatic ? props.onLogin() : setForm(method))}
               className="flex items-start gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:bg-muted/50">
               <PlatformIcon id={props.platform.id} name={props.platform.name} color={props.platform.color} />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -351,7 +340,7 @@ function MethodPicker(props: {
               <ChevronRight className="mt-2 size-4 shrink-0 text-muted-foreground" />
             </button>
           ))}
-          <button type="button" onClick={() => props.onLogin("browser")}
+          <button type="button" onClick={() => props.onLogin()}
             className="flex items-start gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:bg-muted/50">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted"><Globe className="size-4 text-muted-foreground" /></span>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -373,7 +362,7 @@ function AccountDialog(props: {
   workspaceRoot: string;
   onClose: () => void;
   onChanged: () => void;
-  onRelogin: (platform: AiopcPlatform, method: "auto" | "browser") => void;
+  onRelogin: (platform: AiopcPlatform) => void;
 }) {
   const { request } = useAiopc(props.workspaceRoot);
   const platformBridge = usePlatform();
@@ -446,7 +435,7 @@ function AccountDialog(props: {
                   {busy === "check" ? t("aiopc.accounts.checking") : t("aiopc.accounts.recheck")}
                 </Button>
                 {props.platform ? (
-                  <Button variant="outline" size="sm" onClick={() => props.onRelogin(props.platform!, "browser")}>{t("aiopc.accounts.relogin")}</Button>
+                  <Button variant="outline" size="sm" onClick={() => props.onRelogin(props.platform!)}>{t("aiopc.accounts.relogin")}</Button>
                 ) : null}
               </div>
             )}
@@ -476,62 +465,3 @@ function AccountDialog(props: {
 }
 
 /** Shown above the list while a login is open in the browser panel; nothing here covers the panel. */
-function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; method: "auto" | "browser"; onDone: () => void; onCancel: () => void }) {
-  const { request } = useAiopc(props.workspaceRoot);
-  const [busy, setBusy] = useState<"" | "open" | "check">("open");
-  const [message, setMessage] = useState("");
-  // GitHub authorizes with a one-time code; once shown, AIOPC checks for the approval by itself.
-  const [deviceCode, setDeviceCode] = useState("");
-  const call = async (check: boolean, quiet = false) => {
-    if (!quiet) {
-      setBusy(check ? "check" : "open");
-      setMessage("");
-    }
-    try {
-      const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
-        body: { platform: props.platform.id, check, method: props.method },
-      });
-      if (result.status === "connected") props.onDone();
-      else if (result.status === "authorize") setDeviceCode(result.code);
-      else if (result.status === "not_logged_in" && !quiet) setMessage(t("aiopc.accounts.not_logged_in", { platform: props.platform.name }));
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      if (!quiet) setBusy("");
-    }
-  };
-  // Opening the login page is the first step; it runs in the background while the page stays usable.
-  useEffect(() => {
-    void call(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    if (!deviceCode) return;
-    const timer = window.setInterval(() => void call(true, true), 3000);
-    return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceCode]);
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-4">
-      <div className="flex items-center gap-3">
-        <PlatformIcon id={props.platform.id} name={props.platform.name} color={props.platform.color} />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-sm font-medium">{t("aiopc.accounts.login_title", { platform: props.platform.name })}</span>
-          <span className={cn("text-xs", message ? "text-destructive" : "text-muted-foreground")}>
-            {message || (deviceCode ? t("aiopc.accounts.device_steps") : busy === "open" ? t("aiopc.accounts.opening_login") : t("aiopc.accounts.login_steps"))}
-          </span>
-        </div>
-        {deviceCode ? (
-          <span className="ml-auto shrink-0 rounded-lg bg-background px-3 py-1.5 font-mono text-lg font-semibold tracking-widest">{deviceCode}</span>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap justify-end gap-1.5">
-        <Button variant="ghost" size="sm" onClick={props.onCancel}>{t("common.cancel")}</Button>
-        <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void call(false)}>{t("aiopc.accounts.reopen_login")}</Button>
-        {deviceCode ? null : (
-          <Button size="sm" disabled={Boolean(busy)} onClick={() => void call(true)}>{busy === "check" ? t("aiopc.accounts.checking") : t("aiopc.accounts.logged_in")}</Button>
-        )}
-      </div>
-    </div>
-  );
-}

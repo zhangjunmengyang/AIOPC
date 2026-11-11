@@ -21,7 +21,7 @@ description: 把项目的一份原稿改写成各平台稿件、配好素材、�
 3. 需要配图时用 `media-studio`。小红书图文至少一张图；视频形式需要正好一个视频文件；文章需要标题。
 4. 把最终文案和图片给用户看，用户确认后调用 `social_publish(account_id, text, title, media, form, tags)`。AIOPC 会自动选择发布方式，结果里的 `status` 说明实际发生了什么：
    - `published`：账号接了官方接口，已直接发布（调用前用户在对话里批准过），结果带帖子链接，已自动记录。
-   - `composer_filled`：已在右侧内置浏览器填好发布页，**最后由用户检查并点发布**。
+   - `composer_filled`：已在项目环境里填好发布页，**最后由用户检查并点发布**（右侧「项目环境」画面可以看到）。
 5. `composer_filled` 时，用户发布后把链接用 `social_record_published` 记下；没有链接就不说已发布。
 
 ## 状态说清楚

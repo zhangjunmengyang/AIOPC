@@ -1,3 +1,4 @@
+import { EnvironmentView } from "../../aiopc/environment-view";
 import { BuiltMcpAppPanel } from "../../apps/built-mcp-app-panel";
 import { t } from "@/i18n";
 /** @jsxImportSource react */
@@ -8,6 +9,7 @@ import {
   ArrowRight,
   Globe,
   Loader2,
+  Cpu,
   MessagesSquare,
   Maximize2,
   PanelRight,
@@ -208,7 +210,7 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
           title={tab.label}
           aria-label={`Select tab: ${tab.label}`}
         >
-          {tab.type === "browser" ? <BrowserTabIcon tab={tab} /> : (tab.type === "app" || tab.type === "mcp-app") ? <Blocks /> : tab.type === "remote-thread" ? <MessagesSquare /> : (
+          {tab.type === "browser" ? <BrowserTabIcon tab={tab} /> : (tab.type === "app" || tab.type === "mcp-app") ? <Blocks /> : tab.type === "remote-thread" ? <MessagesSquare /> : tab.type === "environment" ? <Cpu /> : (
             <ArtifactIcon type={tab.preview} />
           )}
           <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
@@ -610,6 +612,15 @@ export function SidePanel({
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
+  // The project's own computer, watched beside the chat.
+  const openEnvironmentTab = React.useCallback(() => {
+    usePanelTabStore.getState().openTab(sessionId, {
+      id: `environment:${workspaceRoot}`,
+      type: "environment",
+      label: t("aiopc.browser.live_view"),
+      workspaceRoot,
+    });
+  }, [sessionId, workspaceRoot]);
 
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
@@ -849,6 +860,7 @@ export function SidePanel({
           <PanelEmpty
             onOpenBrowser={isBrowserAvailable ? createTab : undefined}
             onOpenExtensions={onOpenExtensions}
+            onOpenEnvironment={workspaceRoot ? openEnvironmentTab : undefined}
           />
         ) : null}
         {activeTab?.type === "browser" ? (
@@ -862,6 +874,10 @@ export function SidePanel({
           )
         ) : activeTab?.type === "mcp-app" ? (
           <BuiltMcpAppPanel key={activeTab.id} tab={activeTab} onClose={onClose} />
+        ) : activeTab?.type === "environment" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <EnvironmentView key={activeTab.id} workspaceRoot={activeTab.workspaceRoot} />
+          </div>
         ) : activeTab?.type === "remote-thread" ? (
           <div className="min-h-0 flex-1 overflow-hidden"><RemoteThreadPanel key={activeTab.id} tab={activeTab} /></div>
         ) : activeTab?.type === "app" ? (

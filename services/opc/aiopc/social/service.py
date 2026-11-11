@@ -130,12 +130,38 @@ class SocialService:
         browser = SandboxBrowser(environment.cdp_url)
         if not self.sandboxes.migrated(self.project_path):
             # First run: bring over whatever the built-in browser was already logged in to.
+            self.sandboxes.mark_migrated(self.project_path)
             try:
                 await migrate_logins(self.browser, browser)
+                await self._adopt_builtin_accounts(browser)
             except (OpenWorkError, OSError, ValueError):
                 pass
-            self.sandboxes.mark_migrated(self.project_path)
         return browser
+
+    async def _adopt_builtin_accounts(self, browser: SandboxBrowser) -> list[str]:
+        """Built-in browser accounts whose login came across now belong to this project's environment.
+        Where AIOPC can tell who is logged in, it checks first; elsewhere it trusts the moved login."""
+        adopted = []
+        for account in self.store.list():
+            if (account.get("engine") or "embedded") != "embedded":
+                continue
+            platform = account["platform"]
+            found: dict[str, Any] | None = account.get("identity") or {}
+            if platform in DETECTED:
+                found = None
+                # Some sites (X) fail their first load in a fresh browser; one more look settles it.
+                for _ in range(2):
+                    try:
+                        found = await browser.account(platform)
+                    except OpenWorkError:
+                        found = None
+                    if found:
+                        break
+            if not found:
+                continue
+            self.store.upsert(platform, found, alias=account.get("alias") or "", engine="sandbox", project=self.project_path)
+            adopted.append(platform)
+        return adopted
 
     async def browser_for(self, account: dict[str, Any]) -> OpenWorkBrowser:
         """Where this account's login lives."""
@@ -176,6 +202,9 @@ class SocialService:
             return {"platform": platform, "engine": engine, "status": "already_connected",
                     "account": self.describe(account),
                     "message": f"这个项目的环境里已经登录了 {found.get('name') or platform}，不用再登录一次。"}
+        if self._login is not None:
+            # One login at a time: a new one replaces whatever was left half done.
+            await self._login.close()
         self._login = Login(browser)
         self._login_platform = platform
         try:
@@ -238,7 +267,9 @@ class SocialService:
         """Copy the built-in browser's logins into this project's environment again, on request."""
         browser = await self.sandbox_browser()
         try:
-            return await migrate_logins(self.browser, browser)
+            result = await migrate_logins(self.browser, browser)
+            result["accounts"] = await self._adopt_builtin_accounts(browser)
+            return result
         except OpenWorkError as exc:
             raise SocialError(str(exc)) from None
 

@@ -24,6 +24,7 @@ AIOPC 是给一人公司用的 AI 桌面工作台：从一个想法出发，把�
 - [项目与资料空间](projects/projects.md)
 - [账号与连接方式](accounts/accounts.md)
 - [发布内容](publishing/publishing.md)
+- [项目环境：每个项目一台自己的电脑](workspace/environment.md)
 - [内置浏览器](workspace/browser.md)
 - [连接：技能、MCP 与插件](workspace/connections.md)
 - [常见问题](start/troubleshooting.md)

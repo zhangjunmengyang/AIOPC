@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { ArrowLeft, ArrowRight, FileText, Globe, Puzzle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cpu, FileText, Globe, Puzzle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { t } from "@/i18n";
 export type PanelEmptyActions = {
   onOpenBrowser?: () => void;
   onOpenExtensions?: () => void;
+  onOpenEnvironment?: () => void;
 };
 
 export function handlePanelEscape(key: string, onClose: () => void) {
@@ -18,7 +19,7 @@ export function handlePanelEscape(key: string, onClose: () => void) {
 }
 
 type PanelDestination = {
-  id: "browser" | "files" | "extensions";
+  id: "browser" | "files" | "extensions" | "environment";
   label: string;
   description: string;
   icon: React.ReactNode;
@@ -38,6 +39,16 @@ export function getPanelDestinations(
       description: "Open a new page in the built-in browser.",
       icon: <Globe aria-hidden="true" />,
       activate: actions.onOpenBrowser,
+    });
+  }
+
+  if (actions.onOpenEnvironment) {
+    destinations.push({
+      id: "environment",
+      label: t("aiopc.browser.live_view"),
+      description: t("aiopc.browser.live_view_hint"),
+      icon: <Cpu aria-hidden="true" />,
+      activate: actions.onOpenEnvironment,
     });
   }
 
@@ -62,7 +73,7 @@ export function getPanelDestinations(
   return destinations;
 }
 
-export function PanelEmpty({ onOpenBrowser, onOpenExtensions }: PanelEmptyActions) {
+export function PanelEmpty({ onOpenBrowser, onOpenExtensions, onOpenEnvironment }: PanelEmptyActions) {
   const [destination, setDestination] = React.useState<"chooser" | "files">("chooser");
 
   if (destination === "files") {
@@ -91,7 +102,7 @@ export function PanelEmpty({ onOpenBrowser, onOpenExtensions }: PanelEmptyAction
   }
 
   const destinations = getPanelDestinations(
-    { onOpenBrowser, onOpenExtensions },
+    { onOpenBrowser, onOpenExtensions, onOpenEnvironment },
     () => setDestination("files"),
   );
 

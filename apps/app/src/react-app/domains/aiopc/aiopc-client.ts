@@ -86,6 +86,34 @@ export type AiopcAccount = {
   verified_at?: number | null;
 };
 
+/** Where a project's browser runs: its own computer. */
+export type AiopcEnvironment = {
+  provider: string;
+  status: "running" | "starting" | "stopped" | "missing";
+  id: string;
+  live_view_url: string;
+  detail: string;
+  expires_at: string;
+  running: boolean;
+  /** sandbox: the project's own environment; embedded: AIOPC's built-in browser. */
+  engine: "sandbox" | "embedded";
+  provider_id: string;
+  migrated: boolean;
+  providers: AiopcProvider[];
+};
+export type AiopcProvider = {
+  id: string;
+  name: string;
+  kind: "local" | "cloud" | "manual";
+  summary: string;
+  help_url: string;
+  persists_logins: boolean;
+  configured: boolean;
+  available: boolean;
+  detail: string;
+  fields: Array<{ name: string; label: string; secret: boolean; optional: boolean; placeholder: string }>;
+};
+
 export type ConnectResult =
   | { status: "login_opened"; platform: string; login_url?: string; message: string }
   | { status: "not_logged_in"; platform: string; message: string }
@@ -186,6 +214,17 @@ export function useAiopcPlatforms(workspaceRoot: string) {
     enabled: ready,
     staleTime: Infinity,
     queryFn: () => request<{ platforms: AiopcPlatform[] }>("GET", "/api/platforms").then((data) => data.platforms),
+  });
+}
+
+/** The project's environment, polled while it is coming up. */
+export function useAiopcEnvironment(workspaceRoot: string) {
+  const { ready, request } = useAiopc(workspaceRoot);
+  return useQuery({
+    queryKey: ["aiopc", workspaceRoot, "environment"],
+    enabled: ready,
+    refetchInterval: (query) => (query.state.data?.running ? 30_000 : 5_000),
+    queryFn: () => request<AiopcEnvironment>("GET", "/api/environment"),
   });
 }
 

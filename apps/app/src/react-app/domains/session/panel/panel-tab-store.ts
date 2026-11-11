@@ -7,7 +7,7 @@ import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } 
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "openwork:panel-tabs:v1";
 
-export type PanelTabType = "artifact" | "browser" | "app" | "mcp-app" | "remote-thread";
+export type PanelTabType = "artifact" | "browser" | "app" | "mcp-app" | "remote-thread" | "environment";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -27,7 +27,10 @@ export type McpAppPanelTab = { id: string; type: "mcp-app"; label: string; appId
 /** A task running on another computer, opened from its row in the chat. */
 export type RemoteThreadPanelTab = { id: string; type: "remote-thread"; label: string; threadKey: string; owner: { workspaceId: string; sessionId: string } };
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab | McpAppPanelTab | RemoteThreadPanelTab;
+/** This project's own computer, watched live; the person takes over here when the AI needs them to. */
+export type EnvironmentPanelTab = { id: string; type: "environment"; label: string; workspaceRoot: string };
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab | McpAppPanelTab | RemoteThreadPanelTab | EnvironmentPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];

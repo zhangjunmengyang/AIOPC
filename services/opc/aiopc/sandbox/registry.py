@@ -58,7 +58,9 @@ class Sandboxes:
         data = self._read()
         record = (data.get("projects") or {}).get(str(project)) or {}
         return {"provider": record.get("provider") or data.get("provider") or DEFAULT,
-                "state": dict(record.get("state") or {}), "migrated": bool(record.get("migrated"))}
+                "state": dict(record.get("state") or {}), "migrated": bool(record.get("migrated")),
+                # sandbox or embedded, when the person chose; empty means "whatever this machine can run".
+                "engine": str(record.get("engine") or "")}
 
     def save(self, project: str, record: dict[str, Any]) -> None:
         data = self._read()
@@ -154,7 +156,7 @@ class Sandboxes:
         record = self.record(project)
         self._bind(record["provider"], record["state"])
         await self.provider(record["provider"]).destroy(self.key(project), record["state"])
-        self.save(project, {"provider": record["provider"], "state": {}, "migrated": False})
+        self.save(project, {**record, "state": {}, "migrated": False})
         return {"destroyed": True}
 
     async def move(self, project: str, provider_id: str) -> Environment:
@@ -164,7 +166,7 @@ class Sandboxes:
             raise SandboxError("这个提供方还没有填密钥")
         record = self.record(project)
         if record["provider"] != provider_id:
-            self.save(project, {"provider": provider_id, "state": {}, "migrated": False})
+            self.save(project, {**record, "provider": provider_id, "state": {}, "migrated": False})
         return await self.status(project)
 
     def can_run_environment(self, project: str = "") -> bool:
