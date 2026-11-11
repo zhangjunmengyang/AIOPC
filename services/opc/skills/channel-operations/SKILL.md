@@ -11,7 +11,8 @@ description: 管理社交媒体账号：连接账号、看账号能做什么、�
 
 - `social_platforms`：AIOPC 支持的平台，分国内和出海。所有平台都通过在内置浏览器里登录一次来连接，登录状态会保存；`fills_composer` 为 true 的平台还能用 `social_publish` 自动填写发布页，其他平台（例如 GitHub、Discord、Product Hunt）用内置浏览器直接在网站上操作。
 - GitHub 上的开发工作（仓库、Issue、PR、Release）优先用 `gh` 命令行：没登录时请用户在终端运行 `gh auth login` 完成浏览器授权，不要索要或保存令牌。
-- `social_accounts`：已连接的账号，状态（ready / needs_login）、支持的形式（post / article / video）和能读的数据。
+- `social_accounts`：已连接的账号，状态（ready / needs_login）、发布方式（`direct` 官方接口直接发布 / `compose` 填好发布页由用户点发布 / `browser` 在浏览器里操作）、支持的形式和能读的数据。每个账号背后用浏览器、官方接口还是第三方数据由 AIOPC 自动选择，你只管调用工具。
+- 用户想让某个平台直接发布或拿到更准的数据时，告诉他在「账号 → 接口与数据」里添加官方接口或数据服务；不要在对话里索要密钥。
 - `social_connect(platform)`：连接账号。第一次调用会在对话右侧的内置浏览器打开登录页，并把登录页截图（通常带二维码）返回到对话里，请用户直接扫码或在右侧登录；用户说登好了，再用 `check=true` 调用，自动识别并保存账号。用户也可以在「账号」页自己连接。每个平台同一时间登录一个账号。
 - `social_publish`：见 `content-publishing`。
 - `social_read(account_id, what)`：读回自己的帖子、数据或评论（posts / stats / comments），X 还能用 `post_id` 读某条帖子的回复。复盘时用，结论写进项目的 `marketing-plan.md`。
@@ -19,7 +20,7 @@ description: 管理社交媒体账号：连接账号、看账号能做什么、�
 
 ## X 数据（第三方缓存，便宜但有延迟）
 
-`x_search`、`x_user`、`x_user_posts`、`x_mentions`、`x_replies`、`x_posts` 读取第三方聚合的 X 数据（需要 TWITTERAPI_IO_KEY），按条计费、本地缓存 10 分钟到 6 小时，可能比 x.com 晚几分钟，也可能缺少受保护或已删除的帖子。用途：竞品与话题调研（`x_search` 支持 `from:`、`"短语"`、`lang:`、`min_faves:`、`since:`）、收集自己帖子的回复和提及、刷新已发帖子的数据。默认 `pages=1`（约 20 条），确有需要再加；`fresh=true` 才绕过缓存。`x_data_usage` 查看估算花费。
+`x_search`、`x_user`、`x_user_posts`、`x_mentions`、`x_replies`、`x_posts` 读取第三方聚合的 X 数据（twitterapi.io，在「账号 → 接口与数据」里配置），按条计费、本地缓存 10 分钟到 6 小时，可能比 x.com 晚几分钟，也可能缺少受保护或已删除的帖子。用途：竞品与话题调研（`x_search` 支持 `from:`、`"短语"`、`lang:`、`min_faves:`、`since:`）、收集自己帖子的回复和提及、刷新已发帖子的数据。默认 `pages=1`（约 20 条），确有需要再加；`fresh=true` 才绕过缓存。`x_data_usage` 查看估算花费。
 
 ## 规则
 

@@ -96,6 +96,23 @@ class AccountStore:
             self._write(accounts)
             return dict(account)
 
+    def set_route(self, account_id: str, route_id: str, public: dict[str, Any] | None) -> dict[str, Any]:
+        """Attach (public details only; secrets stay in the Keychain) or detach an official route."""
+        with self._lock:
+            accounts = self._read()
+            account = next((item for item in accounts if item["id"] == account_id), None)
+            if account is None:
+                raise AccountError("账号不存在")
+            routes = dict(account.get("routes") or {})
+            if public is None:
+                routes.pop(route_id, None)
+            else:
+                routes[route_id] = {key: str(value)[:200] for key, value in public.items()} | {"added_at": time.time()}
+            account["routes"] = routes
+            account["updated_at"] = time.time()
+            self._write(accounts)
+            return dict(account)
+
     def delete(self, account_id: str) -> None:
         with self._lock:
             accounts = self._read()

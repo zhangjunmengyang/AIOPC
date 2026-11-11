@@ -1,52 +1,69 @@
 """The one social core for AIOPC: the AI's tools and the app's Accounts page both call this.
 
-Every account works through AIOPC's built-in browser: the person logs in there
-once; publishing fills the platform's composer with MultiPost's scripts and the
-person presses publish. Reading prefers structured data (third-party X data,
-platform APIs inside the logged-in page) and falls back to the page's text.
+Every account is connected by logging in once in AIOPC's built-in browser. Behind
+the same publish / read calls each account may have more routes (official APIs,
+third-party data); the service picks the best one for each job, so neither the
+AI nor the pages need to know which mechanism ran. Routes live in ``routes.py``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
+from aiopc import credentials
 from aiopc.accounts import PLATFORMS, AccountError, AccountStore, normalize_platform
 from aiopc.paths import inside
 from aiopc.project import Project
 
 from .openwork import LOGIN_PAGES, MULTIPOST_KEYS, OpenWorkBrowser, OpenWorkError
+from .routes import (
+    ENHANCEMENTS,
+    BlueskyRoute,
+    BrowserRoute,
+    GitHubCliRoute,
+    Post,
+    Route,
+    RouteError,
+    XApiRoute,
+    XDataRoute,
+)
 
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".m4v"}
 MAX_TEXT = 20_000
 MAX_MEDIA = 18
 READ_KINDS = ("posts", "stats", "comments")
-# The account's own pages, read as text when no structured source exists.
-PAGES: dict[str, dict[str, str]] = {
-    "xhs": {"posts": "https://creator.xiaohongshu.com/new/note-manager",
-            "stats": "https://creator.xiaohongshu.com/statistics/data-analysis",
-            "comments": "https://www.xiaohongshu.com/notification"},
-    "zhihu": {"posts": "https://www.zhihu.com/people/{handle}/posts",
-              "stats": "https://www.zhihu.com/creator/analytics/work/all",
-              "comments": "https://www.zhihu.com/notifications"},
-    "jike": {"posts": "https://web.okjike.com/u/{handle}", "comments": "https://web.okjike.com/notification"},
-    "weibo": {"posts": "https://weibo.com/u/{id}", "comments": "https://weibo.com/comment/inbox"},
-    "douyin": {"posts": "https://creator.douyin.com/creator-micro/content/manage",
-               "stats": "https://creator.douyin.com/creator-micro/data-center/content"},
-    "bilibili": {"posts": "https://member.bilibili.com/platform/upload-manager/article",
-                 "stats": "https://member.bilibili.com/platform/data/overview"},
-    "linkedin": {"posts": "https://www.linkedin.com/in/me/recent-activity/all/"},
-}
 # Platforms whose logged-in identity we can read; others are saved as "the browser's account".
 DETECTED = {"x", "xhs", "douyin", "bilibili", "tiktok", "zhihu"}
+# Shared data services configured on the Accounts page (not tied to one account).
+SERVICES: dict[str, dict[str, Any]] = {
+    "twitterapi": {
+        "id": "twitterapi", "name": "X 第三方数据（twitterapi.io）",
+        "does": "读取 X：搜索、竞品主页、帖子回复与提及、刷新帖子数据。按条计费，比官方便宜，结果本地缓存。",
+        "fields": [{"name": "api_key", "label": "API Key", "secret": True}],
+        "help": "在 twitterapi.io 注册并充值后，在后台复制 API Key。", "help_url": "https://twitterapi.io/dashboard",
+        "env": "TWITTERAPI_IO_KEY",
+    },
+}
+# Routes are tried in this order: official APIs, third-party data, then the browser.
+KIND_ORDER = {"api": 0, "data": 1, "browser": 2}
 
 
 class SocialError(ValueError):
     pass
+
+
+def service_secret(service: str) -> dict[str, Any] | None:
+    """A shared service's key: the Keychain (set on the Accounts page), else the .env variable."""
+    stored = credentials.load("service", service)
+    if stored:
+        return stored
+    env = SERVICES.get(service, {}).get("env")
+    value = os.environ.get(env, "").strip() if env else ""
+    return {"api_key": value} if value else None
 
 
 class SocialService:
@@ -57,6 +74,11 @@ class SocialService:
         self.store = AccountStore(self.instance)
         self._browser = browser
         self._xdata = xdata
+        self.routes: list[Route] = [
+            XApiRoute(), BlueskyRoute(), GitHubCliRoute(),
+            XDataRoute(lambda: self.xdata, lambda: service_secret("twitterapi") is not None),
+            BrowserRoute(lambda: self.browser),
+        ]
 
     @property
     def browser(self) -> OpenWorkBrowser:
@@ -66,22 +88,32 @@ class SocialService:
     def xdata(self) -> Any:
         if self._xdata is None:
             from aiopc.xdata import XDataService
+
             self._xdata = XDataService(self.instance)
         return self._xdata
+
+    def _routes_for(self, account: dict[str, Any]) -> list[Route]:
+        return sorted((route for route in self.routes if route.attached(account)), key=lambda route: KIND_ORDER[route.kind])
 
     # ── accounts ─────────────────────────────────────────────────────────
     def describe(self, account: dict[str, Any]) -> dict[str, Any]:
         platform = account["platform"]
         identity = account.get("identity") or {}
+        routes = self._routes_for(account)
+        direct = any(route.kind == "api" and route.id != "github-cli" for route in routes)
+        attached = {route.id for route in routes}
         return {
             "account_id": account["id"], "platform": platform, "platform_name": PLATFORMS.get(platform, platform),
             "name": account.get("alias") or identity.get("name") or PLATFORMS.get(platform, platform),
             "handle": identity.get("handle", ""), "url": identity.get("url", ""),
             "status": "ready" if identity.get("id") else "needs_login",
-            # compose: the AI fills the platform's composer; browser: the AI works on the site in the built-in browser.
-            "publish": "compose" if platform in MULTIPOST_KEYS else "browser",
+            # direct: an official API publishes after the person approves; compose: the AI fills the composer and the
+            # person presses publish; browser: the AI works on the site in the built-in browser.
+            "publish": "direct" if direct else "compose" if platform in MULTIPOST_KEYS else "browser",
             "forms": list(MULTIPOST_KEYS.get(platform, {})),
-            "reads": (["posts", "comments"] if platform == "x" else list(PAGES.get(platform, {}))),
+            "reads": sorted({what for what in READ_KINDS for route in routes if route.reads(account, what)}),
+            "routes": [{"id": route.id, "kind": route.kind, "name": route.name} for route in routes],
+            "enhancements": [{**item, "attached": item["route"] in attached} for item in ENHANCEMENTS.get(platform, [])],
             "verified_at": account.get("verified_at"),
         }
 
@@ -130,10 +162,70 @@ class SocialService:
             raise SocialError(str(exc)) from None
 
     def remove(self, account_id: str) -> None:
+        account = self._account(account_id)
+        for route_id in (account.get("routes") or {}):
+            credentials.delete(account_id, route_id)
         try:
             self.store.delete(account_id)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
+
+    # ── routes: official APIs added to an account ───────────────────────
+    async def add_route(self, account_id: str, route_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """Verify the person's keys with the platform, keep them in the Keychain, and attach the route."""
+        account = self._account(account_id)
+        offered = {item["route"] for item in ENHANCEMENTS.get(account["platform"], [])}
+        if route_id not in offered:
+            raise SocialError("这个账号没有这种接口")
+        values = {key: str(value).strip() for key, value in (fields or {}).items() if str(value).strip()}
+        try:
+            if route_id == "x-api":
+                missing = [name for name in ("api_key", "api_secret", "access_token", "access_token_secret") if not values.get(name)]
+                if missing:
+                    raise SocialError("请填写全部四项密钥")
+                public = await XApiRoute().verify(values)
+            elif route_id == "bluesky-api":
+                if not values.get("handle") or not values.get("app_password"):
+                    raise SocialError("请填写账号和应用专用密码")
+                public = await BlueskyRoute().verify(values["handle"], values["app_password"])
+                values["handle"] = public["handle"]
+            else:
+                raise SocialError("这种接口会自动启用，不需要填写")
+        except RouteError as exc:
+            raise SocialError(str(exc)) from None
+        credentials.save(account_id, route_id, values)
+        try:
+            return self.describe(self.store.set_route(account_id, route_id, public))
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+
+    def remove_route(self, account_id: str, route_id: str) -> dict[str, Any]:
+        credentials.delete(account_id, route_id)
+        try:
+            return self.describe(self.store.set_route(account_id, route_id, None))
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+
+    # ── shared data services (e.g. third-party X data) ──────────────────
+    def services(self) -> list[dict[str, Any]]:
+        listed = []
+        for service in SERVICES.values():
+            stored = credentials.load("service", service["id"])
+            from_env = bool(service.get("env") and os.environ.get(service["env"], "").strip())
+            listed.append({key: value for key, value in service.items() if key != "env"}
+                          | {"configured": bool(stored) or from_env, "source": "keychain" if stored else "env" if from_env else None})
+        return listed
+
+    async def configure_service(self, service_id: str, fields: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if service_id not in SERVICES:
+            raise SocialError("没有这个数据服务")
+        values = {key: str(value).strip() for key, value in (fields or {}).items() if str(value).strip()}
+        if values:
+            credentials.save("service", service_id, values)
+        else:
+            credentials.delete("service", service_id)
+        self._xdata = None
+        return self.services()
 
     # ── publish ──────────────────────────────────────────────────────────
     def _media(self, media: list[str] | None) -> list[Path]:
@@ -148,31 +240,31 @@ class SocialService:
         return paths
 
     def check_publish(self, account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                      form: str = "post") -> dict[str, Any]:
-        """Everything that can be checked before anything opens."""
+                      form: str = "post", tags: list[str] | None = None) -> dict[str, Any]:
+        """Everything that can be checked before anything opens, and the route that will run."""
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
             raise SocialError("正文不能为空，且不超过 20000 字")
         account = self._account(account_id)
         info = self.describe(account)
         if info["status"] != "ready":
             raise SocialError(f"{info['name']} 还没有登录，请先连接这个账号")
-        paths = self._media(media)
-        images = [path for path in paths if path.suffix.lower() in IMAGE_SUFFIXES]
-        videos = [path for path in paths if path.suffix.lower() in VIDEO_SUFFIXES]
+        post = Post(text=text.strip(), title=(title or "").strip(), media=self._media(media), form=form,
+                    tags=[tag.strip().lstrip("#") for tag in tags or [] if tag.strip()])
         problems = []
-        if not info["forms"]:
-            raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请在内置浏览器里直接操作这个网站（已保存登录）")
-        if form not in info["forms"]:
-            problems.append(f"{info['platform_name']} 可用的形式：{'、'.join(info['forms'])}")
-        if account["platform"] == "xhs" and form == "post" and not images:
+        if account["platform"] == "xhs" and form == "post" and not post.images:
             problems.append("小红书图文至少需要一张图片")
-        if form == "video" and len(videos) != 1:
+        if form == "video" and len(post.videos) != 1:
             problems.append("视频形式需要正好一个视频文件")
-        if form == "article" and not (title or "").strip():
+        if form == "article" and not post.title:
             problems.append("文章需要标题")
         if problems:
             raise SocialError("；".join(problems))
-        return {"account": account, "info": info, "media": paths}
+        route = next((route for route in self._routes_for(account) if route.publishes(account, post)), None)
+        if route is None:
+            if not info["forms"]:
+                raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请在内置浏览器里直接操作这个网站（已保存登录）")
+            raise SocialError(f"{info['platform_name']} 可用的形式：{'、'.join(info['forms'])}")
+        return {"account": account, "info": info, "post": post, "route": route}
 
     def _log(self, account: dict[str, Any], entry: dict[str, Any]) -> None:
         # The publishing log belongs to the project (workspace) the work was done in.
@@ -184,18 +276,20 @@ class SocialService:
 
     async def publish(self, account_id: str, text: str, title: str = "", media: list[str] | None = None,
                       form: str = "post", tags: list[str] | None = None) -> dict[str, Any]:
-        checked = self.check_publish(account_id, text, title, media, form)
-        account, info = checked["account"], checked["info"]
-        digest = hashlib.sha256(text.strip().encode()).hexdigest()[:12]
+        checked = self.check_publish(account_id, text, title, media, form, tags)
+        account, info, route, post = checked["account"], checked["info"], checked["route"], checked["post"]
+        digest = hashlib.sha256(post.text.encode()).hexdigest()[:12]
         try:
-            result = await self.browser.compose(account["platform"], form, text=text.strip(), title=(title or "").strip(),
-                                                media=checked["media"], tags=[tag.strip().lstrip("#") for tag in tags or [] if tag.strip()])
-        except OpenWorkError as exc:
-            self._log(account, {"action": "compose", "status": "failed", "text_sha": digest, "error": str(exc)})
+            result = await route.publish(account, post)
+        except (OpenWorkError, RouteError) as exc:
+            self._log(account, {"action": "compose", "status": "failed", "route": route.id, "text_sha": digest, "error": str(exc)})
             raise SocialError(str(exc)) from None
-        self._log(account, {"action": "compose", "status": "composer_filled", "text_sha": digest, "page_url": result["page_url"]})
-        return {"status": "composer_filled", "account": info["name"], "account_id": account["id"], **result,
-                "message": "已在内置浏览器填好发布页。请在浏览器面板里检查后点发布；发布后把链接告诉我，会记录到项目。"}
+        if result["status"] == "published":
+            self._log(account, {"action": "published", "status": "published", "route": route.id, "text_sha": digest, "url": result.get("url", "")})
+        else:
+            self._log(account, {"action": "compose", "status": result["status"], "route": route.id, "text_sha": digest,
+                                "page_url": result.get("page_url", "")})
+        return {"account": info["name"], "account_id": account["id"], "route": route.name, **result}
 
     def record_published(self, account_id: str, url: str, note: str = "") -> dict[str, Any]:
         account = self._account(account_id)
@@ -217,19 +311,13 @@ class SocialService:
             raise SocialError(f"what 取 {'、'.join(READ_KINDS)}")
         account = self._account(account_id)
         info = self.describe(account)
-        identity = account.get("identity") or {}
-        if account["platform"] == "x":
-            handle = (identity.get("handle") or identity.get("name") or "").lstrip("@")
-            if what == "comments":
-                data = self.xdata.replies(post_id) if post_id else self.xdata.mentions(handle)
-            else:
-                data = self.xdata.user_posts(handle)
-            return {"account": info["name"], **data}
-        url = PAGES.get(account["platform"], {}).get(what)
-        if url is None:
+        route = next((route for route in self._routes_for(account) if route.reads(account, what)), None)
+        if route is None:
             raise SocialError(f"{info['name']} 目前读不到“{what}”；可读：{'、'.join(info['reads']) or '无'}")
         try:
-            page = await self.browser.page_text(url.format(handle=identity.get("handle", ""), id=identity.get("id", "")))
-        except OpenWorkError as exc:
+            data = await route.read(account, what, post_id)
+        except (OpenWorkError, RouteError) as exc:
             raise SocialError(str(exc)) from None
-        return {"account": info["name"], "what": what, **page}
+        except ValueError as exc:
+            raise SocialError(str(exc)) from None
+        return {"account": info["name"], "what": what, "route": route.name, **data}

@@ -19,12 +19,14 @@ description: 把项目的一份原稿改写成各平台稿件、配好素材、�
 1. 先 `get_project_brief`，用项目的事实、品牌和账号人设（`accounts/<账号ID>.md`）。不编数据、评价、案例或背书；拿不准的写成待核实。
 2. 原稿确认后再改平台稿。按用户要的平台出稿，不必每次全出。同一内容发多个账号时，每个账号按自己的人设单独出稿。
 3. 需要配图时用 `media-studio`。小红书图文至少一张图；视频形式需要正好一个视频文件；文章需要标题。
-4. 把最终文案和图片给用户看，用户确认后调用 `social_publish(account_id, text, title, media, form, tags)`。它在右侧内置浏览器打开发布页并填好，**最后由用户检查并点发布**。
-5. 用户发布后，把链接用 `social_record_published` 记下；没有链接就不说已发布。
+4. 把最终文案和图片给用户看，用户确认后调用 `social_publish(account_id, text, title, media, form, tags)`。AIOPC 会自动选择发布方式，结果里的 `status` 说明实际发生了什么：
+   - `published`：账号接了官方接口，已直接发布（调用前用户在对话里批准过），结果带帖子链接，已自动记录。
+   - `composer_filled`：已在右侧内置浏览器填好发布页，**最后由用户检查并点发布**。
+5. `composer_filled` 时，用户发布后把链接用 `social_record_published` 记下；没有链接就不说已发布。
 
 ## 状态说清楚
 
-- 已写好稿件 ≠ 已填好发布页 ≠ 已发布。`social_publish` 返回 `composer_filled` 只表示填好了，等用户点发布。
+- 已写好稿件 ≠ 已填好发布页 ≠ 已发布。只有 `status` 为 `published` 才算已发布；`composer_filled` 只表示填好了，等用户点发布。
 - 填写中途出错时，先请用户看浏览器里的实际状态，不要直接重来，避免重复内容。
 - 用户手改过的稿件文件要保留；改原稿后检查平台稿是否需要同步，不覆盖用户的修改。
 

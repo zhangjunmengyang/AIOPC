@@ -46,7 +46,7 @@ class TwitterApiIo:
 
     def __init__(self, api_key: str, client: httpx.Client | None = None):
         if not api_key:
-            raise XDataError("X 数据未配置：在实例 .env 中设置 TWITTERAPI_IO_KEY（twitterapi.io 后台获取）后重启网关。")
+            raise XDataError("X 第三方数据未配置：在「账号 → 接口与数据」里填写 twitterapi.io 的 API Key。")
         self.api_key = api_key
         self.client = client or httpx.Client(timeout=30)
 
@@ -126,7 +126,11 @@ class XDataService:
     @property
     def provider(self) -> Provider:
         if self._provider is None:
-            self._provider = TwitterApiIo(os.environ.get("TWITTERAPI_IO_KEY", "").strip())
+            # Set on the Accounts page (Keychain), or TWITTERAPI_IO_KEY in ~/.aiopc/.env.
+            from aiopc import credentials
+
+            stored = credentials.load("service", "twitterapi") or {}
+            self._provider = TwitterApiIo(stored.get("api_key") or os.environ.get("TWITTERAPI_IO_KEY", "").strip())
         return self._provider
 
     @contextmanager

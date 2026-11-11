@@ -42,6 +42,29 @@ export type AiopcPlatform = {
   login_url: string;
   color: string;
 };
+export type AiopcRouteField = { name: string; label: string; secret?: boolean };
+/** An official route an account can add beyond the built-in browser. */
+export type AiopcEnhancement = {
+  route: string;
+  name: string;
+  does: string;
+  fields: AiopcRouteField[];
+  help: string;
+  help_url: string;
+  automatic?: boolean;
+  attached: boolean;
+};
+export type AiopcService = {
+  id: string;
+  name: string;
+  does: string;
+  fields: AiopcRouteField[];
+  help: string;
+  help_url: string;
+  configured: boolean;
+  source: "keychain" | "env" | null;
+};
+
 export type AiopcAccount = {
   account_id: string;
   platform: string;
@@ -50,8 +73,12 @@ export type AiopcAccount = {
   handle: string;
   url: string;
   status: "ready" | "needs_login";
+  /** direct: an official API publishes after approval; compose: the AI fills the composer; browser: the AI works on the site. */
+  publish: "direct" | "compose" | "browser";
   forms: string[];
   reads: string[];
+  routes: Array<{ id: string; kind: "api" | "data" | "browser"; name: string }>;
+  enhancements: AiopcEnhancement[];
   verified_at?: number | null;
 };
 
@@ -82,7 +109,7 @@ export function useAiopcConnection() {
 export async function aiopcRequest<T>(
   connection: AiopcConnection,
   workspaceRoot: string,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   options: { params?: Record<string, string | undefined>; body?: unknown } = {},
 ): Promise<T> {
@@ -126,7 +153,7 @@ export function useAiopc(workspaceRoot: string) {
   const connection = connectionQuery.data ?? null;
   const queryClient = useQueryClient();
   const ready = Boolean(connection?.status === "ready" && workspaceRoot);
-  const request = useCallback(<T,>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string,
+  const request = useCallback(<T,>(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string,
     options?: { params?: Record<string, string | undefined>; body?: unknown }) => {
     if (!connection) throw new AiopcError("AIOPC 业务服务还没有就绪");
     return aiopcRequest<T>(connection, workspaceRoot, method, path, options);

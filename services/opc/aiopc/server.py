@@ -268,6 +268,20 @@ def create_api(home: Path, token: str) -> Starlette:
         data = await body(request)
         return respond(ws.social.update(account_id, alias=data.get("alias")))
 
+    async def account_routes_route(request: Request) -> Response:
+        ws, account_id = workspace_of(request), request.path_params["account_id"]
+        if request.method == "DELETE":
+            return respond(ws.social.remove_route(account_id, request.path_params["route_id"]))
+        data = await body(request)
+        return respond(await ws.social.add_route(account_id, str(data.get("route", "")), data.get("fields") or {}))
+
+    async def integrations_route(request: Request) -> Response:
+        ws = workspace_of(request)
+        if request.method == "PUT":
+            data = await body(request)
+            return respond({"services": await ws.social.configure_service(request.path_params["service_id"], data.get("fields"))})
+        return respond({"services": ws.social.services()})
+
     async def history_route(request: Request) -> Response:
         return respond({"items": workspace_of(request).social.history()})
 
@@ -279,6 +293,10 @@ def create_api(home: Path, token: str) -> Starlette:
         ("/api/accounts", accounts_route, ["GET"]),
         ("/api/accounts/connect", connect_route, ["POST"]),
         ("/api/accounts/{account_id}", account_route, ["PATCH", "DELETE"]),
+        ("/api/accounts/{account_id}/routes", account_routes_route, ["POST"]),
+        ("/api/accounts/{account_id}/routes/{route_id}", account_routes_route, ["DELETE"]),
+        ("/api/integrations", integrations_route, ["GET"]),
+        ("/api/integrations/{service_id}", integrations_route, ["PUT"]),
         ("/api/history", history_route, ["GET"]),
     ]
     return Starlette(routes=[Route("/api/health", health, methods=["GET"]),

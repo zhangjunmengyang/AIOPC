@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert, ExternalLink, PenLine, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, PenLine, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
   useAiopcPlatforms,
 } from "./aiopc-client";
 import { AiopcUnavailable } from "./aiopc-status";
+import { EnhanceDialog, IntegrationsPanel } from "./integrations";
 import { PlatformIcon } from "./platform-icon";
 
 type HistoryEntry = {
@@ -57,6 +58,9 @@ export function AccountsPage(props: { workspaceRoot: string }) {
   // An open login: the page stays usable so the browser panel on the right can be used to log in.
   const [login, setLogin] = useState<{ platform: AiopcPlatform; alias: string } | null>(null);
   const [renaming, setRenaming] = useState<AiopcAccount | null>(null);
+  const [tab, setTab] = useState<"accounts" | "integrations">("accounts");
+  // Kept by ID so the dialog shows the account's latest routes after each change.
+  const [enhancingId, setEnhancingId] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
 
@@ -110,6 +114,19 @@ export function AccountsPage(props: { workspaceRoot: string }) {
           <Button className="ml-auto" onClick={() => setConnecting(true)}><Plus className="size-4" />{t("aiopc.accounts.connect")}</Button>
         </div>
         <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
+        <ToggleGroup value={[tab]} onValueChange={(values) => { if (values[0]) setTab(values[0] as "accounts" | "integrations"); }} variant="segmented" spacing={0.5} size="sm" aria-label={t("aiopc.accounts.title")} className="self-start">
+          <ToggleGroupItem value="accounts">{t("aiopc.accounts.tab_accounts")}</ToggleGroupItem>
+          <ToggleGroupItem value="integrations">{t("aiopc.accounts.tab_integrations")}</ToggleGroupItem>
+        </ToggleGroup>
+        {tab === "integrations" ? (
+          <IntegrationsPanel
+            workspaceRoot={props.workspaceRoot}
+            accounts={accounts}
+            platforms={platformsQuery.data ?? []}
+            onEnhance={(account) => setEnhancingId(account.account_id)}
+            onConnect={() => setConnecting(true)}
+          />
+        ) : <>
         {login ? (
           <LoginBar
             key={login.platform.id}
@@ -148,9 +165,12 @@ export function AccountsPage(props: { workspaceRoot: string }) {
                         <span className="inline-flex items-center gap-1 text-[11px] text-warning"><CircleAlert className="size-3" />{t("aiopc.accounts.needs_login")}</span>
                       )}
                     </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {account.platform_name}
-                      {account.verified_at ? ` · ${t("aiopc.accounts.verified", { time: formatTime(account.verified_at) })}` : ""}
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>{account.platform_name}</span>
+                      {account.routes.map((route) => (
+                        <span key={route.id} className={cn("rounded-md px-1.5 py-px text-[11px]",
+                          route.kind === "browser" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary")}>{route.name}</span>
+                      ))}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -164,6 +184,11 @@ export function AccountsPage(props: { workspaceRoot: string }) {
                       disabled={busyId === account.account_id} onClick={() => void recheck(account)}>
                       <RefreshCw className={cn("size-4", busyId === account.account_id && "animate-spin")} />
                     </Button>
+                    {account.enhancements.length ? (
+                      <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.routes.manage")} title={t("aiopc.routes.manage")} onClick={() => setEnhancingId(account.account_id)}>
+                        <Zap className="size-4" />
+                      </Button>
+                    ) : null}
                     <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.accounts.rename")} title={t("aiopc.accounts.rename")} onClick={() => setRenaming(account)}>
                       <PenLine className="size-4" />
                     </Button>
@@ -201,6 +226,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
             </div>
           )}
         </div>
+        </>}
       </div>
 
       <ConnectDialog
@@ -210,6 +236,12 @@ export function AccountsPage(props: { workspaceRoot: string }) {
         onOpenChange={setConnecting}
         onLoginOpened={(platform, alias) => setLogin({ platform, alias })}
         onConnected={() => void refreshAccounts()}
+      />
+      <EnhanceDialog
+        account={accounts.find((account) => account.account_id === enhancingId) ?? null}
+        workspaceRoot={props.workspaceRoot}
+        onClose={() => setEnhancingId("")}
+        onChanged={() => void refreshAccounts()}
       />
       <RenameDialog
         account={renaming}
