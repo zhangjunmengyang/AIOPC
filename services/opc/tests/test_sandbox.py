@@ -122,36 +122,14 @@ def test_an_environment_of_your_own_needs_only_an_address(tmp_path):
     assert environment.running and environment.cdp_url == "ws://127.0.0.1:9222"
 
 
-def test_built_in_accounts_move_with_their_logins(tmp_path):
-    """Moving to an environment keeps the accounts whose logins came across, checked where AIOPC can check."""
-    from aiopc.social.service import SocialService
-
-    social = SocialService(tmp_path / "home", tmp_path / "shop")
-    social.store.upsert("xhs", {"id": "u1", "name": "老号"}, engine="embedded")
-    social.store.upsert("x", {"id": "x1", "name": "gone"}, engine="embedded")
-    social.store.upsert("producthunt", {"id": "browser-producthunt", "name": "Product Hunt账号"}, engine="embedded")
-
-    class Sandbox:
-        async def account(self, platform):
-            # 小红书 is logged in there; X's login did not survive the move.
-            return {"id": "u1", "name": "老号"} if platform == "xhs" else None
-
-    adopted = asyncio.run(social._adopt_builtin_accounts(Sandbox()))
-
-    # Product Hunt cannot be checked, so its moved login is trusted, and shown as such.
-    assert sorted(adopted) == ["producthunt", "xhs"]
-    social.set_engine("sandbox")
-    status = {account["platform"]: account["status"] for account in social.accounts()}
-    assert status == {"producthunt": "unverified", "xhs": "ready"}
-
 
 def test_a_login_that_lapsed_is_noticed(tmp_path):
     from aiopc.social.service import SocialService
 
-    social = SocialService(tmp_path / "home", tmp_path / "shop")
-    social.set_engine("embedded")
-    social.store.upsert("xhs", {"id": "u1", "name": "老号"}, engine="embedded")
-    social.store.upsert("discord", {"id": "d1", "name": "旧号"}, engine="embedded")
+    project = tmp_path / "shop"
+    social = SocialService(tmp_path / "home", project)
+    social.store.upsert("xhs", {"id": "u1", "name": "老号"}, project=str(project))
+    social.store.upsert("discord", {"id": "d1", "name": "旧号"}, project=str(project))
     # Both were last checked long ago.
     social.store._write([dict(item, checked_at=0) for item in social.store.list()])
 
@@ -169,13 +147,12 @@ def test_a_login_that_lapsed_is_noticed(tmp_path):
     assert asyncio.run(social.check_logins()) == {"checked": []}
 
 
-def test_the_choice_of_browser_is_remembered(tmp_path):
+def test_a_project_keeps_its_provider(tmp_path):
     sandboxes = Sandboxes(tmp_path)
-    record = sandboxes.record("/p")
-    record["engine"] = "embedded"
-    sandboxes.save("/p", record)
-    assert sandboxes.record("/p")["engine"] == "embedded"
-    # Moving to another provider keeps it.
     sandboxes.configure("manual", {"cdp_url": "ws://127.0.0.1:9222"})
     asyncio.run(sandboxes.move("/p", "manual"))
-    assert sandboxes.record("/p")["engine"] == "embedded"
+    assert sandboxes.record("/p")["provider"] == "manual"
+    # Deleting the environment keeps the choice, and forgets what was running.
+    asyncio.run(sandboxes.destroy("/p"))
+    assert sandboxes.record("/p") == {"provider": "manual", "state": {}}
+

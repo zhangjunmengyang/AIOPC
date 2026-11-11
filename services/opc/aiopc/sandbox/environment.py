@@ -35,6 +35,8 @@ class Environment:
 
     def describe(self) -> dict[str, Any]:
         return {"provider": self.provider, "status": self.status, "id": self.id, "live_view_url": self.live_view_url,
+                # The DevTools address: AIOPC's own browsing tools drive the environment through it.
+                "cdp_url": self.cdp_url,
                 "detail": self.detail, "expires_at": self.expires_at, "running": self.running}
 
 

@@ -25,9 +25,7 @@ def test_unknown_platform():
         normalize_platform("myspace")
 
 
-def test_every_platform_connects_in_the_browser(tmp_path, monkeypatch):
-    from aiopc.social import service
-
+def test_every_platform_connects_in_the_browser(tmp_path):
     opened = []
 
     class FakeBrowser:
@@ -38,14 +36,12 @@ def test_every_platform_connects_in_the_browser(tmp_path, monkeypatch):
         async def account(self, platform):
             return None
 
-    monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
-    social = SocialService(tmp_path / "home", tmp_path)
+    social = SocialService(tmp_path / "home", tmp_path, browser=FakeBrowser())
     opened_login = asyncio.run(social.connect("Product Hunt"))
-    assert opened_login["status"] == "login_opened" and opened_login["engine"] == "embedded"
+    assert opened_login["status"] == "login_opened"
     # No detector for Product Hunt: the person's "I've logged in" saves the browser's account.
     saved = asyncio.run(social.connect("producthunt", check=True))
     assert saved["status"] == "connected" and saved["account"]["publish"] == "browser"
-    assert saved["account"]["engine"] == "embedded"
     assert opened == ["producthunt"]
 
 
@@ -73,9 +69,8 @@ def test_github_connects_through_gh_authorization(tmp_path, monkeypatch):
         error = ""
 
     auth = FakeAuth()
-    monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
     monkeypatch.setattr(service, "github_auth", lambda home: auth)
-    social = SocialService(tmp_path / "home", tmp_path)
+    social = SocialService(tmp_path / "home", tmp_path, browser=FakeBrowser())
 
     started = asyncio.run(social.connect("GitHub"))
     assert started["status"] == "authorize" and started["code"] == "ABCD-1234"

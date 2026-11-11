@@ -85,7 +85,7 @@ export function policyDenial(policy: DesktopConfig, action: ManagedPolicyAction,
   }
   // Native fetch follows redirects inside the engine. Until it exposes a
   // per-hop hook, approved-site browsing must use the intercepted browser.
-  if ((action === "webfetch" || action === "websearch") && execution?.browserOrigins !== undefined) return "Use OpenWork's built-in browser to open approved websites.";
+  if ((action === "webfetch" || action === "websearch") && execution?.browserOrigins !== undefined) return "Use the browser tools to open approved websites.";
   if (action === "browser" || action === "webfetch") {
     if (action === "browser" && policy.allowBuiltInExtensions === false) return "Built-in extensions are disabled by your organization.";
     const url = typeof input.url === "string" ? input.url : "";

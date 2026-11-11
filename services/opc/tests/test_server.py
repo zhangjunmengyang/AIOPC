@@ -5,6 +5,11 @@ from starlette.testclient import TestClient
 
 from aiopc.server import create_api, create_server
 
+
+async def _ready(value):
+    """A browser that is already there, for tests that do not want an environment."""
+    return value
+
 TOKEN = "test-token"
 
 
@@ -56,16 +61,22 @@ def test_workspace_is_the_project(tmp_path):
     assert hidden.status_code == outside.status_code == 400
 
 
-def test_accounts_are_shared_by_every_workspace(tmp_path):
+def test_an_account_belongs_to_the_project_it_logged_in_from(tmp_path):
+    """A login lives in one project's environment, so another project does not see it."""
     from aiopc.accounts import AccountStore
 
-    home = tmp_path / "home"
-    AccountStore(home).upsert("小红书", {"id": "5f00", "name": "官方号"})
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    AccountStore(tmp_path / "home").upsert("小红书", {"id": "5f00", "name": "官方号"}, project=str(tmp_path / "a"))
     api = client(tmp_path)
-    for name in ("a", "b"):
-        (tmp_path / name).mkdir()
-        accounts = api.get("/api/accounts", params={"workspace": str(tmp_path / name)}, headers=auth()).json()["accounts"]
-        assert [account["name"] for account in accounts] == ["官方号"]
+
+
+    def listed(name):
+        return [account["name"] for account in
+                api.get("/api/accounts", params={"workspace": str(tmp_path / name)}, headers=auth()).json()["accounts"]]
+
+    assert listed("a") == ["官方号"]
+    assert listed("b") == []
 
 
 def test_platform_catalog(tmp_path):
@@ -100,7 +111,7 @@ def test_library_from_config(tmp_path, monkeypatch):
 def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
     import base64
 
-    from aiopc.social import service
+    from aiopc.social.service import SocialService
 
     png = base64.b64encode(b"\x89PNG fake").decode()
 
@@ -108,7 +119,7 @@ def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
         async def open_login(self, platform, screenshot=True):
             return {"tab_id": "t1", "screenshot": png if screenshot else ""}
 
-    monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
+    monkeypatch.setattr(SocialService, "browser", lambda self: _ready(FakeBrowser()))
     server = create_server(tmp_path / "home", tmp_path)
     content = asyncio.run(server.call_tool("social_connect", {"platform": "小红书"}))
     if isinstance(content, tuple):  # newer mcp returns (content, structured)

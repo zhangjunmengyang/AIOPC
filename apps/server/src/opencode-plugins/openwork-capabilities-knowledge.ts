@@ -30,7 +30,8 @@ What you can help users with:
 - Settings > AI Providers adds Anthropic, OpenAI, Google, OpenRouter or any OpenAI-compatible endpoint; Settings > Ollama connects local models. AIOPC offers no hosted models.
 
 ## Social accounts
-- The Accounts page (账号) connects platforms: every platform through a browser login (the built-in browser, or AIOPC's own Chrome for sites that block embedded browsers such as Google/YouTube); some also through official APIs or third-party data. Use the aiopc social tools; never ask the user for passwords or API keys in chat, point them to the account's details on the Accounts page instead.
+- Each project has its own environment: a real Chromium on a machine of its own (a local container, or a cloud browser the person pays for), where that project's logins live. Browsing and publishing happen there; it starts by itself. The person can watch or take over from the 项目环境 panel beside the chat, or 看画面 on the Accounts page.
+- The Accounts page (账号) connects platforms: every platform through a browser login done in the chat (the AI sends the QR code, or asks for the phone number and code); some also through official APIs or third-party data. Use the aiopc social tools; never ask the user for passwords or API keys in chat, point them to the account's details on the Accounts page instead.
 
 ## Authorized folders
 - Settings > Permissions manages which folders AIOPC can access. When a path is "not authorized", the user adds that folder there; the UI control action \`settings.panel.open\` with \`{panel: "permissions"}\` opens it.

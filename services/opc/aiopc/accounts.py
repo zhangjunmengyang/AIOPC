@@ -1,7 +1,7 @@
 """Account registry: the social accounts AIOPC knows, shared by every workspace.
 
-Logins live in AIOPC's built-in browser, which every project uses, so accounts
-are global and open to all projects. Only public identities are kept here;
+A login lives in the environment of the project it was made in, so an account
+belongs to that project. Only public identities are kept here;
 nothing secret is stored.
 """
 
@@ -66,7 +66,7 @@ class AccountStore:
         return account
 
     def upsert(self, platform: str, identity: dict[str, Any], *, alias: str = "", route: str = "browser",
-               engine: str | None = None, project: str | None = None) -> dict[str, Any]:
+               project: str | None = None) -> dict[str, Any]:
         """Save the account found logged in; the same platform identity updates in place."""
         platform = normalize_platform(platform)
         with self._lock:
@@ -82,11 +82,9 @@ class AccountStore:
                 existing["alias"] = alias.strip()[:80]
             existing.update(identity={key: str(identity.get(key) or "")[:500] for key in ("id", "name", "handle", "url")},
                             verified_at=now, updated_at=now, logged_in=True, checked_at=now)
-            if engine:
-                # Where this login physically lives: "sandbox" (the project's own computer) or
-                # "embedded" (AIOPC's built-in browser). A sandbox login belongs to that project alone.
-                existing["engine"] = engine
-                existing["project"] = str(project or "") if engine == "sandbox" else ""
+            if project is not None:
+                # The login lives in this project's environment, and belongs to that project alone.
+                existing["project"] = str(project)
             self._write(accounts)
             return dict(existing)
 

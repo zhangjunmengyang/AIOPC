@@ -55,7 +55,7 @@ export async function uiBridgeRequest(
   options: { method?: string; body?: unknown; timeoutMs?: number | null; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const bridge = await discoverUiBridge();
-  if (!bridge) return { ok: false, code: "browser_unavailable", dispatched: false, error: "The built-in browser is unavailable. Open the desktop app on the same machine as this task's server." };
+  if (!bridge) return { ok: false, code: "browser_unavailable", dispatched: false, error: "The browser is unavailable. Open the AIOPC app on the same machine as this task's server." };
   try {
     const request = {
       method: options.method || "GET",

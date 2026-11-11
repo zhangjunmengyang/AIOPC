@@ -317,12 +317,8 @@ def create_api(home: Path, token: str) -> Starlette:
             return respond(await ws.sandboxes.stop(str(ws.root)))
         if action == "destroy":
             return respond(await ws.sandboxes.destroy(str(ws.root)))
-        if action == "engine":
-            return respond(ws.social.set_engine(str(data.get("engine") or "sandbox")))
         if action == "provider":
             return respond((await ws.sandboxes.move(str(ws.root), str(data.get("provider") or "local"))).describe())
-        if action == "migrate":
-            return respond(await ws.social.migrate_logins_now())
         if action == "install-engine":
             from aiopc.sandbox import install_engine
 

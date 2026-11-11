@@ -106,6 +106,7 @@ import {
 } from "./process-resilience.mjs";
 import { createQuitSequencer } from "./quit-sequence.mjs";
 import { createAiopcService } from "./aiopc-service.mjs";
+import { createSandboxBrowser } from "./sandbox-browser.mjs";
 import { createKeepAwake } from "./keep-awake.mjs";
 import { attachFloatingViewWindow, floatingViewWindowOptions } from "./floating-view-window.mjs";
 import { createStartupLog, startupPhase, withStartupPhase } from "./startup-log.mjs";
@@ -256,7 +257,7 @@ const computerControl = createComputerControl({
   // Where computer steps spend their time: on this computer, or waiting for the model.
   onTiming: (_sessionId, step) => console.info(`[computer] ${step.name} computer ${Math.round(step.computerMs)} ms${step.modelMs === undefined ? "" : ` · model ${Math.round(step.modelMs)} ms`}${step.followed === undefined ? "" : step.followed ? " · in view" : " · background"}`),
   runProgram: async (request, host, signal, options) => (await import("@openwork/computer-use/runtime")).runComputerProgram(request, host, signal, options),
-  browserTask: (request, options) => browserPanel?.browserTask(request, options) ?? Promise.resolve({ ok: false, code: "browser_unavailable" }),
+  browserTask: (request, options) => sandboxBrowser.browserTask(request, options),
   readRemoteFeatureEnabled: async () => {
     const server = await runtimeManager.openworkServerInfo();
     if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) return false;
@@ -376,7 +377,7 @@ const uiControlServer = createUiControlServer({
   appName: APP_NAME,
   appIdentifier: APP_IDENTIFIER,
   getWindow: () => createMainWindow(),
-  browserTask: (args, options) => browserPanel?.browserTask(args, options) ?? { ok: false, code: "browser_unavailable" },
+  browserTask: (args, options) => sandboxBrowser.browserTask(args, options),
   computerTask: async (args, options) => {
     if (!["computer_status", "computer_close"].includes(args?.name)) {
       const denied = await checkComputerPermission(computerChatOf(args));
@@ -1532,6 +1533,8 @@ function validateSkillName(raw) {
 process.env.OPENWORK_DISABLE_FREE_INFERENCE = "1";
 process.env.OPENWORK_DISABLE_HOSTED_MODELS = "1";
 const aiopcService = createAiopcService({ app, desktopRoot: path.resolve(__dirname, "..") });
+// The AI browses in the project's own environment, not inside this app.
+const sandboxBrowser = createSandboxBrowser({ app, aiopcService, workspaceStore });
 aiopcService.configureEnvironment();
 const runtimeManager = createRuntimeManager({
   app,
@@ -1702,6 +1705,7 @@ const quitSequencer = createQuitSequencer({
       disposeRuntimeBeforeQuit(),
       uiControlServer.stop(),
       computerControl.reset(true),
+      Promise.resolve(sandboxBrowser.close()),
       aiopcService.stop(),
     ]);
   },

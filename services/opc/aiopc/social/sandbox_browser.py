@@ -1,11 +1,9 @@
-"""Drive the browser inside an environment, wherever that environment runs.
+"""The browser inside a project's environment.
 
-The built-in browser is driven through AIOPC's own window: a tab is a panel tab,
-and the person watches it directly. A sandbox has no panel — it is a computer of
-its own — so tabs are opened straight over DevTools and the person watches the
-live picture instead. Everything above this (filling a composer, checking who is
-logged in, reading a page) is the same code either way: it only needs a tab to
-open and a way to talk to it.
+The environment is a computer of its own, so tabs are opened straight over
+DevTools and the person watches its live picture when they want to. Everything
+above this — filling a composer, checking who is logged in, reading a page —
+lives in ``Browser`` and does not know where it runs.
 """
 
 from __future__ import annotations
@@ -16,14 +14,13 @@ from typing import Any
 
 import httpx
 
-from .openwork import OpenWorkBrowser, OpenWorkError
+from .browser import Browser, BrowserError
 
 
-class SandboxBrowser(OpenWorkBrowser):
+class SandboxBrowser(Browser):
     """The browser of one environment, reached over its DevTools address."""
 
     def __init__(self, endpoint: str):
-        super().__init__()
         self.endpoint = endpoint.rstrip("/")
 
     # ── talking to the browser itself (not a page) ──────────────────────
@@ -35,7 +32,7 @@ class SandboxBrowser(OpenWorkBrowser):
                 response = await client.get(f"{self.endpoint}/json/version")
             return str(response.json()["webSocketDebuggerUrl"])
         except (httpx.HTTPError, ValueError, KeyError):
-            raise OpenWorkError("连不上沙箱里的浏览器。请在项目设置里确认环境正在运行。") from None
+            raise BrowserError("连不上沙箱里的浏览器。请在项目设置里确认环境正在运行。") from None
 
     async def _call(self, method: str, params: dict[str, Any] | None = None, *, timeout: float = 30) -> dict[str, Any]:
         import websockets
@@ -48,7 +45,7 @@ class SandboxBrowser(OpenWorkBrowser):
                     if message.get("id") == 1:
                         break
         if "error" in message:
-            raise OpenWorkError(f"沙箱里的浏览器拒绝了操作：{message['error'].get('message')}")
+            raise BrowserError(f"沙箱里的浏览器拒绝了操作：{message['error'].get('message')}")
         return dict(message.get("result") or {})
 
     # ── the four things every browser has to provide ────────────────────
@@ -59,12 +56,8 @@ class SandboxBrowser(OpenWorkBrowser):
     async def close(self, handle: dict[str, Any]) -> None:
         try:
             await self._call("Target.closeTarget", {"targetId": handle.get("target_id")})
-        except OpenWorkError:
+        except BrowserError:
             pass
-
-    async def release(self, handle: dict[str, Any]) -> None:
-        """Nothing to release: a sandbox tab is never held at the agent's size."""
-        return
 
     async def _socket_url(self, handle: dict[str, Any]) -> str:
         """A page's own DevTools address, so the inherited page work runs unchanged."""
@@ -74,10 +67,10 @@ class SandboxBrowser(OpenWorkBrowser):
                 async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                     targets = (await client.get(f"{base}/json/list")).json()
             except (httpx.HTTPError, ValueError):
-                raise OpenWorkError("连不上沙箱里的浏览器") from None
+                raise BrowserError("连不上沙箱里的浏览器") from None
             target = next((item for item in targets if item.get("id") == handle.get("target_id")), None)
             if target is None:
-                raise OpenWorkError("沙箱里的标签页已关闭")
+                raise BrowserError("沙箱里的标签页已关闭")
             return str(target["webSocketDebuggerUrl"])
         # A cloud browser gives one address for the browser; a page is reached by swapping the path.
         root = base.split("/devtools/", 1)[0]
@@ -90,7 +83,7 @@ class SandboxBrowser(OpenWorkBrowser):
 
         url = LOGIN_PAGES.get(platform)
         if url is None:
-            raise OpenWorkError(f"{platform} 还没有登录入口")
+            raise BrowserError(f"{platform} 还没有登录入口")
         handle = await self.open(url)
         await self._call("Target.activateTarget", {"targetId": handle["target_id"]})
         if screenshot:
@@ -103,6 +96,6 @@ class SandboxBrowser(OpenWorkBrowser):
             # Bring the filled composer to the front of the sandbox's screen so the person sees it.
             try:
                 await self._call("Target.activateTarget", {"targetId": target})
-            except OpenWorkError:
+            except BrowserError:
                 pass
         return result

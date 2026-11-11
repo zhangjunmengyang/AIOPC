@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createV2BrowserBridge } from "../src/opencode-v2-browser-bridge.js";
 
-test("website tools reach the desktop through the v2 browser bridge for the calling conversation", async () => {
+test("browser tools reach the desktop through the v2 browser bridge for the calling conversation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "openwork-website-tools-"));
   const previous = process.env.OPENWORK_UI_CONTROL_DISCOVERY;
   const received: Array<{ path: string; body: unknown }> = [];
@@ -36,11 +36,12 @@ test("website tools reach the desktop through the v2 browser bridge for the call
     return JSON.parse(body.content[0]!.text) as unknown;
   };
   try {
-    assert.deepEqual(await call("webmcp_list_tools", { tabId: "tab" }), { ok: true, trust: "untrusted-site-content" });
-    await call("webmcp_call_tool", { tabId: "tab", toolId: "site_tool_1", sessionId: "another-chat" });
+    assert.deepEqual(await call("browser_tabs", {}), { ok: true, trust: "untrusted-site-content" });
+    // A conversation named in the arguments is ignored: the call belongs to the conversation that made it.
+    await call("browser_open", { url: "https://example.com/", sessionId: "another-chat" });
     assert.deepEqual(received, [
-      { path: "/browser/task", body: { operation: "site_tools", args: { tabId: "tab" }, sessionId: "chat" } },
-      { path: "/browser/task", body: { operation: "site_tool", args: { tabId: "tab", toolId: "site_tool_1" }, sessionId: "chat" } },
+      { path: "/browser/task", body: { operation: "tabs", args: {}, sessionId: "chat" } },
+      { path: "/browser/task", body: { operation: "open", args: { url: "https://example.com/" }, sessionId: "chat" } },
     ]);
   } finally {
     if (previous === undefined) delete process.env.OPENWORK_UI_CONTROL_DISCOVERY;

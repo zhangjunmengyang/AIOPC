@@ -16,7 +16,7 @@ import asyncio
 import json
 from typing import Any
 
-from .openwork import OpenWorkBrowser, OpenWorkError
+from .browser import Browser, BrowserError
 
 # Many login pages put the real form in a frame of their own, so every script looks through those too.
 FRAMES = """
@@ -117,7 +117,7 @@ CLICK = """((text) => {""" + FRAMES + """
 class Login:
     """One conversational login, run in whichever browser the project uses."""
 
-    def __init__(self, browser: OpenWorkBrowser):
+    def __init__(self, browser: Browser):
         self.browser = browser
         self._handle: dict[str, Any] | None = None
 
@@ -140,7 +140,7 @@ class Login:
 
     def _tab(self) -> dict[str, Any]:
         if self._handle is None:
-            raise OpenWorkError("还没有打开登录页")
+            raise BrowserError("还没有打开登录页")
         return self._handle
 
     async def read(self) -> dict[str, Any]:
@@ -154,12 +154,12 @@ class Login:
     async def fill(self, label: str, value: str) -> None:
         problem = await self.browser.evaluate(self._tab(), f"({FILL})({json.dumps(label)}, {json.dumps(value)})", timeout=20)
         if problem:
-            raise OpenWorkError(f"{problem}：{label}")
+            raise BrowserError(f"{problem}：{label}")
 
     async def click(self, text: str) -> None:
         problem = await self.browser.evaluate(self._tab(), f"({CLICK})({json.dumps(text)})", timeout=20)
         if problem:
-            raise OpenWorkError(f"{problem}：{text}")
+            raise BrowserError(f"{problem}：{text}")
         await asyncio.sleep(1.5)
 
     # ── the QR code, cut out of the page ────────────────────────────────
@@ -184,7 +184,7 @@ class Login:
                         message = json.loads(await socket.recv())
                         if message.get("id") == 1:
                             return str(message.get("result", {}).get("data") or "")
-        except (OpenWorkError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
+        except (BrowserError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
             return ""
 
     async def screenshot(self) -> str:

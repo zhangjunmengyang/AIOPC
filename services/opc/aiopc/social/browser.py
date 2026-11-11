@@ -1,10 +1,10 @@
-"""Drive OpenWork's built-in browser: open a tab, inject MultiPost, read pages.
+"""Working a web page: open a tab, inject MultiPost, read what is there.
 
-OpenWork (MIT) owns the browser and its logins; MultiPost (Apache-2.0) owns the
-per-platform composer scripts. This module only connects the two: it asks
-OpenWork for a protected tab through its local control bridge, then runs the
-bundled MultiPost script in that tab over DevTools. Nothing is ever published:
-the person reviews the filled composer in OpenWork and presses the button.
+This is everything AIOPC does with a browser, written against four small things
+a browser has to provide (open a tab, close it, let it go, talk to it). The
+project environment supplies those over DevTools. MultiPost (Apache-2.0) owns
+the per-platform composer scripts; this module only runs them. Nothing is ever
+published: the person reviews the filled composer and presses the button.
 """
 
 from __future__ import annotations
@@ -13,19 +13,13 @@ import asyncio
 import base64
 import json
 import mimetypes
-import os
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 from aiopc.platforms import LOGIN_PAGES, MULTIPOST_KEYS
 
 HERE = Path(__file__).resolve().parent
 BUNDLE = HERE / "multipost" / "dist" / "multipost.js"
-# AIOPC first; the upstream OpenWork app is a fallback while both are installed.
-DISCOVERY_CANDIDATES = [Path.home() / "Library/Application Support" / name / "openwork-ui-control.json"
-                        for name in ("com.aiopc.desktop", "com.differentai.openwork")]
 MAX_MEDIA_BYTES = 60 * 1024 * 1024
 
 # Where each platform's "who is logged in" check runs (its own origin) and where to log in.
@@ -70,7 +64,7 @@ OWN_DETECTORS: dict[str, tuple[str, str]] = {
 }
 
 
-class OpenWorkError(RuntimeError):
+class BrowserError(RuntimeError):
     pass
 
 
@@ -78,68 +72,28 @@ def multipost_key(platform: str, form: str) -> str:
     key = MULTIPOST_KEYS.get(platform, {}).get(form)
     if key is None:
         forms = "、".join(MULTIPOST_KEYS.get(platform, {})) or "无"
-        raise OpenWorkError(f"{platform} 不支持“{form}”形式；可用：{forms}")
+        raise BrowserError(f"{platform} 不支持“{form}”形式；可用：{forms}")
     return key
 
 
-class OpenWorkBrowser:
-    """AIOPC's built-in browser: pages open as tabs in the panel beside the conversation
-    on screen (or beside the app page, such as Accounts, when there is none)."""
-
-    def __init__(self, discovery: Path | None = None):
-        configured = os.environ.get("OPENWORK_UI_CONTROL_DISCOVERY") or discovery
-        self.discovery = Path(configured) if configured else next(
-            (path for path in DISCOVERY_CANDIDATES if path.is_file()), DISCOVERY_CANDIDATES[0])
-
-    def _bridge(self) -> tuple[str, str]:
-        try:
-            data = json.loads(self.discovery.read_text(encoding="utf-8"))
-            return data["baseUrl"], data["token"]
-        except (OSError, ValueError, KeyError):
-            raise OpenWorkError("没有找到运行中的 AIOPC。请先打开 AIOPC 桌面应用。") from None
-
-    async def execute(self, action_id: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        base, token = self._bridge()
-        try:
-            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
-                response = await client.post(f"{base}/execute", json={"actionId": action_id, "args": args or {}},
-                                             headers={"Authorization": f"Bearer {token}"})
-        except httpx.HTTPError:
-            raise OpenWorkError("AIOPC 没有响应；确认它正在运行。") from None
-        if response.status_code == 401:
-            raise OpenWorkError("AIOPC 拒绝了控制请求；重启 AIOPC 后再试。")
-        data = response.json()
-        result = data.get("result", data) if isinstance(data, dict) else {}
-        if isinstance(result, dict) and result.get("ok") is False:
-            raise OpenWorkError(str(result.get("error") or "AIOPC 执行失败"))
-        return result if isinstance(result, dict) else {}
+class Browser:
+    """What AIOPC does with a page. A browser fills in the four methods below."""
 
     async def open(self, url: str) -> dict[str, Any]:
-        handle = await self.execute("browser.open_url", {"url": url, "provider": "builtin"})
-        if not handle.get("target_id") or not handle.get("browser_url"):
-            raise OpenWorkError("AIOPC 没有返回浏览器标签。如果出现“是否允许访问该网站”，请在 AIOPC 里允许后重试。")
-        return handle
+        """Open ``url`` in a new tab and return its handle."""
+        raise NotImplementedError
 
     async def close(self, handle: dict[str, Any]) -> None:
-        """Close a tab opened only for AIOPC's own work (a login check, a page read)."""
-        try:
-            await self.execute("browser.close_tab", {"tabId": handle.get("tab_id")})
-        except OpenWorkError:
-            pass
+        """Close a tab AIOPC opened only for its own work."""
+        raise NotImplementedError
 
     async def release(self, handle: dict[str, Any]) -> None:
-        try:
-            await self.execute("browser.release_tab", {"tab_id": handle.get("tab_id")})
-        except OpenWorkError:
-            pass
+        """Hand the tab back to the person; not every browser has anything to do here."""
+        return
 
     async def _socket_url(self, handle: dict[str, Any]) -> str:
-        async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
-            targets = (await client.get(handle["browser_url"].rstrip("/") + "/json/list")).json()
-        target = next((item for item in targets if item.get("id") == handle["target_id"]), None)
-        if target is None:
-            raise OpenWorkError("浏览器标签已关闭")
-        return target["webSocketDebuggerUrl"]
+        """The DevTools address of that tab."""
+        raise NotImplementedError
 
     async def evaluate(self, handle: dict[str, Any], expression: str, *, timeout: float = 120) -> Any:
         import websockets
@@ -155,7 +109,7 @@ class OpenWorkBrowser:
         result = message.get("result", {})
         if "exceptionDetails" in result:
             detail = result["exceptionDetails"]
-            raise OpenWorkError("页面脚本出错：" + str((detail.get("exception") or {}).get("description") or detail.get("text"))[:500])
+            raise BrowserError("页面脚本出错：" + str((detail.get("exception") or {}).get("description") or detail.get("text"))[:500])
         return result.get("result", {}).get("value")
 
     async def wait_loaded(self, handle: dict[str, Any], seconds: float = 30) -> str:
@@ -178,7 +132,7 @@ class OpenWorkBrowser:
             raw = Path(path).read_bytes()
             total += len(raw)
             if total > MAX_MEDIA_BYTES:
-                raise OpenWorkError("媒体总大小超过 60 MB；请压缩后再试")
+                raise BrowserError("媒体总大小超过 60 MB；请压缩后再试")
             name = f"{index:02d}-{Path(path).name}"
             kind = mimetypes.guess_type(name)[0] or "application/octet-stream"
             files[name] = {"b64": base64.b64encode(raw).decode(), "type": kind}
@@ -229,7 +183,7 @@ class OpenWorkBrowser:
     async def open_login(self, platform: str, *, screenshot: bool = True) -> dict[str, Any]:
         url = LOGIN_PAGES.get(platform)
         if url is None:
-            raise OpenWorkError(f"{platform} 还没有登录入口")
+            raise BrowserError(f"{platform} 还没有登录入口")
         # Left open on purpose: the person logs in in the browser panel. Released right away so the
         # page is theirs: it follows the panel or full view instead of the agent's locked size.
         handle = await self.open(url)
@@ -254,7 +208,7 @@ class OpenWorkBrowser:
                         message = json.loads(await socket.recv())
                         if message.get("id") == 1:
                             return str(message.get("result", {}).get("data") or "")
-        except (OpenWorkError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
+        except (BrowserError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
             return ""
 
     async def open_device_authorization(self, url: str, code: str) -> None:
@@ -276,7 +230,7 @@ class OpenWorkBrowser:
               if (single) {{ set(single, {json.dumps(code)}); return true; }}
               return false;
             }})()""", timeout=10)
-        except OpenWorkError:
+        except BrowserError:
             pass
         finally:
             await self.release(handle)
