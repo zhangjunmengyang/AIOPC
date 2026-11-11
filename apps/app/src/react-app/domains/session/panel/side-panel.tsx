@@ -95,20 +95,20 @@ function AgentViewportMenu({ viewport }: { viewport: { key: AgentViewportKey; sc
       <PopoverTrigger
         render={(
           <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-xs text-muted-foreground"
-            aria-label={`Agent page size: ${AGENT_VIEWPORTS[active].label}. Change it`} data-testid="browser-agent-page-size">
-            {AGENT_VIEWPORTS[active].label}{viewport && viewport.scale < 1 ? ` · ${Math.round(viewport.scale * 100)}%` : ""}
+            aria-label={t("aiopc.browser.viewport_label", { size: t(`aiopc.browser.viewport.${active}`) })} data-testid="browser-agent-page-size">
+            {t(`aiopc.browser.viewport.${active}`)}{viewport && viewport.scale < 1 ? ` · ${Math.round(viewport.scale * 100)}%` : ""}
           </Button>
         )}
       />
       <PopoverContent align="end" side="bottom" sideOffset={8} className="w-64 gap-0 p-1">
         <p className="px-2 pb-1.5 pt-1 text-xs text-muted-foreground">
-          While the agent works, pages keep this size. A fixed size scales to fit the panel.
+          {t("aiopc.browser.viewport_hint")}
         </p>
         {(Object.keys(AGENT_VIEWPORTS) as AgentViewportKey[]).map((key) => (
           <button key={key} type="button" aria-pressed={key === active} data-testid={`browser-agent-page-size-${key}`}
             className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted aria-pressed:bg-muted"
             onClick={() => { setChosen(key); chooseAgentViewport(key); }}>
-            <span className="font-medium">{AGENT_VIEWPORTS[key].label}</span>
+            <span className="font-medium">{t(`aiopc.browser.viewport.${key}`)}</span>
             <span className="text-muted-foreground">
               {AGENT_VIEWPORTS[key].fitsPanel ? t("aiopc.browser.fits_panel") : `${AGENT_VIEWPORTS[key].width} × ${AGENT_VIEWPORTS[key].height}`}
             </span>
@@ -376,19 +376,6 @@ export function BrowserPanelContent({
     <>
       {failure?.owner === failureOwner ? <div className="shrink-0 px-3 py-2"><TaskRecovery compact title={failure.title} technicalDetails={failure.details}
         actions={<Button variant="ghost" size="xs" onClick={() => setFailure(null)}>{t("aiopc.browser.dismiss")}</Button>} /></div> : null}
-      {isAvailable && tab.browserTask ? (
-        <div data-browser-shortcut-tab={tab.id} className="flex min-h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
-          <span className="shrink-0 font-medium">{t("aiopc.browser.builtin")}</span>
-          <span role="status" className="min-w-0 flex-1 truncate text-muted-foreground">
-            {tab.browserTask?.status === "paused" ? t("aiopc.browser.status_paused") : tab.browserTask?.status === "running" ? browserOperationLabels[tab.browserTask.operation ?? ""] ?? t("aiopc.browser.status_working") : tab.browserTask?.status === "needs_attention" ? browserOperationLabels[tab.browserTask.operation ?? ""] ?? t("aiopc.browser.status_review") : t("aiopc.browser.status_this_tab")}
-          </span>
-          <AgentViewportMenu viewport={tab.agentViewport ?? null} />
-          <Button variant="outline" size="sm" className="h-6 px-2 text-xs"
-            onClick={() => { void window.__OPENWORK_ELECTRON__?.browser?.taskControl?.(tab.id, tab.browserTask?.status === "paused" ? "resume" : "pause"); }}>
-            {tab.browserTask?.status === "paused" ? t("aiopc.browser.resume") : t("aiopc.browser.take_over")}
-          </Button>
-        </div>
-      ) : null}
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background px-2 mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
         {isAvailable ? (
           <div data-browser-shortcut-tab={tab.id} className="flex min-w-0 flex-1 items-center gap-1">

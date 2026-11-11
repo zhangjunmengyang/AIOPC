@@ -6,7 +6,7 @@ const LOGOS = import.meta.glob<string>("../../../assets/platforms/*.svg", { eage
 const BY_ID = Object.fromEntries(Object.entries(LOGOS).map(([path, url]) => [path.split("/").pop()!.replace(/\.svg$/, ""), url]));
 
 /** A platform's logo, or its first character on its brand color when no artwork is bundled. */
-export function PlatformIcon(props: { id: string; name: string; color?: string; className?: string; muted?: boolean }) {
+export function PlatformIcon(props: { id: string; name: string; color?: string; className?: string; muted?: boolean; large?: boolean }) {
   const logo = BY_ID[props.id];
   return (
     <span
@@ -17,7 +17,7 @@ export function PlatformIcon(props: { id: string; name: string; color?: string; 
       {logo ? (
         <img src={logo} alt="" className="size-[60%] object-contain" />
       ) : (
-        <span className="text-[13px] font-semibold" style={{ color: props.color || "currentColor" }}>{props.name.slice(0, 1)}</span>
+        <span className={cn("font-semibold", props.large ? "text-lg" : "text-[13px]")} style={{ color: props.color || "currentColor" }}>{props.name.slice(0, 1)}</span>
       )}
     </span>
   );

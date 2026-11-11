@@ -199,11 +199,7 @@ export function AdvancedView(props: AdvancedViewProps) {
           openworkDetailLines={openworkDetailLines}
         />
 
-        <AdvancedCloudMcpDiagnosticsSection
-          cloudMcpHealth={props.cloudMcpHealth}
-          onRefresh={props.refreshCloudMcpHealth}
-        />
-
+        {/* AIOPC has no OpenWork Cloud, so the Cloud MCP diagnostics section is not shown. */}
         <AdvancedRuntimeConfigSourcesSection
           busy={props.busy}
           canInspect={props.canInspectRuntimeConfig}

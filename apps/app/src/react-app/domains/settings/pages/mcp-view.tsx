@@ -580,21 +580,13 @@ export function McpView(props: McpViewProps) {
     libraryAddAction(kind, libraryAddOptions) !== null
   ));
   const inventoryError = props.inventoryError ?? props.orgMcpError ?? null;
-  const cloudIssue = denAuth.status === "checking"
-    ? t("den.checking_session")
-    : denAuth.status === "unavailable"
-      ? t("extensions.cloud_unavailable")
-      : !libraryCloudSignedIn
-        ? t("extensions.add_sign_in_required")
-        : !activeOrganizationId
-          ? t("extensions.cloud_choose_org")
-          : undefined;
-  const addDisabledReason = cloudIssue ?? (!props.createLibraryItem ? t("extensions.cloud_unavailable") : undefined);
-  const signedOut = !libraryCloudSignedIn && denAuth.status !== "checking";
-  // Signed out, every add kind needs Cloud: the sign-in banner carries the action instead.
-  const addControl = signedOut ? null : (
+  // AIOPC has no cloud library: nothing on this page asks to sign in, and "Add" offers only what works locally.
+  const cloudIssue: string | undefined = undefined;
+  const addDisabledReason: string | undefined = undefined;
+  const signedOut = false;
+  const addControl = libraryAddKinds.length === 0 ? null : (
     <LibraryAddControl
-      kinds={libraryAddKindsForFilter("all")}
+      kinds={libraryAddKinds}
       connectorCues={connectorCues}
       variant="default"
       pending={denAuth.status === "checking"}
@@ -1964,7 +1956,7 @@ export function McpView(props: McpViewProps) {
           cloudIssue={cloudIssue}
           onAdd={!addDisabledReason && libraryAddKinds[0] ? () => handleAddKind(libraryAddKinds[0]) : undefined}
           onClearSearch={() => setSearch("")}
-          onOpenCloudAccount={!libraryCloudSignedIn || !activeOrganizationId ? props.onOpenCloudAccount : undefined}
+          onOpenCloudAccount={undefined}
           onRefresh={denAuth.status === "unavailable" || inventoryError ? props.onRefresh : undefined}
           error={inventoryError}
         />
@@ -2437,37 +2429,6 @@ function LibrarySectionHeader(props: { section: LibrarySection; label: string; m
   );
 }
 
-/** Rows a signed-out member could use after signing in, shown locked. */
-const lockedLibraryPreviews: Array<{ name: string; description: string; iconSrc: string }> = [
-  { name: "Google Workspace", description: "Gmail, Calendar and Drive", iconSrc: "/ext-google-workspace.svg" },
-  // Simple Icons no longer ships Slack's mark, so it is bundled like the others.
-  { name: "Slack", description: "Read and post in your channels", iconSrc: "/ext-slack.svg" },
-  { name: "Linear", description: "Issues and projects", iconSrc: "/ext-linear.svg" },
-];
-
-/**
- * Signed out, adding to the Library needs OpenWork Cloud, so the page's one
- * primary action is signing in. It lives here, above what it unlocks, instead
- * of a header "Add to library" that could not do anything.
- */
-function LibrarySignUpBanner(props: { onSignUp?: () => void }) {
-  return (
-    <CloudSignInBanner
-      testId="library-sign-up-banner"
-      message={t("extensions.sign_up_banner")}
-      onSignIn={props.onSignUp}
-      media={lockedLibraryPreviews.map((preview) => {
-        const src = resolveExtensionIconUrl({ iconSrc: preview.iconSrc });
-        return (
-          <span key={preview.name} className="flex size-7 items-center justify-center rounded-lg border border-dls-border bg-dls-surface">
-            {src ? <img src={src} alt="" width={16} height={16} loading="lazy" className="block" /> : null}
-          </span>
-        );
-      })}
-    />
-  );
-}
-
 export function LibraryInventory(props: {
   rows: LibraryRow[];
   loading: boolean;
@@ -2489,18 +2450,16 @@ export function LibraryInventory(props: {
     .map((section) => ({ section, rows: visible.filter((row) => row.section === section) }))
     .filter((entry) => entry.rows.length > 0);
   const containerClassName = "flex flex-col [&>div]:border-b [&>div]:border-dls-border/60";
-  const showLocked = props.signedOut === true && category === "all" && !needle && !props.onlyNeedsSignIn;
 
   return (
     <div className="space-y-6">
-      {props.signedOut ? <LibrarySignUpBanner onSignUp={props.onSignUp} /> : null}
       {sections.length === 0 && props.loading ? (
         <div className="flex flex-col gap-2">
           {[0, 1, 2].map((index) => (
             <Skeleton key={index} className="h-[42px] rounded-lg" />
           ))}
         </div>
-      ) : sections.length === 0 && !showLocked ? props.emptyState ?? null : (
+      ) : sections.length === 0 ? props.emptyState ?? null : (
         <div>
           <div className="space-y-6">
             {sections.map(({ section, rows }) => (
@@ -2513,27 +2472,6 @@ export function LibraryInventory(props: {
                 </div>
               </div>
             ))}
-            {showLocked ? (
-              <div data-library-section="locked">
-                <LibrarySectionHeader section="openwork" label={t("extensions.section_openwork_locked")} />
-                <div className={containerClassName}>
-                  {lockedLibraryPreviews.map((preview) => (
-                    <div key={preview.name} className="opacity-60" data-library-locked={preview.name}>
-                      <ExtensionCard
-                        name={preview.name}
-                        description={preview.description}
-                        iconSrc={preview.iconSrc}
-                        taxonomy="connection"
-                        disabled
-                        statusChip={{ label: t("extensions.row_chip_sign_in"), tone: "attention" }}
-                        trailing={<Lock size={13} className="text-dls-secondary" aria-label={t("extensions.row_locked")} />}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2.5 px-0.5 text-xs text-dls-secondary">{t("extensions.locked_more")}</p>
-              </div>
-            ) : null}
           </div>
         </div>
       )}

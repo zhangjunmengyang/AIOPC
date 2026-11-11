@@ -37,7 +37,8 @@ export type AiopcPlatform = {
   category: string;
   category_name: string;
   forms: string[];
-  status: "available" | "planned";
+  /** The AI can fill this platform's composer; otherwise it works on the site in the browser. */
+  fills_composer: boolean;
   login_url: string;
   color: string;
 };

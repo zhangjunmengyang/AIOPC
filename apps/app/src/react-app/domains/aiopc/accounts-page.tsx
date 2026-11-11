@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert, ExternalLink, PenLine, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, PenLine, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,9 @@ export function AccountsPage(props: { workspaceRoot: string }) {
   const accountsQuery = useQuery({
     queryKey: ["aiopc", "accounts"],
     enabled: ready,
+    // Accounts also change from chat (the AI connects them): keep the list current without a refresh button.
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
     queryFn: () => request<{ accounts: AiopcAccount[] }>("GET", "/api/accounts").then((data) => data.accounts),
   });
   const historyQuery = useQuery({
@@ -104,9 +107,6 @@ export function AccountsPage(props: { workspaceRoot: string }) {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-6 pb-12 pt-8">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{t("aiopc.accounts.title")}</h1>
-          <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.refresh")} onClick={() => void accountsQuery.refetch()}>
-            <RefreshCw className={cn("size-4", accountsQuery.isFetching && "animate-spin")} />
-          </Button>
           <Button className="ml-auto" onClick={() => setConnecting(true)}><Plus className="size-4" />{t("aiopc.accounts.connect")}</Button>
         </div>
         <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
@@ -130,12 +130,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
         ) : accountsQuery.isPending ? (
           <p className="py-16 text-center text-sm text-muted-foreground">{t("aiopc.loading")}</p>
         ) : accounts.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-14 text-center">
-            <UserRound className="size-8 text-muted-foreground" />
-            <div className="text-sm font-medium">{t("aiopc.accounts.empty")}</div>
-            <p className="max-w-sm text-xs text-muted-foreground">{t("aiopc.accounts.empty_hint")}</p>
-            <Button variant="outline" size="sm" onClick={() => setConnecting(true)}><Plus className="size-3.5" />{t("aiopc.accounts.connect")}</Button>
-          </div>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t("aiopc.accounts.empty_hint")}</p>
         ) : (
           <div role="list" className="flex flex-col divide-y divide-border/60 rounded-xl border border-border/60">
             {accounts.map((account) => {
@@ -237,113 +232,73 @@ function ConnectDialog(props: {
 }) {
   const { request } = useAiopc(props.workspaceRoot);
   const [region, setRegion] = useState<"cn" | "global">("cn");
-  const [query, setQuery] = useState("");
-  const [platform, setPlatform] = useState<AiopcPlatform | null>(null);
-  const [alias, setAlias] = useState("");
+  const [pending, setPending] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!props.open) {
-      setPlatform(null);
-      setAlias("");
-      setQuery("");
+      setPending("");
       setMessage("");
     }
   }, [props.open]);
 
-  // Searching looks across both regions; otherwise one region, grouped by category, connectable first.
   const groups = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    const shown = props.platforms.filter((item) => needle
-      ? item.name.toLocaleLowerCase().includes(needle) || item.id.includes(needle)
-      : item.region === region);
     const byCategory = new Map<string, AiopcPlatform[]>();
-    for (const item of shown) {
-      const label = item.status === "planned" ? t("aiopc.accounts.planned_group") : item.category_name;
-      byCategory.set(label, [...(byCategory.get(label) ?? []), item]);
+    for (const item of props.platforms.filter((platform) => platform.region === region)) {
+      byCategory.set(item.category_name, [...(byCategory.get(item.category_name) ?? []), item]);
     }
-    const planned = t("aiopc.accounts.planned_group");
-    return [...byCategory.entries()].sort(([a], [b]) => Number(a === planned) - Number(b === planned));
-  }, [props.platforms, query, region]);
+    return [...byCategory.entries()];
+  }, [props.platforms, region]);
 
-  const openLogin = async () => {
-    if (!platform) return;
-    setBusy(true);
+  // Choosing a platform is the action: its login page opens in the browser on the right.
+  const connect = async (platform: AiopcPlatform) => {
+    setPending(platform.id);
     setMessage("");
     try {
-      const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
-        body: { platform: platform.id, alias: alias.trim() },
-      });
+      const result = await request<ConnectResult>("POST", "/api/accounts/connect", { body: { platform: platform.id } });
       if (result.status === "connected") props.onConnected();
-      else props.onLoginOpened(platform, alias.trim());
+      else props.onLoginOpened(platform, "");
       props.onOpenChange(false);
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setBusy(false);
+      setPending("");
     }
   };
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-5 sm:max-w-3xl">
+        <DialogHeader className="flex-row items-center justify-between gap-4 pr-10">
           <DialogTitle>{t("aiopc.accounts.connect")}</DialogTitle>
-          <DialogDescription>{t("aiopc.accounts.connect_hint")}</DialogDescription>
+          <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
+            <ToggleGroupItem value="cn">{t("aiopc.accounts.region_cn")}</ToggleGroupItem>
+            <ToggleGroupItem value="global">{t("aiopc.accounts.region_global")}</ToggleGroupItem>
+          </ToggleGroup>
         </DialogHeader>
-        {(
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
-                <ToggleGroupItem value="cn">{t("aiopc.accounts.region_cn")}</ToggleGroupItem>
-                <ToggleGroupItem value="global">{t("aiopc.accounts.region_global")}</ToggleGroupItem>
-              </ToggleGroup>
-              <div className="relative ml-auto w-56">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("aiopc.accounts.search_platform")} className="pl-8" />
+        <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          {groups.map(([label, items]) => (
+            <section key={label} className="pb-6 last:pb-0">
+              <h3 className="pb-3 text-xs font-medium text-muted-foreground">{label}</h3>
+              <div className="grid grid-cols-4 gap-x-3 gap-y-4 sm:grid-cols-6">
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={Boolean(pending)}
+                    onClick={() => void connect(item)}
+                    className={cn("group flex flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors hover:bg-muted/70 disabled:opacity-60",
+                      pending === item.id && "bg-muted")}
+                  >
+                    <PlatformIcon id={item.id} name={item.name} color={item.color} className="size-12 rounded-xl" large />
+                    <span className="w-full truncate text-center text-[13px]">{item.name}</span>
+                  </button>
+                ))}
               </div>
-            </div>
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-              {groups.map(([label, items]) => (
-                <section key={label} className="pb-3">
-                  <h3 className="pb-1.5 text-[11px] font-medium text-muted-foreground">{label}</h3>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {items.map((item) => {
-                      const planned = item.status === "planned";
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          disabled={planned}
-                          onClick={() => setPlatform(item)}
-                          className={cn("flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left text-sm transition-colors",
-                            platform?.id === item.id ? "border-foreground bg-muted" : "border-border hover:bg-muted/60",
-                            planned && "cursor-not-allowed hover:bg-transparent")}
-                        >
-                          <PlatformIcon id={item.id} name={item.name} color={item.color} muted={planned} />
-                          <span className="flex min-w-0 flex-col">
-                            <span className={cn("truncate font-medium", planned && "text-muted-foreground")}>{item.name}</span>
-                            <span className="truncate text-[11px] text-muted-foreground">
-                              {planned ? t("aiopc.accounts.planned") : item.forms.map((form) => t(`aiopc.form.${form}`)).join(" · ")}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-              {groups.length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">{t("aiopc.accounts.no_platform")}</p> : null}
-            </div>
-            <Input value={alias} onChange={(event) => setAlias(event.currentTarget.value)} placeholder={t("aiopc.accounts.alias")} maxLength={80} />
-          </div>
-        )}
+            </section>
+          ))}
+        </div>
         {message ? <p className="text-xs text-destructive">{message}</p> : null}
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>{t("common.cancel")}</Button>
-          <Button disabled={!platform || busy} onClick={() => void openLogin()}>{t("aiopc.accounts.open_login")}</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -259,7 +259,7 @@ export function ExtensionDetailModal({
   showEnablementCard = true,
   size = "default",
   presentation = "dialog",
-  backLabel = "Library",
+  backLabel = t("settings.tab_extensions"),
   breadcrumbs,
 }: ExtensionDetailModalProps) {
   "use memo";

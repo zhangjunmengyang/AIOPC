@@ -3,6 +3,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deferBrowserStop } from "./browser-navigation.mjs";
 
+/** Tabs opened by an app page rather than a conversation (see @openwork/browser-tabs DRAFT_OWNER_KEY). */
+const NO_CONVERSATION_OWNER = "__openwork_no_session__";
+
 const WORLD = 1001;
 const TRUST = "untrusted-site-content";
 
@@ -912,6 +915,9 @@ export function createBrowserTaskHost({ getTab, tabsFor, ownerOf, activeFor, isV
       if (typeof sessionId !== "string" || !sessionId.trim()) fail("missing_session", "Browser control requires a requesting conversation.");
       if (!enabled()) fail("browser_disabled", "Enable OpenWork Browser in Library, or ask your organization to allow browser control.");
       if (operation === "tabs") return { ok: true, provider: "builtin", externalBrowsers: "unsupported", tabs: tabsFor(sessionId).map((item) => ({ tabId: item.tabId, url: safeUrl(item.view.webContents.getURL()), title: item.view.webContents.getTitle().slice(0, 300), visible: isVisible(item.tabId), status: stateFor(item.tabId).status, operation: stateFor(item.tabId).operation })) };
+      // A page with no conversation (AIOPC's Accounts page) has no "next message" to hand control back:
+      // its own next request is that hand-back.
+      if (sessionId === NO_CONVERSATION_OWNER) pausedSessions.delete(sessionId);
       if (pausedSessions.has(sessionId)) fail("paused", "The user has browser control until they resume it or send their next message. End your turn and wait.");
       const control = controlFor(sessionId);
       controller = new AbortController();
@@ -939,7 +945,10 @@ export function createBrowserTaskHost({ getTab, tabsFor, ownerOf, activeFor, isV
         tab = args.tabId ? await Promise.race([resolve(sessionId, args.tabId), canceled]) : matches[0];
         requestSignal.throwIfAborted();
         checkControl(sessionId, control);
-        if (pausedSessions.has(sessionId)) fail("paused", "The user has browser control until they resume it or send their next message. End your turn and wait.");
+        // A page with no conversation (AIOPC's Accounts page) has no "next message" to hand control back:
+      // its own next request is that hand-back.
+      if (sessionId === NO_CONVERSATION_OWNER) pausedSessions.delete(sessionId);
+      if (pausedSessions.has(sessionId)) fail("paused", "The user has browser control until they resume it or send their next message. End your turn and wait.");
         const opened = !tab;
         if (!tab) {
           tab = await Promise.race([

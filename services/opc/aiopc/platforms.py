@@ -1,8 +1,9 @@
 """Every platform AIOPC knows: one catalog for the Accounts page, the AI's tools and the account store.
 
-A platform is "available" when MultiPost (Apache-2.0) can fill its composer in the
-built-in browser; "planned" ones are listed so the person sees where AIOPC is going,
-but cannot be connected yet. Regions group the picker: 国内 and 出海.
+Connecting any platform means logging in once in AIOPC's built-in browser; the login
+stays saved and the AI can work on that site in the browser. Where MultiPost
+(Apache-2.0) knows the platform's composer, the AI can also fill a post for the person
+to publish (``forms``). Regions group the picker: 国内 and 出海.
 """
 
 from __future__ import annotations
@@ -25,19 +26,19 @@ class Platform:
     region: Region
     category: str
     login: str
-    # Our forms (post / article / video) → MultiPost platform keys. Empty: planned.
+    # Our forms (post / article / video) → MultiPost platform keys. Empty: the AI works in the browser directly.
     forms: dict[str, str] = field(default_factory=dict)
     aliases: tuple[str, ...] = ()
     color: str = ""
 
     @property
-    def available(self) -> bool:
+    def fills_composer(self) -> bool:
         return bool(self.forms)
 
     def describe(self) -> dict[str, Any]:
         return {"id": self.id, "name": self.name, "region": self.region, "region_name": REGIONS[self.region],
                 "category": self.category, "category_name": CATEGORIES[self.category], "forms": list(self.forms),
-                "status": "available" if self.available else "planned", "login_url": self.login, "color": self.color}
+                "fills_composer": self.fills_composer, "login_url": self.login, "color": self.color}
 
 
 CATALOG: tuple[Platform, ...] = (
@@ -96,7 +97,7 @@ CATALOG: tuple[Platform, ...] = (
     Platform("substack", "Substack", "global", "newsletter", "https://substack.com/sign-in",
              {"post": "DYNAMIC_SUBSTACK", "article": "ARTICLE_SUBSTACK"}, (), "#FF6719"),
     Platform("wordpress", "WordPress.com", "global", "newsletter", "https://wordpress.com/log-in", {"article": "ARTICLE_WORDPRESS"}, ("wordpress",), "#21759B"),
-    # Planned: listed, not connectable yet.
+    # Communities and tools: the AI works on these sites in the browser.
     Platform("producthunt", "Product Hunt", "global", "community", "https://www.producthunt.com/", color="#DA552F"),
     Platform("hackernews", "Hacker News", "global", "community", "https://news.ycombinator.com/login", aliases=("hn",), color="#F0652F"),
     Platform("indiehackers", "Indie Hackers", "global", "community", "https://www.indiehackers.com/", color="#0E2439"),
@@ -110,7 +111,7 @@ CATALOG: tuple[Platform, ...] = (
 
 BY_ID: dict[str, Platform] = {platform.id: platform for platform in CATALOG}
 PLATFORMS: dict[str, str] = {platform.id: platform.name for platform in CATALOG}
-MULTIPOST_KEYS: dict[str, dict[str, str]] = {platform.id: dict(platform.forms) for platform in CATALOG if platform.available}
+MULTIPOST_KEYS: dict[str, dict[str, str]] = {platform.id: dict(platform.forms) for platform in CATALOG if platform.fills_composer}
 LOGIN_PAGES: dict[str, str] = {platform.id: platform.login for platform in CATALOG}
 ALIASES: dict[str, str] = {
     alias.casefold(): platform.id

@@ -28,6 +28,8 @@ import { createWebMcpFramePolicy } from "./webmcp-policy.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BROWSER_SESSION_PARTITION = "persist:openwork-browser";
+// Off in AIOPC: agent pages are never resized to a fixed viewport (see lockAgentViewport).
+const AIOPC_FIXED_PAGE_SIZE = false;
 const BROWSER_DEFAULT_URL = "about:blank";
 // URL a user-initiated new tab (the "+" button / opening the browser panel)
 // lands on. The agent's programmatic path keeps BROWSER_DEFAULT_URL.
@@ -1425,7 +1427,9 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
    * than failing the agent's operation.
    */
   function lockAgentViewport(tab) {
-    if (tab.agentViewport !== agentViewportKey) {
+    // AIOPC: the agent works on the page exactly as the person sees it, so a page always
+    // fits the panel or full view it is shown in. Codex works the same way.
+    if (AIOPC_FIXED_PAGE_SIZE && tab.agentViewport !== agentViewportKey) {
       tab.agentViewport = agentViewportKey;
       // `panel` keeps the page's current size, so taking the tab rescales
       // nothing. A page off screen takes the panel's size when it is shown.

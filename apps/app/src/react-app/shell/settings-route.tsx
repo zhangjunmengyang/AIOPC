@@ -315,10 +315,13 @@ export function parseSettingsPath(pathname: string): {
       return { tab: head, redirectPath: null };
     case "advanced":
       return { tab: "advanced", redirectPath: null, advancedSection: tail };
+    // AIOPC has no cloud account: every cloud tab lands on the settings overview.
     case "cloud-account":
     case "cloud-providers":
     case "usage":
-      return { tab: head, redirectPath: null };
+    case "den":
+    case "cloud-workers":
+      return { tab: "general", redirectPath: "general" };
     case "connect":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "recovery":
@@ -329,9 +332,6 @@ export function parseSettingsPath(pathname: string): {
       return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
     case "cloud-marketplaces":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
-    case "den":
-    case "cloud-workers":
-      return { tab: "cloud-account", redirectPath: "cloud-account" };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
       if (

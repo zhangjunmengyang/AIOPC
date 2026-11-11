@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, FileText, Globe, Puzzle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 export type PanelEmptyActions = {
   onOpenBrowser?: () => void;
@@ -51,7 +52,7 @@ export function getPanelDestinations(
   if (actions.onOpenExtensions) {
     destinations.push({
       id: "extensions",
-      label: "Library",
+      label: t("settings.tab_extensions"),
       description: "Browse the skills and connections available to your agent.",
       icon: <Puzzle aria-hidden="true" />,
       activate: actions.onOpenExtensions,

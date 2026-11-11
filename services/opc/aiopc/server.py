@@ -150,7 +150,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     for name, method, description, annotation in [
         ("get_project_brief", get_project_brief, get_project_brief.__doc__, READ),
         ("init_project", init_project, init_project.__doc__, WRITE),
-        ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海: which can be connected now (status available) and their forms.", READ),
+        ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海. All connect by logging in once in the built-in browser; fills_composer platforms can also get a post filled in via social_publish, the others you operate in the browser directly.", READ),
         ("social_accounts", social.accounts, "Connected accounts on every platform (shared by all projects): status (ready / needs_login), forms (post / article / video) and readable data.", READ),
         ("social_connect", social_connect, social_connect.__doc__, WRITE),
         ("social_publish", social.publish, "Fill a platform's composer in the built-in browser for one account; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),

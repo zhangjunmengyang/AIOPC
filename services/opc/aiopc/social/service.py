@@ -77,7 +77,9 @@ class SocialService:
             "account_id": account["id"], "platform": platform, "platform_name": PLATFORMS.get(platform, platform),
             "name": account.get("alias") or identity.get("name") or PLATFORMS.get(platform, platform),
             "handle": identity.get("handle", ""), "url": identity.get("url", ""),
-            "status": "ready" if identity.get("id") else "needs_login", "publish": "compose",
+            "status": "ready" if identity.get("id") else "needs_login",
+            # compose: the AI fills the platform's composer; browser: the AI works on the site in the built-in browser.
+            "publish": "compose" if platform in MULTIPOST_KEYS else "browser",
             "forms": list(MULTIPOST_KEYS.get(platform, {})),
             "reads": (["posts", "comments"] if platform == "x" else list(PAGES.get(platform, {}))),
             "verified_at": account.get("verified_at"),
@@ -102,8 +104,6 @@ class SocialService:
             platform = normalize_platform(platform)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
-        if platform not in MULTIPOST_KEYS:
-            raise SocialError(f"{PLATFORMS[platform]} 即将支持，现在还不能连接")
         try:
             if not check:
                 handle = await self.browser.open_login(platform)
@@ -160,6 +160,8 @@ class SocialService:
         images = [path for path in paths if path.suffix.lower() in IMAGE_SUFFIXES]
         videos = [path for path in paths if path.suffix.lower() in VIDEO_SUFFIXES]
         problems = []
+        if not info["forms"]:
+            raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请在内置浏览器里直接操作这个网站（已保存登录）")
         if form not in info["forms"]:
             problems.append(f"{info['platform_name']} 可用的形式：{'、'.join(info['forms'])}")
         if account["platform"] == "xhs" and form == "post" and not images:

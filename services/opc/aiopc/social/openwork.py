@@ -180,9 +180,13 @@ class OpenWorkBrowser:
         url = LOGIN_PAGES.get(platform)
         if url is None:
             raise OpenWorkError(f"{platform} 还没有登录入口")
-        # Left open on purpose: the person logs in in the browser panel.
+        # Left open on purpose: the person logs in in the browser panel. Released right away so the
+        # page is theirs: it follows the panel or full view instead of the agent's locked size.
         handle = await self.open(url)
-        handle["screenshot"] = await self.screenshot(handle)
+        try:
+            handle["screenshot"] = await self.screenshot(handle)
+        finally:
+            await self.release(handle)
         return handle
 
     async def screenshot(self, handle: dict[str, Any], settle_seconds: float = 2.5) -> str:
