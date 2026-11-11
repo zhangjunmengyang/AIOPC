@@ -351,7 +351,7 @@ function SpacePreview(props: {
 
   return (
     <Dialog open={Boolean(item)} onOpenChange={(open) => { if (!open) props.onClose(); }}>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-4 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-4 lg:max-w-3xl">
         {item ? (
           <>
             <DialogHeader>

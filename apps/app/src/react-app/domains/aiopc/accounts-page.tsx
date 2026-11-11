@@ -232,12 +232,10 @@ function ConnectDialog(props: {
 }) {
   const { request } = useAiopc(props.workspaceRoot);
   const [region, setRegion] = useState<"cn" | "global">("cn");
-  const [pending, setPending] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!props.open) {
-      setPending("");
       setMessage("");
     }
   }, [props.open]);
@@ -258,7 +256,7 @@ function ConnectDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="flex max-h-[80vh] w-full max-w-4xl flex-col gap-5 sm:max-w-4xl">
+      <DialogContent className="flex max-h-[80vh] flex-col gap-6 lg:max-w-[760px]">
         <DialogHeader className="flex-row items-center justify-between gap-4 pr-10">
           <DialogTitle>{t("aiopc.accounts.connect")}</DialogTitle>
           <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
@@ -266,21 +264,20 @@ function ConnectDialog(props: {
             <ToggleGroupItem value="global">{t("aiopc.accounts.region_global")}</ToggleGroupItem>
           </ToggleGroup>
         </DialogHeader>
-        <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-6">
           {groups.map(([label, items]) => (
             <section key={label} className="pb-6 last:pb-0">
               <h3 className="pb-3 text-xs font-medium text-muted-foreground">{label}</h3>
-              <div className="grid grid-cols-5 gap-x-2 gap-y-3 sm:grid-cols-8">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-x-2 gap-y-4">
                 {items.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => connect(item)}
-                    className={cn("group flex flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors hover:bg-muted/70 disabled:opacity-60",
-                      pending === item.id && "bg-muted")}
+                    className="flex flex-col items-center gap-2 rounded-2xl px-1.5 pb-2 pt-3 transition-colors hover:bg-muted/70"
                   >
                     <PlatformIcon id={item.id} name={item.name} color={item.color} className="size-12 rounded-xl" large />
-                    <span className="w-full truncate text-center text-[13px]">{item.name}</span>
+                    <span className="line-clamp-2 w-full text-center text-xs leading-snug">{item.name}</span>
                   </button>
                 ))}
               </div>
