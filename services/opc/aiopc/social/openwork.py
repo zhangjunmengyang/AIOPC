@@ -234,6 +234,30 @@ class OpenWorkBrowser:
         except (OpenWorkError, OSError, TimeoutError, ValueError, websockets.WebSocketException):
             return ""
 
+    async def open_device_authorization(self, url: str, code: str) -> None:
+        """Open GitHub's device page in the panel and type the one-time code; the person confirms on the page."""
+        handle = await self.open(url)
+        try:
+            await self.wait_loaded(handle, seconds=20)
+            await self.evaluate(handle, f"""(() => {{
+              const code = {json.dumps(code.replace("-", ""))};
+              const set = (input, value) => {{
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+                setter.call(input, value);
+                input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+              }};
+              const boxes = [...document.querySelectorAll("input[id^='user-code-']")];
+              if (boxes.length >= code.length) {{ boxes.forEach((input, index) => set(input, code[index] || "")); return true; }}
+              const single = document.querySelector("input[name='user-code'], input#user-code");
+              if (single) {{ set(single, {json.dumps(code)}); return true; }}
+              return false;
+            }})()""", timeout=10)
+        except OpenWorkError:
+            pass
+        finally:
+            await self.release(handle)
+
     async def page_text(self, url: str, wait_seconds: float = 4) -> dict[str, Any]:
         handle = await self.open(url)
         try:

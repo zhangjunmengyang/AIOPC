@@ -17,6 +17,7 @@ from typing import Any
 
 from aiopc import credentials
 from aiopc.accounts import PLATFORMS, AccountError, AccountStore, normalize_platform
+from aiopc.github import DEVICE_URL, GitHubAuth, GitHubError
 from aiopc.paths import inside
 from aiopc.project import Project
 
@@ -56,6 +57,17 @@ class SocialError(ValueError):
     pass
 
 
+# One GitHub authorization per AIOPC home: it outlives a single request while the person approves.
+_github_auth: dict[str, GitHubAuth] = {}
+
+
+def github_auth(home: Path) -> GitHubAuth:
+    key = str(Path(home).resolve())
+    if key not in _github_auth:
+        _github_auth[key] = GitHubAuth(Path(home))
+    return _github_auth[key]
+
+
 def service_secret(service: str) -> dict[str, Any] | None:
     """A shared service's key: the Keychain (set on the Accounts page), else the .env variable."""
     stored = credentials.load("service", service)
@@ -75,7 +87,7 @@ class SocialService:
         self._browser = browser
         self._xdata = xdata
         self.routes: list[Route] = [
-            XApiRoute(), BlueskyRoute(), GitHubCliRoute(),
+            XApiRoute(), BlueskyRoute(), GitHubCliRoute(self.instance),
             XDataRoute(lambda: self.xdata, lambda: service_secret("twitterapi") is not None),
             BrowserRoute(lambda: self.browser),
         ]
@@ -136,6 +148,8 @@ class SocialService:
             platform = normalize_platform(platform)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
+        if platform == "github":
+            return await self._connect_github(alias, check)
         try:
             if not check:
                 handle = await self.browser.open_login(platform, screenshot=screenshot)
@@ -151,6 +165,32 @@ class SocialService:
         found = found or {"id": f"browser-{platform}", "name": alias or f"{PLATFORMS[platform]}账号"}
         try:
             account = self.store.upsert(platform, found, alias=alias)
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+        return {"status": "connected", "account": self.describe(account)}
+
+    async def _connect_github(self, alias: str, check: bool) -> dict[str, Any]:
+        """GitHub connects through the official GitHub CLI: AIOPC installs it and runs its browser authorization."""
+        auth = github_auth(self.instance)
+        try:
+            user = await auth.user()
+            if user is None and not check:
+                started = await auth.start()
+                try:
+                    await self.browser.open_device_authorization(DEVICE_URL, started["code"])
+                except OpenWorkError:
+                    pass
+                return {"status": "authorize", "platform": "github", "code": started["code"], "url": DEVICE_URL,
+                        "message": f"已在右侧打开 GitHub 授权页，验证码 {started['code']}。请在页面上确认授权，完成后会自动识别。"}
+        except GitHubError as exc:
+            raise SocialError(str(exc)) from None
+        if user is None:
+            state = auth.state()
+            if state == "failed":
+                raise SocialError(auth.error or "GitHub 授权没有完成，请重新连接")
+            return {"status": "not_logged_in", "platform": "github", "message": "还在等待你在 GitHub 页面上确认授权。"}
+        try:
+            account = self.store.upsert("github", user, alias=alias)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
         return {"status": "connected", "account": self.describe(account)}

@@ -41,7 +41,45 @@ def test_every_platform_connects_in_the_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
     social = SocialService(tmp_path / "home", tmp_path)
     assert asyncio.run(social.connect("Product Hunt"))["status"] == "login_opened"
-    # No detector for GitHub: the person's "I've logged in" saves the browser's account.
-    saved = asyncio.run(social.connect("github", check=True))
+    # No detector for Product Hunt: the person's "I've logged in" saves the browser's account.
+    saved = asyncio.run(social.connect("producthunt", check=True))
     assert saved["status"] == "connected" and saved["account"]["publish"] == "browser"
     assert opened == ["producthunt"]
+
+
+def test_github_connects_through_gh_authorization(tmp_path, monkeypatch):
+    from aiopc.social import service
+
+    opened = []
+
+    class FakeBrowser:
+        async def open_device_authorization(self, url, code):
+            opened.append((url, code))
+
+    class FakeAuth:
+        logged_in = None
+
+        async def user(self):
+            return self.logged_in
+
+        async def start(self):
+            return {"code": "ABCD-1234", "url": "https://github.com/login/device"}
+
+        def state(self):
+            return "waiting"
+
+        error = ""
+
+    auth = FakeAuth()
+    monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
+    monkeypatch.setattr(service, "github_auth", lambda home: auth)
+    social = SocialService(tmp_path / "home", tmp_path)
+
+    started = asyncio.run(social.connect("GitHub"))
+    assert started["status"] == "authorize" and started["code"] == "ABCD-1234"
+    assert opened == [("https://github.com/login/device", "ABCD-1234")]
+    assert asyncio.run(social.connect("github", check=True))["status"] == "not_logged_in"
+
+    auth.logged_in = {"id": "42", "name": "Mona", "handle": "octocat", "url": "https://github.com/octocat"}
+    saved = asyncio.run(social.connect("github", check=True))
+    assert saved["status"] == "connected" and saved["account"]["handle"] == "octocat"

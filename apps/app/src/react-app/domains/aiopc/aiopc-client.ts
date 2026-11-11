@@ -85,6 +85,8 @@ export type AiopcAccount = {
 export type ConnectResult =
   | { status: "login_opened"; platform: string; login_url?: string; message: string }
   | { status: "not_logged_in"; platform: string; message: string }
+  /** GitHub: approve this one-time code on github.com/login/device (opened on the right). */
+  | { status: "authorize"; platform: string; code: string; url: string; message: string }
   | { status: "connected"; account: AiopcAccount };
 
 export class AiopcError extends Error {}

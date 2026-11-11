@@ -17,7 +17,6 @@ import json
 import mimetypes
 import re
 import secrets
-import shutil
 import subprocess
 import time
 import urllib.parse
@@ -319,9 +318,11 @@ class BlueskyRoute(Route):
 
 
 # ── GitHub through the official gh CLI ─────────────────────────────────
-def gh_path() -> str | None:
-    """gh from PATH or Homebrew's usual places (an app opened from Finder has a minimal PATH)."""
-    return shutil.which("gh") or next((path for path in ("/opt/homebrew/bin/gh", "/usr/local/bin/gh") if Path(path).exists()), None)
+def gh_path(home: Path | None = None) -> str | None:
+    """gh from AIOPC's own bin (installed by the app), PATH, or Homebrew's usual places."""
+    from aiopc.github import find_gh
+
+    return find_gh(home)
 
 
 class GitHubCliRoute(Route):
@@ -329,14 +330,15 @@ class GitHubCliRoute(Route):
 
     id, kind, name = "github-cli", "api", "GitHub 命令行（gh）"
 
-    def __init__(self) -> None:
+    def __init__(self, home: Path | None = None) -> None:
+        self.home = home
         self._status: tuple[float, bool] = (0.0, False)
 
     def ready(self) -> bool:
         checked, ok = self._status
         if time.time() - checked < 60:
             return ok
-        gh = gh_path()
+        gh = gh_path(self.home)
         ok = bool(gh) and subprocess.run([gh, "auth", "status"], capture_output=True, timeout=10, check=False).returncode == 0
         self._status = (time.time(), ok)
         return ok
@@ -350,7 +352,7 @@ class GitHubCliRoute(Route):
     async def read(self, account: dict[str, Any], what: str, post_id: str = "") -> dict[str, Any]:
         path = "/notifications?per_page=30" if what == "comments" else "/users/{handle}/events?per_page=30".format(
             handle=(account.get("identity") or {}).get("handle", "").lstrip("@") or "{owner}")
-        process = await asyncio.create_subprocess_exec(gh_path() or "gh", "api", path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        process = await asyncio.create_subprocess_exec(gh_path(self.home) or "gh", "api", path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, err = await process.communicate()
         if process.returncode != 0:
             raise RouteError(f"gh 调用失败：{err.decode()[:200]}")
@@ -370,6 +372,6 @@ ENHANCEMENTS: dict[str, list[dict[str, Any]]] = {
                  "help": "在 Bluesky 设置 → 隐私与安全 → 应用专用密码 里新建一个。", "help_url": "https://bsky.app/settings/app-passwords"}],
     "github": [{"route": "github-cli", "name": "GitHub 命令行（gh）", "does": "AI 直接处理仓库、Issue、PR、Release 和通知",
                 "fields": [], "automatic": True,
-                "help": "安装 gh（在终端运行 brew install gh），再运行 gh auth login 按提示在浏览器授权；完成后自动启用。",
+                "help": "连接 GitHub 账号时由 AIOPC 自动安装并完成浏览器授权，无需手动操作。",
                 "help_url": "https://cli.github.com/"}],
 }

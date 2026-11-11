@@ -10,7 +10,7 @@ description: 管理社交媒体账号：连接账号、看账号能做什么、�
 ## 工具
 
 - `social_platforms`：AIOPC 支持的平台，分国内和出海。所有平台都通过在内置浏览器里登录一次来连接，登录状态会保存；`fills_composer` 为 true 的平台还能用 `social_publish` 自动填写发布页，其他平台（例如 GitHub、Discord、Product Hunt）用内置浏览器直接在网站上操作。
-- GitHub 上的开发工作（仓库、Issue、PR、Release）优先用 `gh` 命令行：没登录时请用户在终端运行 `gh auth login` 完成浏览器授权，不要索要或保存令牌。
+- GitHub 上的开发工作（仓库、Issue、PR、Release、通知）在终端里直接用 `gh` 命令行。`gh` 由 AIOPC 自动安装和授权：还没连接时调用 `social_connect("github")`，AIOPC 会在右侧打开 GitHub 授权页并给出验证码，用户在页面上确认后自动完成；不要让用户自己装软件或运行命令，也不要索要令牌。
 - `social_accounts`：已连接的账号，状态（ready / needs_login）、发布方式（`direct` 官方接口直接发布 / `compose` 填好发布页由用户点发布 / `browser` 在浏览器里操作）、支持的形式和能读的数据。每个账号背后用浏览器、官方接口还是第三方数据由 AIOPC 自动选择，你只管调用工具。
 - 用户想让某个平台直接发布或拿到更准的数据时，告诉他在「账号 → 接口与数据」里添加官方接口或数据服务；不要在对话里索要密钥。
 - `social_connect(platform)`：连接账号。第一次调用会在对话右侧的内置浏览器打开登录页，并把登录页截图（通常带二维码）返回到对话里，请用户直接扫码或在右侧登录；用户说登好了，再用 `check=true` 调用，自动识别并保存账号。用户也可以在「账号」页自己连接。每个平台同一时间登录一个账号。

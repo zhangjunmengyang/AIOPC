@@ -75,6 +75,11 @@ export function createAiopcService({ app, desktopRoot, log = console }) {
     process.env.AIOPC_HOME = home;
     // One environment shared by the API process and every workspace's MCP, outside the app bundle.
     process.env.UV_PROJECT_ENVIRONMENT = path.join(home, "venv");
+    // Tools AIOPC installs for the agent (e.g. the GitHub CLI) live here; the runtime's shells inherit it.
+    const toolDir = path.join(home, "bin");
+    if (!String(process.env.PATH ?? "").split(path.delimiter).includes(toolDir)) {
+      process.env.PATH = [toolDir, process.env.PATH].filter(Boolean).join(path.delimiter);
+    }
   }
 
   async function waitHealthy(target, startedChild) {

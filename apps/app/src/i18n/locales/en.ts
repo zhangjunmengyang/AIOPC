@@ -4,6 +4,7 @@
  */
 
 export default {
+  "aiopc.accounts.device_steps": "Approve AIOPC on the GitHub page on the right (the code is filled in). It connects by itself once approved.",
   "aiopc.accounts.tab_accounts": "Accounts",
   "aiopc.accounts.tab_integrations": "APIs & data",
   "aiopc.routes.open_guide": "How to get it",

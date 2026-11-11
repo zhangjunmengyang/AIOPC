@@ -327,15 +327,20 @@ function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias
   const { request } = useAiopc(props.workspaceRoot);
   const [busy, setBusy] = useState<"" | "open" | "check">("open");
   const [message, setMessage] = useState("");
-  const call = async (check: boolean) => {
-    setBusy(check ? "check" : "open");
-    setMessage("");
+  // GitHub authorizes with a one-time code; once shown, AIOPC checks for the approval by itself.
+  const [deviceCode, setDeviceCode] = useState("");
+  const call = async (check: boolean, quiet = false) => {
+    if (!quiet) {
+      setBusy(check ? "check" : "open");
+      setMessage("");
+    }
     try {
       const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
         body: { platform: props.platform.id, alias: props.alias, check },
       });
       if (result.status === "connected") props.onDone();
-      else if (result.status === "not_logged_in") setMessage(t("aiopc.accounts.not_logged_in", { platform: props.platform.name }));
+      else if (result.status === "authorize") setDeviceCode(result.code);
+      else if (result.status === "not_logged_in" && !quiet) setMessage(t("aiopc.accounts.not_logged_in", { platform: props.platform.name }));
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -347,6 +352,12 @@ function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias
     void call(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (!deviceCode) return;
+    const timer = window.setInterval(() => void call(true, true), 3000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceCode]);
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-4">
       <div className="flex items-center gap-3">
@@ -354,9 +365,12 @@ function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm font-medium">{t("aiopc.accounts.login_title", { platform: props.platform.name })}</span>
           <span className={cn("text-xs", message ? "text-destructive" : "text-muted-foreground")}>
-            {message || (busy === "open" ? t("aiopc.accounts.opening_login") : t("aiopc.accounts.login_steps"))}
+            {message || (deviceCode ? t("aiopc.accounts.device_steps") : busy === "open" ? t("aiopc.accounts.opening_login") : t("aiopc.accounts.login_steps"))}
           </span>
         </div>
+        {deviceCode ? (
+          <span className="ml-auto shrink-0 rounded-lg bg-background px-3 py-1.5 font-mono text-lg font-semibold tracking-widest">{deviceCode}</span>
+        ) : null}
       </div>
       <div className="flex flex-wrap justify-end gap-1.5">
         <Button variant="ghost" size="sm" onClick={props.onCancel}>{t("common.cancel")}</Button>

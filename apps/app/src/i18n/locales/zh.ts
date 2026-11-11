@@ -7,6 +7,7 @@
  */
 
 export default {
+  "aiopc.accounts.device_steps": "在右侧 GitHub 页面确认授权（验证码已自动填入），授权后会自动完成连接。",
   "aiopc.accounts.tab_accounts": "账号",
   "aiopc.accounts.tab_integrations": "接口与数据",
   "aiopc.routes.open_guide": "获取方法",
