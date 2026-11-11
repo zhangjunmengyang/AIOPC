@@ -88,3 +88,4 @@ evals/results/
 # API contracts are generated from source for builds and CI.
 /packages/docs/openapi.json
 /packages/sdk/src/gen/
+services/opc/.venv/
