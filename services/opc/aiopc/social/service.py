@@ -98,7 +98,7 @@ class SocialService:
         except AccountError as exc:
             raise SocialError(str(exc)) from None
 
-    async def connect(self, platform: str, alias: str = "", check: bool = False) -> dict[str, Any]:
+    async def connect(self, platform: str, alias: str = "", check: bool = False, *, screenshot: bool = True) -> dict[str, Any]:
         """Open the login page in the built-in browser, or (check=True) save whoever is logged in."""
         try:
             platform = normalize_platform(platform)
@@ -106,7 +106,7 @@ class SocialService:
             raise SocialError(str(exc)) from None
         try:
             if not check:
-                handle = await self.browser.open_login(platform)
+                handle = await self.browser.open_login(platform, screenshot=screenshot)
                 return {"status": "login_opened", "platform": platform, "login_url": LOGIN_PAGES.get(platform),
                         "message": "已在右侧内置浏览器打开登录页。请在那里登录（扫码或输入密码），完成后再检查一次（check=true）。",
                         **({"screenshot": handle["screenshot"]} if handle.get("screenshot") else {})}

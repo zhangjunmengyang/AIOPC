@@ -250,25 +250,15 @@ function ConnectDialog(props: {
     return [...byCategory.entries()];
   }, [props.platforms, region]);
 
-  // Choosing a platform is the action: its login page opens in the browser on the right.
-  const connect = async (platform: AiopcPlatform) => {
-    setPending(platform.id);
-    setMessage("");
-    try {
-      const result = await request<ConnectResult>("POST", "/api/accounts/connect", { body: { platform: platform.id } });
-      if (result.status === "connected") props.onConnected();
-      else props.onLoginOpened(platform, "");
-      props.onOpenChange(false);
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setPending("");
-    }
+  // Choosing a platform is the action: the dialog closes at once and the login bar opens the page.
+  const connect = (platform: AiopcPlatform) => {
+    props.onLoginOpened(platform, "");
+    props.onOpenChange(false);
   };
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-5 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[80vh] w-full max-w-4xl flex-col gap-5 sm:max-w-4xl">
         <DialogHeader className="flex-row items-center justify-between gap-4 pr-10">
           <DialogTitle>{t("aiopc.accounts.connect")}</DialogTitle>
           <ToggleGroup value={[region]} onValueChange={(values) => { if (values[0]) setRegion(values[0] as "cn" | "global"); }} variant="segmented" spacing={0.5} size="xs" aria-label={t("aiopc.accounts.region")}>
@@ -280,13 +270,12 @@ function ConnectDialog(props: {
           {groups.map(([label, items]) => (
             <section key={label} className="pb-6 last:pb-0">
               <h3 className="pb-3 text-xs font-medium text-muted-foreground">{label}</h3>
-              <div className="grid grid-cols-4 gap-x-3 gap-y-4 sm:grid-cols-6">
+              <div className="grid grid-cols-5 gap-x-2 gap-y-3 sm:grid-cols-8">
                 {items.map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    disabled={Boolean(pending)}
-                    onClick={() => void connect(item)}
+                    onClick={() => connect(item)}
                     className={cn("group flex flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors hover:bg-muted/70 disabled:opacity-60",
                       pending === item.id && "bg-muted")}
                   >
@@ -307,10 +296,10 @@ function ConnectDialog(props: {
 /** Shown above the list while a login page is open in the browser panel; nothing here covers the panel. */
 function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias: string; onDone: () => void; onCancel: () => void }) {
   const { request } = useAiopc(props.workspaceRoot);
-  const [busy, setBusy] = useState<"" | "check" | "reopen">("");
+  const [busy, setBusy] = useState<"" | "open" | "check">("open");
   const [message, setMessage] = useState("");
   const call = async (check: boolean) => {
-    setBusy(check ? "check" : "reopen");
+    setBusy(check ? "check" : "open");
     setMessage("");
     try {
       const result = await request<ConnectResult>("POST", "/api/accounts/connect", {
@@ -324,15 +313,24 @@ function LoginBar(props: { workspaceRoot: string; platform: AiopcPlatform; alias
       setBusy("");
     }
   };
+  // Opening the login page is the first step; it runs in the background while the page stays usable.
+  useEffect(() => {
+    void call(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
-      <PlatformIcon id={props.platform.id} name={props.platform.name} color={props.platform.color} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-sm font-medium">{t("aiopc.accounts.login_title", { platform: props.platform.name })}</span>
-        <span className="text-xs text-muted-foreground">{message || t("aiopc.accounts.login_steps")}</span>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-4">
+      <div className="flex items-center gap-3">
+        <PlatformIcon id={props.platform.id} name={props.platform.name} color={props.platform.color} />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium">{t("aiopc.accounts.login_title", { platform: props.platform.name })}</span>
+          <span className={cn("text-xs", message ? "text-destructive" : "text-muted-foreground")}>
+            {message || (busy === "open" ? t("aiopc.accounts.opening_login") : t("aiopc.accounts.login_steps"))}
+          </span>
+        </div>
       </div>
-      <div className="flex items-center gap-1.5">
-        <Button variant="ghost" size="sm" disabled={Boolean(busy)} onClick={props.onCancel}>{t("common.cancel")}</Button>
+      <div className="flex flex-wrap justify-end gap-1.5">
+        <Button variant="ghost" size="sm" onClick={props.onCancel}>{t("common.cancel")}</Button>
         <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void call(false)}>{t("aiopc.accounts.reopen_login")}</Button>
         <Button size="sm" disabled={Boolean(busy)} onClick={() => void call(true)}>{busy === "check" ? t("aiopc.accounts.checking") : t("aiopc.accounts.logged_in")}</Button>
       </div>

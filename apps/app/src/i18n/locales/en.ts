@@ -4,6 +4,7 @@
  */
 
 export default {
+  "aiopc.accounts.opening_login": "Opening the login page on the right…",
   "aiopc.browser.viewport.panel": "Fit panel",
   "aiopc.browser.viewport.desktop": "Desktop",
   "aiopc.browser.viewport.tablet": "Tablet",

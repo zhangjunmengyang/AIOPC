@@ -1065,6 +1065,8 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
       else if (view.webContents.debugger.isAttached()) clearLeftoverEmulation(tab);
     };
     view.webContents.once("dom-ready", onDomReady);
+    view.webContents.on("did-finish-load", () => scheduleFitPageWidth(tab));
+    view.webContents.on("did-navigate-in-page", () => scheduleFitPageWidth(tab));
     // A dead renderer leaves the contents alive (not destroyed) but without a
     // page view, and Chromium dereferences that missing view when a viewport
     // emulation arrives, crashing the whole app. Stop emulating until a reload
@@ -1520,6 +1522,37 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
     const host = viewHost();
     if (!lastBrowserBounds || !host || !host.contentView.children.includes(tab.view)) return;
     tab.view.setBounds(agentViewportPlacement(tab)?.bounds ?? lastBrowserBounds);
+    scheduleFitPageWidth(tab);
+  }
+
+  /**
+   * AIOPC: a desktop-only page (a fixed minimum width wider than the panel) is
+   * zoomed out to fit, as phone browsers do, instead of being cut off on the
+   * right. Pages that already fit stay at 100%. Debounced: panel drags and
+   * loads settle first.
+   */
+  function scheduleFitPageWidth(tab) {
+    clearTimeout(tab.fitPageTimer);
+    tab.fitPageTimer = setTimeout(() => { void fitPageWidth(tab).catch(() => {}); }, 250);
+  }
+
+  async function fitPageWidth(tab) {
+    const contents = tab.view.webContents;
+    if (contents.isDestroyed() || tab.background || tab.agentViewport) return;
+    const width = tab.view.getBounds().width;
+    if (!width) return;
+    // Measure the page at its natural size, then zoom only if it overflows.
+    if (contents.getZoomFactor() !== 1) {
+      contents.setZoomFactor(1);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    if (contents.isDestroyed()) return;
+    const contentWidth = await contents.executeJavaScript(
+      "Math.max(document.documentElement ? document.documentElement.scrollWidth : 0, document.body ? document.body.scrollWidth : 0)",
+      true,
+    );
+    if (contents.isDestroyed() || !Number.isFinite(contentWidth)) return;
+    if (contentWidth > width + 8) contents.setZoomFactor(Math.max(0.5, width / contentWidth));
   }
 
   /** The agent's screenshot at the full emulated resolution, not the scaled pixels on screen. */
@@ -1713,6 +1746,7 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
     }
     // Size before attaching so a restored view never flashes at stale bounds.
     tab.view.setBounds(agentViewportPlacement(tab)?.bounds ?? lastBrowserBounds);
+    scheduleFitPageWidth(tab);
     if (!host.contentView.children.includes(tab.view)) {
       // The same view moves between windows, so the page keeps its document.
       detachBrowserView(tab.view);

@@ -31,7 +31,7 @@ def test_every_platform_connects_in_the_browser(tmp_path, monkeypatch):
     opened = []
 
     class FakeBrowser:
-        async def open_login(self, platform):
+        async def open_login(self, platform, screenshot=True):
             opened.append(platform)
             return {"tab_id": "t1"}
 

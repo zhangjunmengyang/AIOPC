@@ -7,6 +7,7 @@
  */
 
 export default {
+  "aiopc.accounts.opening_login": "正在右侧打开登录页…",
   "aiopc.browser.viewport.panel": "适应面板",
   "aiopc.browser.viewport.desktop": "桌面",
   "aiopc.browser.viewport.tablet": "平板",

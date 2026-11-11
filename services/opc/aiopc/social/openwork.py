@@ -35,6 +35,21 @@ ACCOUNT_PAGES = {
 }
 
 
+# Detectors we maintain where MultiPost's no longer work: (page to run on, script returning MultiPost's shape).
+OWN_DETECTORS: dict[str, tuple[str, str]] = {
+    # The creator center's own API; MultiPost parsed the explore page's server state, which no longer carries the user.
+    "xhs": ("https://creator.xiaohongshu.com/new/home", """(async () => {
+      const response = await fetch("/api/galaxy/user/info", { credentials: "include" });
+      if (!response.ok) return null;
+      const body = await response.json();
+      const user = body && body.data;
+      if (!user || !user.userId) return null;
+      return { accountId: user.userId, username: user.userName || "", profileUrl: "https://www.xiaohongshu.com/user/profile/" + user.userId,
+               extraData: { handle: user.redId || "" } };
+    })()"""),
+}
+
+
 class OpenWorkError(RuntimeError):
     pass
 
@@ -84,6 +99,13 @@ class OpenWorkBrowser:
         if not handle.get("target_id") or not handle.get("browser_url"):
             raise OpenWorkError("AIOPC 没有返回浏览器标签。如果出现“是否允许访问该网站”，请在 AIOPC 里允许后重试。")
         return handle
+
+    async def close(self, handle: dict[str, Any]) -> None:
+        """Close a tab opened only for AIOPC's own work (a login check, a page read)."""
+        try:
+            await self.execute("browser.close_tab", {"tabId": handle.get("tab_id")})
+        except OpenWorkError:
+            pass
 
     async def release(self, handle: dict[str, Any]) -> None:
         try:
@@ -159,24 +181,29 @@ class OpenWorkBrowser:
         return {"page_url": url or info["injectUrl"], "tab_id": handle.get("tab_id"), "platform_key": key}
 
     async def account(self, platform: str) -> dict[str, Any] | None:
-        """The account logged in to this platform inside OpenWork's browser, or None."""
-        page = ACCOUNT_PAGES.get(platform)
+        """The account logged in to this platform in the built-in browser, or None."""
+        own = OWN_DETECTORS.get(platform)
+        page = own[0] if own else ACCOUNT_PAGES.get(platform)
         if page is None:
             return None
         handle = await self.open(page)
         try:
             await self.wait_loaded(handle)
-            await self.evaluate(handle, BUNDLE.read_text(encoding="utf-8") + "\n;true")
-            info = await self.evaluate(handle, f"__opcMultiPost.account({json.dumps(platform)})", timeout=30)
+            if own:
+                info = await self.evaluate(handle, own[1], timeout=30)
+            else:
+                await self.evaluate(handle, BUNDLE.read_text(encoding="utf-8") + "\n;true")
+                info = await self.evaluate(handle, f"__opcMultiPost.account({json.dumps(platform)})", timeout=30)
         finally:
             await self.release(handle)
+            await self.close(handle)
         if not isinstance(info, dict) or info.get("error") or not info.get("accountId"):
             return None
         extra = info.get("extraData") if isinstance(info.get("extraData"), dict) else {}
         return {"id": str(info["accountId"]), "name": info.get("username") or str(info["accountId"]),
                 "handle": str(extra.get("handle") or extra.get("screen_name") or ""), "url": info.get("profileUrl") or ""}
 
-    async def open_login(self, platform: str) -> dict[str, Any]:
+    async def open_login(self, platform: str, *, screenshot: bool = True) -> dict[str, Any]:
         url = LOGIN_PAGES.get(platform)
         if url is None:
             raise OpenWorkError(f"{platform} 还没有登录入口")
@@ -184,7 +211,8 @@ class OpenWorkBrowser:
         # page is theirs: it follows the panel or full view instead of the agent's locked size.
         handle = await self.open(url)
         try:
-            handle["screenshot"] = await self.screenshot(handle)
+            if screenshot:
+                handle["screenshot"] = await self.screenshot(handle)
         finally:
             await self.release(handle)
         return handle
@@ -215,6 +243,7 @@ class OpenWorkBrowser:
             final = await self.evaluate(handle, "location.href")
         finally:
             await self.release(handle)
+            await self.close(handle)
         return {"url": final, "text": text[:20_000], "truncated": len(text) > 20_000}
 
 

@@ -961,6 +961,23 @@ export function SessionPage(props: SessionPageProps) {
     },
   }), [props.selectedSessionId]);
   useControlAction(releaseBrowserTabControlAction);
+  // AIOPC's own checks (who is logged in, reading a page) open a tab only for that work and close it after.
+  const closeBrowserTabControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "browser.close_tab",
+    label: "Close browser tab",
+    description: "Close a built-in browser tab that was opened only for a short check.",
+    sideEffect: "mutation",
+    requiresArgs: true,
+    args: [{ name: "tabId", type: "string", required: true, description: "The tab_id returned by browser.open_url." }],
+    disabled: !isElectronRuntime(),
+    execute: async (args) => {
+      const tabId = controlStringArg(args, "tabId");
+      if (!tabId) return { ok: false, error: "Missing tabId." };
+      await window.__OPENWORK_ELECTRON__?.browser?.closeTab?.(tabId);
+      return { ok: true };
+    },
+  }), []);
+  useControlAction(closeBrowserTabControlAction);
   const setBrowserProxyControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "browser.set_proxy",
     label: "Set built-in browser proxy",

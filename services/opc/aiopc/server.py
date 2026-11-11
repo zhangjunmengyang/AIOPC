@@ -254,7 +254,9 @@ def create_api(home: Path, token: str) -> Starlette:
 
     async def connect_route(request: Request) -> Response:
         data = await body(request)
-        result = await workspace_of(request).social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")))
+        # The app's page shows the browser panel itself, so no screenshot (and a faster answer).
+        result = await workspace_of(request).social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")),
+                                                            screenshot=False)
         result.pop("screenshot", None)
         return respond(result)
 

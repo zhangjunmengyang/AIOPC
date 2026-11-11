@@ -105,8 +105,8 @@ def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
     png = base64.b64encode(b"\x89PNG fake").decode()
 
     class FakeBrowser:
-        async def open_login(self, platform):
-            return {"tab_id": "t1", "screenshot": png}
+        async def open_login(self, platform, screenshot=True):
+            return {"tab_id": "t1", "screenshot": png if screenshot else ""}
 
     monkeypatch.setattr(service, "OpenWorkBrowser", FakeBrowser)
     server = create_server(tmp_path / "home", tmp_path)
