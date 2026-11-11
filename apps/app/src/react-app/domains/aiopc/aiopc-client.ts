@@ -39,6 +39,8 @@ export type AiopcPlatform = {
   forms: string[];
   /** The AI can fill this platform's composer; otherwise it works on the site in the browser. */
   fills_composer: boolean;
+  /** Ways in besides the built-in browser login every platform has. */
+  methods: Array<Omit<AiopcEnhancement, "attached">>;
   login_url: string;
   color: string;
 };
@@ -79,6 +81,8 @@ export type AiopcAccount = {
   reads: string[];
   routes: Array<{ id: string; kind: "api" | "data" | "browser"; name: string }>;
   enhancements: AiopcEnhancement[];
+  /** Shared data services for this platform (e.g. third-party X data). */
+  services: AiopcService[];
   verified_at?: number | null;
 };
 

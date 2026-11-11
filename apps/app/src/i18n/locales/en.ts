@@ -4,6 +4,15 @@
  */
 
 export default {
+  "aiopc.routes.enable": "Set up",
+  "aiopc.accounts.back": "Back",
+  "aiopc.accounts.connect_platform": "Connect {platform}",
+  "aiopc.accounts.choose_method": "Choose how AIOPC reaches this account. You can add the other way later.",
+  "aiopc.accounts.method_browser": "Log in with the built-in browser",
+  "aiopc.accounts.method_browser_does": "Log in once on the right; the login stays saved and the AI works on the site for you. Works for every platform.",
+  "aiopc.accounts.ways_in": "Connection methods",
+  "aiopc.accounts.relogin": "Log in again",
+  "aiopc.accounts.display_name": "Display name",
   "aiopc.accounts.device_steps": "Approve AIOPC on the GitHub page on the right (the code is filled in). It connects by itself once approved.",
   "aiopc.accounts.tab_accounts": "Accounts",
   "aiopc.accounts.tab_integrations": "APIs & data",

@@ -370,7 +370,7 @@ ENHANCEMENTS: dict[str, list[dict[str, Any]]] = {
                  "fields": [{"name": "handle", "label": "账号（如 name.bsky.social）"},
                             {"name": "app_password", "label": "应用专用密码", "secret": True}],
                  "help": "在 Bluesky 设置 → 隐私与安全 → 应用专用密码 里新建一个。", "help_url": "https://bsky.app/settings/app-passwords"}],
-    "github": [{"route": "github-cli", "name": "GitHub 命令行（gh）", "does": "AI 直接处理仓库、Issue、PR、Release 和通知",
+    "github": [{"route": "github-cli", "name": "GitHub 官方授权（推荐）", "does": "在 GitHub 页面确认一次授权，AI 就能直接处理仓库、Issue、PR、Release 和通知",
                 "fields": [], "automatic": True,
                 "help": "连接 GitHub 账号时由 AIOPC 自动安装并完成浏览器授权，无需手动操作。",
                 "help_url": "https://cli.github.com/"}],

@@ -247,7 +247,10 @@ def create_api(home: Path, token: str) -> Starlette:
         return FileResponse(target, media_type=ws.space.mime(target), headers={"Cache-Control": "no-store", **cors})
 
     async def platforms_route(_request: Request) -> Response:
-        return respond({"platforms": catalog()})
+        from aiopc.social.routes import ENHANCEMENTS
+
+        # Every platform connects through the built-in browser; some also offer official ways in.
+        return respond({"platforms": [{**item, "methods": ENHANCEMENTS.get(item["id"], [])} for item in catalog()]})
 
     async def accounts_route(request: Request) -> Response:
         return respond({"accounts": workspace_of(request).social.accounts()})
@@ -256,9 +259,14 @@ def create_api(home: Path, token: str) -> Starlette:
         data = await body(request)
         # The app's page shows the browser panel itself, so no screenshot (and a faster answer).
         result = await workspace_of(request).social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")),
-                                                            screenshot=False)
+                                                            screenshot=False, method=str(data.get("method") or "auto"))
         result.pop("screenshot", None)
         return respond(result)
+
+    async def connect_route_route(request: Request) -> Response:
+        data = await body(request)
+        return respond(await workspace_of(request).social.connect_with_route(
+            str(data.get("platform", "")), str(data.get("route", "")), data.get("fields") or {}, str(data.get("alias", ""))))
 
     async def account_route(request: Request) -> Response:
         ws, account_id = workspace_of(request), request.path_params["account_id"]
@@ -292,6 +300,7 @@ def create_api(home: Path, token: str) -> Starlette:
         ("/api/platforms", platforms_route, ["GET"]),
         ("/api/accounts", accounts_route, ["GET"]),
         ("/api/accounts/connect", connect_route, ["POST"]),
+        ("/api/accounts/connect-route", connect_route_route, ["POST"]),
         ("/api/accounts/{account_id}", account_route, ["PATCH", "DELETE"]),
         ("/api/accounts/{account_id}/routes", account_routes_route, ["POST"]),
         ("/api/accounts/{account_id}/routes/{route_id}", account_routes_route, ["DELETE"]),

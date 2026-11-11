@@ -119,3 +119,18 @@ def test_routes_endpoints(tmp_path, monkeypatch):
     assert removed["publish"] == "compose"
     services = api.get("/api/integrations", params=params, headers=headers).json()["services"]
     assert services[0]["id"] == "twitterapi"
+
+
+def test_connect_with_official_api_alone(tmp_path, monkeypatch):
+    async def verify(self, keys):
+        return {"id": "77", "username": "opc_lab", "name": "OPC Lab"}
+
+    monkeypatch.setattr(routes.XApiRoute, "verify", verify)
+    social = SocialService(tmp_path / "home", tmp_path)
+    keys = {"api_key": "a", "api_secret": "b", "access_token": "c", "access_token_secret": "d"}
+    connected = asyncio.run(social.connect_with_route("X", "x-api", keys))
+    account = connected["account"]
+    assert account["handle"] == "opc_lab" and account["publish"] == "direct"
+    assert account["services"][0]["id"] == "twitterapi"
+    with pytest.raises(SocialError, match="四项"):
+        asyncio.run(social.connect_with_route("x", "x-api", {"api_key": "a"}))

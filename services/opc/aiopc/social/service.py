@@ -46,7 +46,7 @@ SERVICES: dict[str, dict[str, Any]] = {
         "does": "读取 X：搜索、竞品主页、帖子回复与提及、刷新帖子数据。按条计费，比官方便宜，结果本地缓存。",
         "fields": [{"name": "api_key", "label": "API Key", "secret": True}],
         "help": "在 twitterapi.io 注册并充值后，在后台复制 API Key。", "help_url": "https://twitterapi.io/dashboard",
-        "env": "TWITTERAPI_IO_KEY",
+        "env": "TWITTERAPI_IO_KEY", "platform": "x",
     },
 }
 # Routes are tried in this order: official APIs, third-party data, then the browser.
@@ -126,6 +126,7 @@ class SocialService:
             "reads": sorted({what for what in READ_KINDS for route in routes if route.reads(account, what)}),
             "routes": [{"id": route.id, "kind": route.kind, "name": route.name} for route in routes],
             "enhancements": [{**item, "attached": item["route"] in attached} for item in ENHANCEMENTS.get(platform, [])],
+            "services": [service for service in self.services() if service.get("platform") == platform],
             "verified_at": account.get("verified_at"),
         }
 
@@ -142,13 +143,15 @@ class SocialService:
         except AccountError as exc:
             raise SocialError(str(exc)) from None
 
-    async def connect(self, platform: str, alias: str = "", check: bool = False, *, screenshot: bool = True) -> dict[str, Any]:
-        """Open the login page in the built-in browser, or (check=True) save whoever is logged in."""
+    async def connect(self, platform: str, alias: str = "", check: bool = False, *, screenshot: bool = True,
+                      method: str = "auto") -> dict[str, Any]:
+        """Open the login page in the built-in browser, or (check=True) save whoever is logged in.
+        GitHub authorizes through the GitHub CLI unless method="browser" asks for a plain browser login."""
         try:
             platform = normalize_platform(platform)
         except AccountError as exc:
             raise SocialError(str(exc)) from None
-        if platform == "github":
+        if platform == "github" and method != "browser":
             return await self._connect_github(alias, check)
         try:
             if not check:
@@ -211,33 +214,54 @@ class SocialService:
             raise SocialError(str(exc)) from None
 
     # ── routes: official APIs added to an account ───────────────────────
-    async def add_route(self, account_id: str, route_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-        """Verify the person's keys with the platform, keep them in the Keychain, and attach the route."""
-        account = self._account(account_id)
-        offered = {item["route"] for item in ENHANCEMENTS.get(account["platform"], [])}
-        if route_id not in offered:
-            raise SocialError("这个账号没有这种接口")
+    @staticmethod
+    async def _verify_route(platform: str, route_id: str, fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
+        """Check the person's keys with the platform. Returns the route's public details, the account identity, and the secret."""
+        if route_id not in {item["route"] for item in ENHANCEMENTS.get(platform, []) if not item.get("automatic")}:
+            raise SocialError("这个平台没有这种接口")
         values = {key: str(value).strip() for key, value in (fields or {}).items() if str(value).strip()}
         try:
             if route_id == "x-api":
-                missing = [name for name in ("api_key", "api_secret", "access_token", "access_token_secret") if not values.get(name)]
-                if missing:
+                if any(not values.get(name) for name in ("api_key", "api_secret", "access_token", "access_token_secret")):
                     raise SocialError("请填写全部四项密钥")
-                public = await XApiRoute().verify(values)
-            elif route_id == "bluesky-api":
-                if not values.get("handle") or not values.get("app_password"):
-                    raise SocialError("请填写账号和应用专用密码")
-                public = await BlueskyRoute().verify(values["handle"], values["app_password"])
-                values["handle"] = public["handle"]
-            else:
-                raise SocialError("这种接口会自动启用，不需要填写")
+                user = await XApiRoute().verify(values)
+                identity = {"id": user["id"], "name": user["name"] or user["username"], "handle": user["username"],
+                            "url": f"https://x.com/{user['username']}"}
+                return {"username": user["username"]}, identity, values
+            if not values.get("handle") or not values.get("app_password"):
+                raise SocialError("请填写账号和应用专用密码")
+            session = await BlueskyRoute().verify(values["handle"], values["app_password"])
+            values["handle"] = session["handle"]
+            identity = {"id": session["did"], "name": session["handle"], "handle": session["handle"],
+                        "url": f"https://bsky.app/profile/{session['handle']}"}
+            return session, identity, values
         except RouteError as exc:
             raise SocialError(str(exc)) from None
+
+    async def add_route(self, account_id: str, route_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """Verify the person's keys with the platform, keep them in the Keychain, and attach the route."""
+        account = self._account(account_id)
+        public, _, values = await self._verify_route(account["platform"], route_id, fields)
         credentials.save(account_id, route_id, values)
         try:
             return self.describe(self.store.set_route(account_id, route_id, public))
         except AccountError as exc:
             raise SocialError(str(exc)) from None
+
+    async def connect_with_route(self, platform: str, route_id: str, fields: dict[str, Any], alias: str = "") -> dict[str, Any]:
+        """Connect an account through an official API alone: the keys say who the account is."""
+        try:
+            platform = normalize_platform(platform)
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+        public, identity, values = await self._verify_route(platform, route_id, fields)
+        try:
+            account = self.store.upsert(platform, identity, alias=alias)
+            credentials.save(account["id"], route_id, values)
+            account = self.store.set_route(account["id"], route_id, public)
+        except AccountError as exc:
+            raise SocialError(str(exc)) from None
+        return {"status": "connected", "account": self.describe(account)}
 
     def remove_route(self, account_id: str, route_id: str) -> dict[str, Any]:
         credentials.delete(account_id, route_id)

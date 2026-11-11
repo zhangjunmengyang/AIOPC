@@ -7,6 +7,15 @@
  */
 
 export default {
+  "aiopc.routes.enable": "启用",
+  "aiopc.accounts.back": "返回",
+  "aiopc.accounts.connect_platform": "连接 {platform}",
+  "aiopc.accounts.choose_method": "选择连接方式，之后也可以在账号里再添加另一种。",
+  "aiopc.accounts.method_browser": "内置浏览器登录",
+  "aiopc.accounts.method_browser_does": "在右侧登录一次，登录状态会保存，AI 在网页上帮你操作。所有平台都支持。",
+  "aiopc.accounts.ways_in": "连接方式",
+  "aiopc.accounts.relogin": "重新登录",
+  "aiopc.accounts.display_name": "显示名称",
   "aiopc.accounts.device_steps": "在右侧 GitHub 页面确认授权（验证码已自动填入），授权后会自动完成连接。",
   "aiopc.accounts.tab_accounts": "账号",
   "aiopc.accounts.tab_integrations": "接口与数据",
