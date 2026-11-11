@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
+import { t } from "@/i18n";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Globe, Minimize2, PanelRight, PictureInPicture2 } from "lucide-react";
 
@@ -8,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 
 import { BrowserWindow } from "./browser-window";
-import { useFloatingWindow, useScreenFullscreen } from "./floating-window";
+import { useFloatingWindow } from "./floating-window";
 import { BrowserPanelContent } from "./side-panel";
 import type { BrowserPresentationController } from "./use-browser-presentation";
 import { getElectronBrowser } from "./utils";
@@ -19,8 +20,8 @@ type BrowserFullscreenDialogProps = {
 };
 
 /**
- * The browser over the whole screen: the app window goes into macOS full
- * screen and this dialog fills it. A Base UI dialog rather than a native
+ * The browser over the whole app window (AIOPC's "full view", like Codex): the
+ * dialog fills the window; the window itself does not go into macOS full screen. A Base UI dialog rather than a native
  * `<dialog>`: the top layer would hide the toolbar's portaled tooltips,
  * popovers and menus behind it. For the same reason the whole page, not the
  * dialog, is the full-screen element. Escape, Exit and the close button all
@@ -30,7 +31,6 @@ function BrowserFullscreenDialog({ sessionId, controller }: BrowserFullscreenDia
   const exitRef = React.useRef<HTMLButtonElement>(null);
   const { tab, status, needsYou, present, exitFullscreen, fullscreenReturnFocus } = controller;
   const open = controller.mode === "fullscreen" && tab !== null;
-  useScreenFullscreen(open ? document : null, open, exitFullscreen);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) exitFullscreen(); }}>
@@ -49,7 +49,7 @@ function BrowserFullscreenDialog({ sessionId, controller }: BrowserFullscreenDia
           <TooltipProvider delay={1000}>
             <header className="window-titlebar flex shrink-0 items-center gap-2 border-b border-border px-3 electron:titlebar-drag mac:mac-window-controls-inset windows:pr-[max(0.75rem,calc(100vw_-_env(titlebar-area-x,0px)_-_env(titlebar-area-width,100vw)))] linux:pr-[max(0.75rem,calc(100vw_-_env(titlebar-area-x,0px)_-_env(titlebar-area-width,100vw)))]">
               <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <DialogPrimitive.Title className="text-sm font-medium">Browser</DialogPrimitive.Title>
+              <DialogPrimitive.Title className="text-sm font-medium">{t("aiopc.browser.title")}</DialogPrimitive.Title>
               <span role="status" className={cn("min-w-0 flex-1 truncate text-xs", needsYou ? "text-amber-11" : "text-muted-foreground")}>
                 {status}
               </span>
@@ -57,29 +57,29 @@ function BrowserFullscreenDialog({ sessionId, controller }: BrowserFullscreenDia
                 <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button variant="ghost" size="icon-sm" aria-label="Open beside chat" data-testid="browser-mode-side" onClick={() => present("side")}>
+                      <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.browser.side")} data-testid="browser-mode-side" onClick={() => present("side")}>
                         <PanelRight />
                       </Button>
                     )}
                   />
-                  <TooltipContent>Open beside chat</TooltipContent>
+                  <TooltipContent>{t("aiopc.browser.side")}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button variant="ghost" size="icon-sm" aria-label="Pop out browser" data-testid="browser-mode-float" onClick={() => present("floating")}>
+                      <Button variant="ghost" size="icon-sm" aria-label={t("aiopc.browser.pop_out_label")} data-testid="browser-mode-float" onClick={() => present("floating")}>
                         <PictureInPicture2 />
                       </Button>
                     )}
                   />
-                  <TooltipContent>Pop out into its own window</TooltipContent>
+                  <TooltipContent>{t("aiopc.browser.pop_out")}</TooltipContent>
                 </Tooltip>
                 <DialogPrimitive.Close
                   ref={exitRef}
                   render={<Button variant="outline" size="sm" data-testid="browser-fullscreen-exit" />}
                 >
                   <Minimize2 />
-                  Exit full screen
+                  {t("aiopc.browser.exit_full_view")}
                   <kbd className="ml-1 font-sans text-[11px] text-muted-foreground">esc</kbd>
                 </DialogPrimitive.Close>
               </div>

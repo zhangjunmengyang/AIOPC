@@ -1,13 +1,16 @@
+import { t } from "@/i18n";
+
 import type { BrowserPanelTab } from "./panel-tab-store";
 
-export const browserOperationLabels: Record<string, string> = {
-  observe: "Reading this page", site_tools: "Finding website tools", site_tool: "Using a website tool",
-  navigate: "Opening a page", click: "Clicking a control", fill: "Entering text", key: "Using the keyboard", scroll: "Scrolling",
-  website_blocked: "This website is blocked", browser_disabled: "Browser control is disabled",
-  stale_observation: "A fresh page view is needed", stale_tool: "Website tools have changed", user_denied: "The action was declined",
-  needs_attention: "Review this page", sign_in_required: "Sign in directly in this browser", payment_required: "Enter payment details in this browser", timeout: "Check the page before continuing",
-  result_withheld: "Website result was kept private",
-};
+const OPERATION_KEYS = new Set([
+  "observe", "site_tools", "site_tool", "navigate", "click", "fill", "key", "scroll", "website_blocked", "browser_disabled",
+  "stale_observation", "stale_tool", "user_denied", "needs_attention", "sign_in_required", "payment_required", "timeout", "result_withheld",
+]);
+
+/** What the agent is doing on the page, in the current language; undefined for unknown operations. */
+export const browserOperationLabels: Record<string, string> = new Proxy({} as Record<string, string>, {
+  get: (_target, key) => (typeof key === "string" && OPERATION_KEYS.has(key) ? t(`aiopc.browser.op.${key}`) : undefined),
+});
 
 /** The page needs attention or a human handoff. */
 export function browserNeedsPerson(tab: BrowserPanelTab | null | undefined): boolean {
@@ -16,13 +19,13 @@ export function browserNeedsPerson(tab: BrowserPanelTab | null | undefined): boo
 
 /** One short state line for the browser's header button. */
 export function browserStatusLabel(tab: BrowserPanelTab | null | undefined): string {
-  if (!tab) return "No page open";
-  if (browserNeedsPerson(tab)) return "Needs you";
+  if (!tab) return t("aiopc.browser.state.no_page");
+  if (browserNeedsPerson(tab)) return t("aiopc.browser.state.needs_you");
   const task = tab.browserTask;
-  if (task?.status === "paused") return "You have control";
-  if (task?.status === "running") return browserOperationLabels[task.operation ?? ""] ?? "Working on this page";
-  if (tab.status === "suspended") return "Suspended";
-  if (tab.status === "loading" || tab.status === "restoring") return "Loading";
-  if (tab.loadError) return "Page did not load";
-  return "Ready";
+  if (task?.status === "paused") return t("aiopc.browser.state.you_control");
+  if (task?.status === "running") return browserOperationLabels[task.operation ?? ""] ?? t("aiopc.browser.state.working");
+  if (tab.status === "suspended") return t("aiopc.browser.state.suspended");
+  if (tab.status === "loading" || tab.status === "restoring") return t("aiopc.browser.state.loading");
+  if (tab.loadError) return t("aiopc.browser.state.load_failed");
+  return t("aiopc.browser.state.ready");
 }

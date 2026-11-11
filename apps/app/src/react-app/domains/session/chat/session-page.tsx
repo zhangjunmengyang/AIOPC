@@ -741,7 +741,8 @@ export function SessionPage(props: SessionPageProps) {
     setRightSidebarExpandedWidth: setBrowserPanelWidth,
     startLeftSidebarResize,
   } = useWorkspaceShellLayout({
-    expandedRightWidth: 520,
+    // The built-in browser is a main surface in AIOPC (logins, composers): give pages room by default.
+    expandedRightWidth: 640,
     minRightWidth: 320,
   });
   const [browserPanelDefaultWidth, setBrowserPanelDefaultWidth] = useState(browserPanelWidth);
@@ -2130,7 +2131,7 @@ export function SessionPage(props: SessionPageProps) {
               {sidePanelOpen && !isMobile ? (
               <>
                 {/* Discoverable: a grip shows on hover and keyboard focus, so a narrow artifact can be widened. */}
-                <ResizableHandle withHandle aria-label="Resize side panel" className="hidden bg-transparent transition-colors hover:bg-border focus-visible:bg-border lg:flex [&>div]:opacity-0 [&>div]:transition-opacity hover:[&>div]:opacity-100 focus-visible:[&>div]:opacity-100" />
+                <ResizableHandle withHandle aria-label="Resize side panel" className="hidden bg-transparent transition-colors hover:bg-border focus-visible:bg-border lg:flex [&>div]:opacity-60 [&>div]:transition-opacity hover:[&>div]:opacity-100 focus-visible:[&>div]:opacity-100" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
