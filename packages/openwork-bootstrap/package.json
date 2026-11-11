@@ -1,0 +1,23 @@
+{
+  "name": "openwork-bootstrap",
+  "version": "0.1.0",
+  "description": "Script-installable OpenWork bootstrap CLI for agents",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "openwork-bootstrap": "bin/openwork.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "start.md",
+    "migrate.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check bin/openwork.mjs && node --check evals/agent-test-evidence-openwork-bootstrap.mjs && node --check evals/agent-test-evidence-openwork-app-install.mjs && node --check evals/agent-test-evidence-linux-container.mjs"
+  },
+  "engines": {
+    "node": ">=24.22.1 <25"
+  }
+}

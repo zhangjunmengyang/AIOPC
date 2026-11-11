@@ -1,0 +1,56 @@
+---
+title: "Connect OpenCode"
+sidebarTitle: "OpenCode"
+description: "Add OpenWork MCP to OpenCode: add a remote MCP entry for https://api.openworklabs.com/mcp/agent to your OpenCode config, then run opencode mcp auth openwork."
+---
+
+Give OpenCode your organization's OpenWork skills, plugins, and connections. OpenCode is the verified client.
+
+<Tip>
+On OpenCode 2, the [OpenWork plugin](/model-context-protocol/opencode-plugin) also brings your AI Gateway models, with one sign-in.
+</Tip>
+
+<Steps>
+<Step title="Add the server to opencode.json">
+
+```json
+{
+  "mcp": {
+    "openwork": {
+      "type": "remote",
+      "enabled": true,
+      "url": "https://api.openworklabs.com/mcp/agent",
+      "oauth": {}
+    }
+  }
+}
+```
+
+</Step>
+<Step title="Sign in">
+
+```sh
+opencode mcp auth openwork
+```
+
+Sign in to OpenWork in the browser and pick your organization.
+
+</Step>
+<Step title="Try it">
+Ask: "Which OpenWork organization am I connected to?"
+</Step>
+</Steps>
+
+<AccordionGroup>
+  <Accordion title="Switch organizations">
+
+```sh
+opencode mcp logout openwork
+opencode mcp auth openwork
+```
+
+  </Accordion>
+  <Accordion title="OpenCode on a remote machine or SSH host">
+    Follow [Connect OpenWork MCP from a remote machine](/cloud/run-in-the-cloud/connect-openwork-mcp-remote-machine).
+  </Accordion>
+</AccordionGroup>

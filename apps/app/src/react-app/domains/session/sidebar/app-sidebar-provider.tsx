@@ -1,0 +1,49 @@
+/** @jsxImportSource react */
+import * as React from "react";
+import type { WorkspaceConnectionState } from "../../../../app/types";
+import type { SessionNumberShortcutOs } from "../../../shell/session-number-shortcuts";
+import type { SessionWaitingKind } from "../status/session-activity-store";
+
+export type SidebarContextValue = {
+  draftScope?: string | null;
+  selectedWorkspaceId: string;
+  selectedSessionId: string | null;
+  developerMode: boolean;
+  showSessionActions?: boolean;
+  sessionStatusById?: Record<string, string>;
+  /** The Feed view and its pinned folders ship with `settledSessions`. */
+  feedEnabled?: boolean;
+  /** Why a row needs the person when a delegated child, not the session itself, is asking. */
+  sessionAttentionLabelById?: Record<string, string>;
+  sessionAttentionSourceById?: Record<string, "child" | "descendant">;
+  sessionAttentionKindById?: Record<string, SessionWaitingKind>;
+  newTaskDisabled: boolean;
+  connectingWorkspaceId: string | null;
+  workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
+  onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
+  onOpenSession: (workspaceId: string, sessionId: string) => void;
+  onPrefetchSession?: (workspaceId: string, sessionId: string) => void | (() => void);
+  onCreateTaskInWorkspace: (workspaceId: string, groupId?: string) => void;
+  onCreateSplitTaskInWorkspace: (workspaceId: string) => void;
+  onOpenRenameSession?: (sessionId: string, workspaceId: string) => void;
+  onOpenDeleteSession?: (sessionId: string, workspaceId: string) => void;
+  onArchiveSession?: (sessionId: string, archived: boolean, workspaceId: string) => void;
+  archiveDisabledReason?: string;
+  onOpenCreateGroupModal?: (workspaceId: string) => void;
+  onOpenRenameWorkspace: (workspaceId: string) => void;
+  onRevealWorkspace: (workspaceId: string) => void;
+  onForgetWorkspace: (workspaceId: string) => void;
+  expandWorkspace: (workspaceId: string) => void;
+  toggleWorkspaceExpanded: (workspaceId: string) => void;
+  expandedWorkspaceIds: Set<string>;
+  sessionNumberShortcutOs: SessionNumberShortcutOs;
+  sessionNumberShortcutByTarget: ReadonlyMap<string, number>;
+};
+
+export const SidebarContext = React.createContext<SidebarContextValue | null>(null);
+
+export function useSidebarContext() {
+  const context = React.use(SidebarContext);
+  if (!context) throw new Error("useSidebarContext must be used within SidebarProvider");
+  return context;
+}

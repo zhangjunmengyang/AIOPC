@@ -1,0 +1,919 @@
+/**
+ * OpenWork feature registry: the one place a feature is declared.
+ *
+ * This is the file you edit to add a feature. Read
+ * .opencode/skills/add-a-feature/SKILL.md first. Every new user-visible
+ * feature, or a change existing users would notice, starts here, off, before
+ * any feature code is written.
+ *
+ * A feature is rolled out, and reverted, along several dimensions:
+ *
+ *   deployments   which products it exists on (OpenWork Cloud, self-hosted)
+ *   everyone      on or off for everyone on the deployment, changed in /admin
+ *                 without a deploy
+ *   organization  platform admins turn it on or off for one organization in /admin
+ *   operator      a self-hosted operator locks it on or off for the whole install (Helm)
+ *   kill switch   turns it off everywhere at once, outranking everything above
+ *
+ * Features are for what people in organizations get. Controls that only
+ * platform admins see in /admin (the deployment's own management) are not
+ * features: ship them without a flag.
+ *
+ * Every entry names its author and, for new features, links an internal doc
+ * under docs/ with a screenshot when the feature is visual.
+ *
+ * The entry only declares what is fixed in code. The on/off state, kill
+ * switches and per-organization overrides live in the database of each
+ * deployment, and start from `default`. Run `pnpm features:sync` after
+ * editing this file.
+ *
+ * Keys are permanent: the same name is the Helm values key, the
+ * DEN_FEATURE_<KEY> environment variable, the API field, and the stored rows.
+ * Use lowerCamelCase with no consecutive capitals.
+ */
+
+export type FeatureDeployment = "cloud" | "self_hosted"
+
+/**
+ * Groups for /admin, in the order they are shown. Pick the one a platform
+ * admin would look under; add a group only when none fits.
+ */
+export const FEATURE_CATEGORIES = {
+  billing: { label: "Plans, billing and usage", description: "Plans, checkout, grants and what people see when an allowance runs out." },
+  models: { label: "Models and providers", description: "Which models people can pick and how providers stay in sync." },
+  connect: { label: "Connect and integrations", description: "Connected services, their tools and MCP servers." },
+  computerUse: { label: "Computer use and browser", description: "Agents using apps, browsers and remote computers." },
+  workbot: { label: "Workbot", description: "Documents, the workspace assistant and navigation in Workbot." },
+  automations: { label: "Automations", description: "Scheduled work and where it shows up." },
+  administration: { label: "Administration and security", description: "Organization controls, deployments and how Den stores sign-ins." },
+  experience: { label: "Onboarding and everyday use", description: "Getting set up, signing in, dictation, imports and Apps." },
+} as const satisfies Record<string, { label: string; description: string }>
+
+export type FeatureCategory = keyof typeof FEATURE_CATEGORIES
+
+export type FeatureDefinition = {
+  /** Short name shown to platform admins and operators. */
+  label: string
+  /** One sentence: what a person gets, in words they see in the product. */
+  description: string
+  /** Group the feature is listed under in /admin. */
+  category: FeatureCategory
+  /** Day the flag was first added to this registry, e.g. "2026-10-26". Never changes. */
+  added: `${number}-${number}-${number}`
+  /** Year and month the entry was added or last changed, e.g. "2026-10". */
+  since: `${number}-${number}`
+  /**
+   * GitHub handle of the person who owns the feature: who to ask what it does,
+   * whether it is safe to turn on, and when the flag can go. Shown in /admin.
+   */
+  author: string
+  /**
+   * Repo path of the internal doc that explains the feature, e.g.
+   * "docs/features/new-thing/README.md". Internal docs live in the repo's
+   * docs/ folder, not the published site in packages/docs. A visual feature
+   * shows at least one screenshot (stored next to the doc); any other feature
+   * says what changes, for whom, how to try it and what turning it off does.
+   * Linked from /admin. Required for new features (`pnpm features:check`).
+   */
+  docs?: `docs/${string}.md`
+  /** Products it exists on. Leave one out on purpose, e.g. ["cloud"] for cloud-only. */
+  deployments: readonly FeatureDeployment[]
+  /** On or off for everyone on a fresh deployment: false for new work, true once everyone has it. */
+  default: boolean
+  /**
+   * The switch is part of the product (e.g. platform admins turn Connect off for
+   * one organization), not a temporary rollout. Rollouts are deleted once done;
+   * `pnpm features:check` asks for a decision six months after `since`.
+   */
+  permanent?: boolean
+  /**
+   * The feature works in the background (a schedule, a calendar, an agent's
+   * checks, messages sent by runs), so no request shows whether it ran or
+   * worked. /admin › Features reads its outcomes from the store that already
+   * holds them: den-api registers exactly one reader for each feature that
+   * sets this (ee/apps/den-api/src/feature-outcomes/readers.ts), and its
+   * typecheck fails without one.
+   */
+  outcomes?: true
+}
+
+function defineFeatures<const T extends Record<string, FeatureDefinition>>(features: T): T {
+  return features
+}
+
+const everywhere = ["cloud", "self_hosted"] as const
+
+export const FEATURES = defineFeatures({
+  claudeAgentProvider: {
+    label: "Claude Code sign-in",
+    description: "Connect Claude through the Claude Code login on this computer, without an Anthropic API key.",
+    category: "models",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/claude-agent-provider/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  configBlobs: {
+    label: "Config import and export",
+    description: "Admins export all or part of the organization's configuration as JSON and import it again, here or into another OpenWork. Each import is a change request: it is matched against what exists, reviewed, then applied, and can be reverted. Off: no Config page and no config-blob API.",
+    category: "administration",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/config-blobs/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  webPerMember: {
+    label: "OpenWork Web per member",
+    description: "Admins choose which members get OpenWork Web from the Members page, and the organization pays for Web only for them. Members without it can't open a Web computer. Off: every member and pending invitation has Web and is billed for it.",
+    category: "administration",
+    added: "2026-11-05",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/web-per-member/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  googleCalendarRecurrence: {
+    label: "Google Calendar recurring meetings",
+    description: "Create and change recurring meeting series through the native Google Calendar capabilities.",
+    category: "connect",
+    added: "2026-11-01",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/google-calendar-recurrence/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  googleDrivePdfText: {
+    label: "Google Drive PDF text",
+    description: "Agents read the text of PDFs in Google Drive, up to 50 MB, instead of being told the file is too large.",
+    category: "connect",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/google-drive-pdf-text/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  autoRouter: {
+    label: "AI Gateway: Smart Model Router",
+    description: "Admins create Smart Routers for everyone, teams or people, listing AI Gateway models and the tasks each handles. Members pick \"Smart: <name>\": each prompt goes to the model whose tasks fit it best, at the thinking level it needs.",
+    category: "models",
+    added: "2026-10-26",
+    since: "2026-10",
+    author: "OmarMcAdam",
+    docs: "docs/features/auto-router/README.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  gatewayCustomProviders: {
+    label: "AI Gateway: custom OpenAI-compatible providers",
+    description: "Admins add any OpenAI-compatible provider to AI Gateway with a name, an API URL and one key, pick its models (fetched from the provider and matched to models.dev), test one, then save and edit it later.",
+    category: "models",
+    added: "2026-11-05",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/gateway-custom-providers/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  gatewayMemberApiKeys: {
+    label: "AI Gateway: API keys for 3rd party tools",
+    description: "Admins allow members, in AI Gateway › API Keys, to create their own AI Gateway API keys and use the Gateway's models from 3rd party tools and harnesses. After creating a key (or from a key's Set up), members pick a tool (Cursor, OpenAI Codex, Claude Code, another tool) and get its steps with their key and models filled in; Cursor reaches every model through /api/v1/cursor. Members manage their keys in Library › Models; admins see and revoke every key on the same tab.",
+    category: "models",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/gateway-member-api-keys/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  plainFreeModel: {
+    label: "Desktop: OpenWork Free listed like any other model",
+    description: "The free model shows in the model picker under its own name (GPT-6 Luna) with the same row as every other model, stays selectable when its usage limit is used up, and the limit message appears in the chat after sending.",
+    category: "models",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/plain-free-model/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  settledSessions: {
+    label: "Desktop: session Feed",
+    description: "A Feed view in the sidebar lists every workspace's sessions, the last one interacted with first. Rows can be dragged into a new order and have an Archive button next to More. Finished work is archived, not settled.",
+    category: "experience",
+    added: "2026-10-29",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/features/settled-sessions/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  appToolRepair: {
+    label: "Apps: fix a changed tool with an agent",
+    description: "When a connected tool an App uses changes at its provider, so OpenWork blocks the App's call to it, the App's managers see a Fix with agent button in Artifacts that starts a conversation to update the App.",
+    category: "experience",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/app-tool-repair/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  publicApps: {
+    label: "Apps: public Apps without sign-in",
+    description: "An App's editor, or their agent, can mark an App that has no tools as public. Anyone can then add its public MCP URL to an MCP client and open it without signing in to OpenWork.",
+    category: "experience",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/public-apps/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  appSites: {
+    label: "Apps: open an App as a site",
+    description: "An App its author made a site also opens as a web page: a browser that opens the App's MCP URL shows the App full page. Signed-in members use its tools there; an App marked public opens for anyone.",
+    category: "experience",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/app-sites/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  composerBackgroundTasks: {
+    label: "Desktop: background tasks on the composer",
+    description: "Commands the agent leaves running in the background are listed on top of the composer, under the Agents list, with how long each has run, instead of a count in the chat.",
+    category: "experience",
+    added: "2026-11-01",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/composer-background-tasks/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  agentQuestions: {
+    label: "Desktop: agents ask and keep working",
+    description: "Agents ask in chat instead of ending a turn to wait for your reply. A question that the rest of the work does not depend on stays open while the agent keeps going, and your answer reaches it even after its turn has ended.",
+    category: "experience",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/agent-questions/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  steadyLiveTurn: {
+    label: "Desktop: steady chat while a reply runs",
+    description: "While a reply runs, its steps and messages stay in the order they arrive and the chat keeps its place: nothing jumps and no empty gap opens between steps. The steps fold into “Worked for…” once the reply finishes. Turning this off restores the previous live layout.",
+    category: "experience",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/steady-live-turn/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  ssoPerOrganization: {
+    label: "SSO: optional unless required, enforced per organization",
+    description: "An organization with SSO set up offers \"Continue with SSO\" at sign-in but still lets people on its domain use their password or Google and join other organizations, for example from an invitation. Turning on \"Require SSO\" enforces it when someone opens that organization, and \"Restrict this domain to our SSO\" brings back sign-in-wide enforcement for the whole domain. Off: any email on the organization's verified domain must sign in with its SSO.",
+    category: "administration",
+    added: "2026-11-04",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/sso-per-organization/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  ssoSettingsOnSsoPage: {
+    label: "SSO: sign-in requirement on the SSO page",
+    description: "The \"Require SSO\" and \"Restrict this domain to our SSO\" settings move from Org settings to the top of the SSO page, next to the SSO connection they depend on. Off: they stay in Org settings under Authentication.",
+    category: "administration",
+    added: "2026-11-04",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/sso-settings-on-sso-page/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  signInEmailSync: {
+    label: "Sign-in: account email follows Google or SSO",
+    description: "When someone's email changes at Google or at their company's identity provider, their OpenWork account moves to the new email the next time they sign in that way, so signing in with the new email opens the same account instead of creating a second one. Off: the account keeps the email it was created with.",
+    category: "administration",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/sign-in-email-sync/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  multipleSsoConnections: {
+    label: "SSO: several connections per organization",
+    description: "An organization can set up more than one SSO connection: several identity providers, and each one covering one or more email domains. Each connection is verified, tested and turned on by itself, and sign-in shows one button per identity provider. Off: the SSO page manages a single connection.",
+    category: "administration",
+    added: "2026-11-05",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/multiple-sso-connections/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  featureIntros: {
+    label: "Den: feature intros",
+    description: "Den pages, sub-pages and tabs explain themselves while nothing is set up: a full-screen intro, info box or banner with one action that leads straight to setup, a quiet dot on tabs not viewed yet, and a ? button to reopen the intro. Turning it off restores the previous empty states.",
+    category: "experience",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/feature-intros/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  authSecuritySettings: {
+    label: "Den: Auth & Security settings",
+    description: "Settings shows one Auth & Security page with Single sign-on (SSO) and User provisioning (SCIM) tabs instead of separate SSO and SCIM pages; old SSO and SCIM links open the matching tab. Turning it off restores the separate pages.",
+    category: "administration",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/auth-security-settings/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  teamSettingsSidebar: {
+    label: "Den: team sections in a sidebar",
+    description: "On Members › Teams, a team's page and Everyone's page list their sections (Role, Members, Access, Agents, Browser, Models, Workbot, Prompts, Desktop) in a grouped sidebar on the left instead of a row of tabs across the top. The Role, Agents and Browser sections get a heading with a tooltip that explains them, and a role that adds nothing says so. Turning it off restores the tabs and the earlier sections.",
+    category: "administration",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/team-settings-sidebar/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  sessionSecuritySettings: {
+    label: "Den: session length, maximum session length and admin re-authentication settings",
+    description: "Auth & Security gets a General tab where admins choose how long sign-ins last without activity (12 hours to 7 days), how long they last at most however active (1 to 90 days, 30 by default), on the web and in the desktop app, and how recently an admin must have signed in before sensitive changes (15 minutes by default, up to 1 day, or never). Needs Auth & Security settings on. Off: sessions last 7 days without activity with no maximum, and sensitive changes ask admins to sign in again after 2 hours.",
+    category: "administration",
+    added: "2026-11-06",
+    since: "2026-11",
+    author: "OmarMcAdam",
+    docs: "docs/features/session-security-settings/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  administratorRecovery: {
+    label: "Deploy-time administrator recovery",
+    description: "Run a one-time, operator-selected Admin-team permission repair at deployment; disabling stops future repairs, not existing grants.",
+    category: "administration",
+    added: "2026-10-23",
+    since: "2026-10",
+    author: "yomgui",
+    deployments: everywhere,
+    default: false,
+  },
+  superAdminPermissionSet: {
+    label: "Super admin permission set",
+    description: "Super admins get their permissions from an editable Super admin role, seeded with every permission, beside Member and Admin. Off: super admins hold every permission and the role is hidden.",
+    category: "administration",
+    added: "2026-11-06",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/super-admin-permission-set/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  nativeDictation: {
+    label: "Native dictation",
+    description: "Dictate editable prompts in OpenWork and Workbot using native desktop dictation or live browser speech recognition.",
+    category: "experience",
+    added: "2026-10-20",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/native-dictation.md",
+    deployments: everywhere,
+    default: false,
+  },
+  connectionMcpServers: {
+    label: "Connect: an MCP server for each connection",
+    description: "Members can add one connected service, such as Gmail or Linear, to an agent like Claude Code as its own MCP server that lists only that service's tools.",
+    category: "connect",
+    added: "2026-10-21",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  desktopPersonalConnectors: {
+    label: "Desktop: members add their own connectors",
+    description: "Members can add a custom MCP server from the desktop app's Library and sign in with their own account, the same way they can from My Library on the web. Without it, the desktop only lets owners and admins finish connector setup.",
+    category: "connect",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/desktop-personal-connectors/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  opencodeV2Only: {
+    label: "OpenCode v2 only",
+    description: "Desktop chats always run on OpenCode v2: switching to OpenCode v1 is turned off and earlier chats are copied to v2 in the background.",
+    category: "experience",
+    added: "2026-10-27",
+    since: "2026-10",
+    author: "benjaminshafii",
+    docs: "docs/features/opencode-v2-only/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  managedDeployments: {
+    label: "Managed deployments",
+    description: "Organization admins install OpenWork in their own AWS account or Google Cloud project and see its health and updates in OpenWork, and agents connected to OpenWork can create and follow those deployments.",
+    category: "administration",
+    added: "2026-10-08",
+    since: "2026-10",
+    author: "benjaminshafii",
+    docs: "docs/managed-deployments.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  workbotDocuments: {
+    label: "Workbot Documents",
+    description: "Members browse recent Google Drive files and folders in Workbot, open documents in tabs, and save supported text and spreadsheet edits to Drive.",
+    category: "workbot",
+    added: "2026-10-16",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotDocumentEditing: {
+    label: "Workbot Documents: editing",
+    description: "Members choose Edit from a document preview. Full Office editing starts their Cloud workspace only when requested. Requires Workbot Documents.",
+    category: "workbot",
+    added: "2026-10-20",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotDocumentMedia: {
+    label: "Workbot Documents: video and audio",
+    description: "Members play video and audio files from Drive and OneDrive in the document's tab, with seeking, instead of only a link to the original. Requires Workbot Documents.",
+    category: "workbot",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-document-media/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotWorkspaceAssistant: {
+    label: "Workbot: workspace assistant",
+    description: "Members ask Workbot about the document they have open (Ask Workbot brings it into the chat) and navigate from a compact sidebar. Workbot offers to open the documents it mentions. The chat itself stays on its own page.",
+    category: "workbot",
+    added: "2026-10-16",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotDriveFiles: {
+    label: "Workbot: reading Drive files",
+    description: "Workbot reads PDFs, Office files and large files from Google Drive or OneDrive on its computer instead of saying they are too large. When it has no computer (and in Slack) it says plainly when a file is too large and asks the person to send the file instead.",
+    category: "workbot",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-drive-files/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotAccountMenu: {
+    label: "Workbot: account menu",
+    description: "The avatar in Workbot's header opens a menu with the signed-in account and workspace, Switch workspace, Your dashboard and Sign out, instead of only linking to the dashboard.",
+    category: "workbot",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-account-menu/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotBrowserChat: {
+    label: "Workbot: chat beside the browser",
+    description: "On wide screens, Workbot's Browser and Computer views keep the conversation docked beside the live page, with the open tab shared as context, so people can direct browser-heavy work without switching back to Home. Narrow screens use the floating chat. Needs browser use.",
+    category: "workbot",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-browser-chat/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotInstantOpen: {
+    label: "Workbot: chats open instantly",
+    description: "Workbot keeps the newest messages of each chat on the person's device and shows them the moment a chat opens, while it reads the conversation again. Nothing is kept while a reply is being written; kept messages are cleared on sign-out and after a week.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-instant-open/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotScrollToBottom: {
+    label: "Workbot: scroll to latest messages",
+    description: "People reading earlier messages keep their place while Workbot replies, with a button to return to the latest messages.",
+    category: "workbot",
+    added: "2026-11-08",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-scroll-to-bottom/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotBrowserRecovery: {
+    label: "Workbot: browser recovery",
+    description: "Retries a read once when a loading page changes, reconnects a lost browser connection, and tells Workbot when a consent dialog or human-verification check is in the way. Never repeats clicks, typing or submissions.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-browser-recovery/README.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  workbotQuickReply: {
+    label: "Workbot: quick human acknowledgment",
+    description: "Workbot answers work requests with a concise acknowledgment before discovery, reactions or browser work. Accepted explicit long requests can show a temporary receipt while waiting for the first model words. Does not promise a response-time SLA.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-quick-reply/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotWorkingStatus: {
+    label: "Workbot: working status and task sheet",
+    description: "While Workbot works, a quiet status line under its name says what it is doing; tapping the name opens a task sheet with its steps and each background task's steps. The chat keeps only what Workbot says: no typing dots during work, no computer or task cards unless Workbot is showing its screen. Its first reply stands on its own instead of \"give me a sec\", and it can say how a background task is going.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-working-status/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotCenteredProfile: {
+    label: "Workbot: centred avatar and profile",
+    description: "A centred OpenWork avatar with Workbot's name and live status in a pill; tapping opens tasks, permissions, computer, schedules and identity. Requires the profile sheet and working status.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-centered-profile/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotBrowserPreview: {
+    label: "Workbot: inline browser preview",
+    description: "Live browser/computer work offers a passive thumbnail and one Open browser button in the reply, reusing its last real frame while reconnecting. Never automatically opens the full view.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-browser-preview/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotProfileSheet: {
+    label: "Workbot: profile",
+    description: "Tapping Workbot's name opens its profile: what it is working on and its background tasks, what it can use (connected apps, browser, computer, files) with a link to manage connections, and what it remembers about the person, read-only.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-profile-sheet/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotRemoteTasks: {
+    label: "Workbot: remote tasks",
+    description: "Shows recent tasks started on another computer in Workbot's profile and working status, from stored create receipts and member-authorized live status. De-duplicates pure status watchers by explicit task ids; never approves or stops remote work automatically.",
+    category: "workbot",
+    added: "2026-11-07",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-remote-tasks/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotProfileNav: {
+    label: "Workbot: pages on the left, the rest in its profile",
+    description: "The left navigation lists only full pages (Chats, Documents, Calendar). Files and Apps, which open beside the chat rather than as pages, move into Workbot's profile as tabs; the logo at the top of the navigation opens that profile. Requires the profile sheet.",
+    category: "workbot",
+    added: "2026-11-08",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-profile-nav/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotApps: {
+    label: "Workbot: Apps built in OpenWork open in the chat",
+    description: "An App that Workbot builds, changes or opens with OpenWork's App tools shows as a card under its reply, like a file it made, and opens beside the chat as the App itself. Off: the App is made but nothing shows in the chat.",
+    category: "workbot",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-apps/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotQuietCalendar: {
+    label: "Workbot: quiet calendar",
+    description: "Calendar where meetings own the week and Workbot's automation runs are small dots at their time instead of chips that fight meetings for space. Each day says how many runs it had; a run that needs the person stands out, and what Workbot did this week opens on demand. Narrow windows and phones get an agenda list.",
+    category: "workbot",
+    added: "2026-11-08",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-quiet-calendar/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotProactive: {
+    label: "Workbot: Your agent",
+    description: "Every member gets a read-only background agent that checks Gmail and Google Calendar each morning and about every three working hours, sending a short Workbot Slack DM only when needed. Members review checks and messages in My bot, tell it what they care about, narrow its hours and limits, undo changes, snooze or mute it. Admins choose its responsibilities and see aggregate 7-day health in Manage › Workbot, without member names or content. It never sends email, accepts invitations or edits data for them.",
+    category: "workbot",
+    added: "2026-10-24",
+    since: "2026-10",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-proactive/README.md",
+    deployments: everywhere,
+    default: false,
+    outcomes: true,
+  },
+  workbotAgentBrief: {
+    label: "Workbot: Your agent's brief and check rhythm",
+    description: "With Your agent on, it checks on one rhythm (every 2 hours in working hours by default, plus up to 3 extra checks it asks for) instead of four fixed message types, and follows a plain-text brief: the organization's default plus each member's own lines, set in Manage › Workbot, My bot or chat. Each check researches first and then writes at most a few short messages, each one finding with a lock-screen first sentence. Messages per day and hours stay hard limits.",
+    category: "workbot",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-agent-brief/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotAgentCheckGate: {
+    label: "Workbot: Your agent skips checks when nothing new arrived",
+    description: "With Your agent's brief on, admins can turn on Skip checks when nothing new arrived in Manage › Workbot. Before a scheduled check, Workbot looks at what reached the member's Gmail and Google Calendar since the agent last looked. With nothing new, or only routine mail, the agent doesn't run for that check. The first check of the day, checks the agent asked for, and a check after two skipped in a row always run.",
+    category: "workbot",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-agent-check-gate/README.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  workbotAgentSendCheck: {
+    label: "Workbot: Your agent checks each message before sending",
+    description: "With Your agent's brief on, admins can turn on Check each message before sending in Manage › Workbot. A fast second model then reads each message Your agent wrote against the brief and what the member was already told today, and holds a message the brief says to skip or that repeats one from today. It never writes, changes or adds a message, and when it can't answer the message is sent as before.",
+    category: "workbot",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-agent-send-check/README.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  workbotSlackAnswerReply: {
+    label: "Workbot: Slack answers as their own reply",
+    description: "In Slack, Workbot's notes while it works (\"Let me check your calendar.\") stay in one message that updates in place, and its final answer is posted as a new reply that notifies the person, written in its own words. Replaces the fixed \"Done:\" ping that quoted the first line of the reply.",
+    category: "workbot",
+    added: "2026-11-04",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/workbot-slack-answer-reply/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotSettingsTabs: {
+    label: "Workbot: settings in tabs",
+    description: "Workbot's settings are split into three tabs, General, Agents and Data sources, instead of one long page: in Manage › Workbot and on the Workbot section of a team's page and Everyone's page. With Your agent's brief on, the Agents tab groups its rows (Messages, Schedule), uses switches for yes or no choices and explains each row in a tooltip. Turning it off restores the single page and its rows.",
+    category: "workbot",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-settings-tabs/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotTeamSettings: {
+    label: "Workbot: settings per team",
+    description: "Admins can give a team its own Workbot default model and its own Workbot name, and turn Workbot on or off for everyone or for a team; teams without their own use the organization's. A member on several teams whose settings differ gets the organization's.",
+    category: "workbot",
+    added: "2026-11-09",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-team-settings/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  workbotUsageAnalytics: {
+    label: "Workbot: cost in Analytics",
+    description: "Admins see what Workbot spent on models over the last 30 days in Analytics › Workbot: the total, per day, per person, per model, and split between chats, members' agents, and Slack and automations.",
+    category: "workbot",
+    added: "2026-11-10",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/workbot-usage-analytics/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  browserUploadPermissions: {
+    label: "Browser: managed and remembered file-sharing permissions",
+    description: "Admins set Allow, Ask first or Block for browser uploads, with website exceptions. Members can remember permission for one website and a folder on this computer across chats and Slack-started tasks, and revoke it in Settings.",
+    category: "computerUse",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/browser-upload-permissions/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  agentHarnessPermissions: {
+    label: "Agent permissions: computer use, app scripting and outside folders",
+    description: "Admins choose Allow, Ask first or Block for computer use, Mac app scripting and folders outside the workspace on the Agents tab, and members' desktop apps apply them.",
+    category: "computerUse",
+    added: "2026-11-01",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/agent-harness-permissions/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  computerUse: {
+    label: "Computer use",
+    description: "Let agents use Mac apps or a managed cloud desktop with a live view and Take over and Stop controls. On Mac, supported app windows stay in the background without moving your cursor; agents read controls first and take screenshots only when needed. Canvas apps such as Blender still come to the front. Requested apps open without additional OpenWork approval prompts. GUI access is experimental and is not sandboxed by structured-tool permission rules.",
+    category: "computerUse",
+    added: "2026-10-20",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/features/computer-use-background/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+
+  computerSessionHistory: {
+    label: "Desktop: computer session history",
+    description: "Computer actions share one compact session card in chat, with captured views to browse or replay. Turning it off restores individual actions and screenshots.",
+    category: "computerUse",
+    added: "2026-10-30",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/features/computer-session-history/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+
+  parallelComputerUse: {
+    label: "Parallel computer use",
+    description: "On a Mac, agents a chat starts work in their own apps at the same time, as part of that chat: one Stop, Take over and output folder for all of them, a cursor name and color for each, and their windows in view while you watch the chat. Turning it off returns each agent to working on its own.",
+    category: "computerUse",
+    added: "2026-11-04",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/parallel-computer-use/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+
+  browserUse: {
+    label: "Workbot: browser use",
+    description: "Workbot uses the browser on its cloud computer with a live Browser view people can watch and take over. It streams the page only when it changes, with Workbot tabs to switch and close; takeover controls the page without Chrome's toolbar. Needs remote computers. Computer use separately controls other desktop apps.",
+    category: "computerUse",
+    added: "2026-10-26",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/computer-use/workbot.md",
+    deployments: everywhere,
+    default: false,
+  },
+
+  browserDemonstrations: {
+    label: "Workbot: teach browser tasks",
+    description: "Demonstrate a browser task with explanations, save it as a private reusable skill, and run it with new inputs.",
+    category: "computerUse",
+    added: "2026-10-21",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/computer-use/browser-demonstrations.md",
+    deployments: everywhere,
+    default: false,
+  },
+
+
+  remoteComputers: {
+    label: "Desktop: computer use on remote computers",
+    description: "Use a Linux cloud computer with its browser and desktop in OpenWork Web, or connect a VM from Desktop. Configured and conversation-owned desktops open directly when enabled, including follow-ups and internal session renewal. Take over and Stop stay available.",
+    category: "computerUse",
+    added: "2026-10-20",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  remoteSessionPush: {
+    label: "Desktop: start tasks from other computers right away",
+    description: "A task sent to this person's desktop from another computer, Workbot or an agent starts within a second or two instead of up to a minute later. Den tells the desktop the moment the task is queued over the runner's event stream; the desktop still checks every minute as a fallback.",
+    category: "computerUse",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/remote-session-push/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  sandboxGateway: {
+    label: "Workbot: computers through the sandbox gateway",
+    description: "Workbot's cloud computers for this organization run through the runner's sandbox gateway (Differently), which holds the provider keys and picks the provider, instead of the runner's own Freestyle or Daytona account. Needs a runner with SANDBOX_GATEWAY set; without one, or while it is down, new computers use the runner's own provider.",
+    category: "computerUse",
+    added: "2026-10-28",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/computer-use/workbot.md",
+    deployments: everywhere,
+    default: false,
+  },
+  sandboxMicrosoft365: {
+    label: "Sandboxes: sample Microsoft 365 for Workbot",
+    description: "New sandbox organizations get one Microsoft 365 connector for the sample Outlook, Calendar and Drive instead of three separate ones, so Workbot chat, Calendar, Documents and the first hello read each person's own sample mail, calendar and files. Each person approves once in their own browser. Only sandbox organizations are affected; every other organization keeps Microsoft's real sign-in. Turning it off stops the sample connector without sending anything to Microsoft.",
+    category: "connect",
+    added: "2026-11-02",
+    since: "2026-11",
+    author: "benjaminshafii",
+    docs: "docs/features/sandbox-microsoft-365/README.md",
+    deployments: ["cloud"],
+    default: false,
+  },
+  connectStandardTools: {
+    label: "Connect: standard tools",
+    description: "Claude Code and standalone OpenCode discover connected actions, Workflows and Apps as individual tools; OpenWork Desktop, Web and automation runs keep capability search. Capability search uses MCP tool schemas with older fields kept for compatibility. Turning this off restores the previous search view and schemas.",
+    category: "connect",
+    added: "2026-10-21",
+    since: "2026-10",
+    author: "reachjalil",
+    deployments: everywhere,
+    default: false,
+  },
+  connectEngineTools: {
+    label: "Connect: a tool for each action in OpenWork's engine",
+    description: "OpenWork Desktop, Web and automation runs get each connected action, Workflow and App as its own tool, found with their engine's Code Mode search; capability search stays for OpenWork's own operations and skills. Other clients are unaffected. Turning this off restores capability search.",
+    category: "connect",
+    added: "2026-10-28",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/features/connect-engine-tools/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  standardCodeMode: {
+    label: "Workflows and computer programs as standard JavaScript",
+    description: "Workflows written from now on, Workflow tests, and computer-use programs on the desktop app and cloud computers run as standard JavaScript (ECMAScript, checked against test262), calling tools described the MCP way with JSON Schema. The engine is @opencode/codemode. Workflows saved before keep running as they always have. Turning this off returns new Workflows and computer programs to OpenWork's original Code Mode; Workflows saved as standard JavaScript stop with a message rather than switching interpreter, and run again when it is back on.",
+    category: "automations",
+    added: "2026-11-03",
+    since: "2026-11",
+    author: "reachjalil",
+    docs: "docs/features/standard-code-mode/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+  outlookAttachments: {
+    label: "Outlook attachments",
+    description: "Agents read the files attached to Outlook messages and create Outlook drafts and replies with workspace files attached, after the member approves each draft. Drafts are never sent.",
+    category: "connect",
+    added: "2026-10-26",
+    since: "2026-10",
+    author: "reachjalil",
+    docs: "docs/features/outlook-attachments/README.md",
+    deployments: everywhere,
+    default: false,
+  },
+})
+
+export type FeatureKey = keyof typeof FEATURES
+
+/** Features whose outcomes /admin › Features reads (`outcomes: true`). */
+export type OutcomeFeatureKey = { [K in FeatureKey]: (typeof FEATURES)[K] extends { outcomes: true } ? K : never }[FeatureKey]
+
+export type FeatureMap = Record<FeatureKey, boolean>
+
+export type FeatureOverrides = Partial<FeatureMap>

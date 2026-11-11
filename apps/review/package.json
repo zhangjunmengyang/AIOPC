@@ -1,0 +1,30 @@
+{
+  "name": "@openwork/review-app",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port ${REVIEW_PORT:-3011}",
+    "build": "pnpm --filter \"@openwork/review-app^...\" --if-present run build && next build",
+    "start": "next start --hostname 127.0.0.1 --port ${REVIEW_PORT:-3011}",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test lib/*.test.ts"
+  },
+  "dependencies": {
+    "@openwork/daytona-evidence": "workspace:*",
+    "@openwork/evidence-provider": "workspace:*",
+    "@openwork/freestyle": "workspace:*",
+    "@openwork/review": "workspace:*",
+    "next": "16.4.1",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

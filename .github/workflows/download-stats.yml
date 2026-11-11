@@ -1,0 +1,59 @@
+name: Download Stats
+
+on:
+  schedule:
+    - cron: "0 12 * * *" # Run daily at 12:00 UTC
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  stats:
+    if: github.repository == 'different-ai/openwork'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      # Keep the previous snapshot for deltas without writing to the branch.
+      # A cache miss starts from the committed historical reports.
+      - name: Restore stats history
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            STATS.md
+            STATS_V2.md
+          key: download-stats-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            download-stats-${{ github.ref }}-
+
+      - name: Run stats script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+          POSTHOG_HOST: https://us.i.posthog.com
+          POSTHOG_LEGACY_EVENT: download
+          POSTHOG_V2_EVENT: release_asset_snapshot
+          POSTHOG_DISTINCT_ID: openwork-download
+          GITHUB_REPO: different-ai/openwork
+        run: node scripts/stats.mjs
+
+      - name: Upload stats reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: download-stats
+          path: |
+            STATS.md
+            STATS_V2.md
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,162 @@
+"use client";
+
+import { createContext, useContext, type CSSProperties } from "react";
+
+/**
+ * What the page needs from the app that hosts it (Den today): signed-in requests to the Workbot API, the person,
+ * their connected apps, and where app logos come from. Workbot itself knows nothing about the host's sign-in.
+ */
+export type WorkbotHost = {
+  /** A JSON request to the Workbot API (`/v1/workbot/...`), signed in as the person; resolves with the parsed body. */
+  requestJson(path: string, init?: RequestInit, timeoutMs?: number): Promise<{ response: Response; payload: unknown }>
+  /** Where a path is served and how to sign a raw request to it (the live stream, downloads, uploads with progress). */
+  prepare(path: string): Promise<{ url: string; headers: Headers; credentials: RequestCredentials }>
+  /** A person-readable message from a failed response's body; Workbot falls back to its own wording. */
+  errorMessage?: (payload: unknown, fallback: string) => string
+  /** The signed-in person. */
+  user: { name: string | null } | null
+  /** The apps the person has connected, for the header. A hook: called once on every render of the header. */
+  useConnectedApps: () => Array<{ id: string; name: string }>
+  /** Logo URLs to try in order for an app, by its display name, then by its website ("exa.ai") when it has one. */
+  appIcons: (name: string, site?: string) => string[]
+  /** Where the avatar in the header leads. */
+  homeHref: string
+  /** Workbot's Calendar tab is on for this person (on while Workbot is on). */
+  calendar?: boolean
+  /** Documents browsing is enabled for this organization; omitted means off. */
+  documents?: boolean
+  /** The Computer view of Workbot's computer: its native desktop apps (`computerUse`). Omitted means off. */
+  computer?: boolean
+  /** The Browser view of Workbot's computer (`browserUse`), rolled out separately from `computer`. Omitted means off. */
+  browser?: boolean
+  /** The conversation stays docked beside the Browser and Computer views on wide screens (`workbotBrowserChat`). Needs `browser`. */
+  browserChat?: boolean
+  /** Teach browser tasks and save private Cloud skills; omitted means off. */
+  browserDemonstrations?: boolean
+  /** Explicit document editing is enabled; omitted means preview only. */
+  documentEditing?: boolean
+  /** Native dictation entry point; omitted means off. Speech stays with the OS. */
+  nativeDictation?: boolean
+  /** Contextual chat and workspace navigation. Omitted means off. */
+  workspaceAssistant?: boolean
+  /** Offers to open documents a reply mentions and keeps the chat open beside them. Needs workspaceAssistant. */
+  guidedNavigation?: boolean
+  /** Signed-in model-limit recovery; never offers anonymous access or starts a payment. */
+  usageRecovery?: { denUrl: string; organizationId: string }
+  /** The Get set up checklist in the header, and the Den pages its steps open. Omitted means off. */
+  activation?: { denUrl: string; organizationId: string }
+  /** The organization runs Automations in the cloud, so the Calendar can create them. Off when unset. */
+  canSchedule?: boolean
+  /** Where the person connects their own Google or Microsoft account, for the Calendar's connect links. */
+  connectionsHref?: string | null
+  /** Existing sign-in URL, used without replacing a document with retained changes. */
+  signInHref?: string | null
+  /** Fresh sign-in identity check before revealing a retained document draft. */
+  verifyDocumentIdentity?(): Promise<boolean>
+  /** The retained owner remains mounted, but this host authorization fact masks it. */
+  documentAuthorization?: "signin" | "blocked" | "disabled"
+  /**
+   * Quiet non-browser work under its name/task sheet rather than computer/task cards (`workbotWorkingStatus`).
+   * Off when unset. Browser turns always use their own persistent task card and header status.
+   */
+  workingStatus?: boolean
+  /** Non-browser first human acknowledgment (`workbotQuickReply`). Off when unset; browser tasks acknowledge by default. */
+  quickReply?: boolean
+  /**
+   * A chat opens on the newest page this device kept from the last visit while it is read again
+   * (`workbotInstantOpen`). Off when unset; the kept pages are cleared then.
+   */
+  instantOpen?: boolean
+  /** Reading earlier messages keeps its place, with a return-to-latest button (`workbotScrollToBottom`). Off when unset. */
+  scrollToBottom?: boolean
+  /**
+   * Tapping Workbot's name opens its profile: what it is working on, what it can use, and what it remembers about the
+   * person, read-only (`workbotProfileSheet`). Off when unset.
+   */
+  profileSheet?: boolean
+  /** Rich five-tab profile (`workbotCenteredProfile`), off when unset. Browser access independently gets the centered header pill. */
+  centeredProfile?: boolean
+  /** Passive native-computer preview (`workbotBrowserPreview`), off when unset. Browser task cards/previews are default. */
+  browserPreview?: boolean
+  /** Read-only remote tasks in profile and header (`workbotRemoteTasks`). Off when unset. */
+  remoteTasks?: boolean
+  /**
+   * The navigation lists only full pages (Chats, Documents, Calendar); Files and Apps, which open beside the chat, are
+   * tabs in Workbot's profile, opened from the logo at the top of the navigation (`workbotProfileNav`). Off when unset.
+   */
+  profileNav?: boolean
+  /**
+   * Meetings own the calendar grid; automation runs are small dots at their time, each day says how many ran, and a
+   * Workbot panel opens on demand. Narrow widths get an agenda list (`workbotQuietCalendar`). Off when unset.
+   */
+  quietCalendar?: boolean
+  /** The person can start side chats next to their main chat (on while Workbot is on). Off when unset. */
+  sideChats?: boolean
+  /**
+   * The header avatar opens an account menu: who is signed in, Switch workspace, Your dashboard and Sign out.
+   * Omitted means the avatar only links to `homeHref`. `signOut` rejects, with a person-readable message, when the
+   * sign-in could not be ended.
+   */
+  account?: { email: string; organizationName: string; signOut(): Promise<void>; switchWorkspace(): void }
+  /** Authenticated identity for permission-protected model-setting caches; absent on older hosts. */
+  identity?: { principalId: string; organizationId: string }
+}
+
+const AuthorizationContext = createContext<WorkbotHost["documentAuthorization"]>(undefined)
+export const WorkbotAuthorizationProvider = AuthorizationContext.Provider
+
+/** Portals are outside the owner's DOM. Suspend their interaction/focus while
+ * retaining an already-open form's DOM and state for the same owner. */
+export function useRetainedSurface(open: boolean) {
+  const blocked = useContext(AuthorizationContext) !== undefined
+  const style: CSSProperties | undefined = blocked ? { display: "none" } : undefined
+  return { blocked, open: open && !blocked, portal: { keepMounted: open && blocked, hidden: blocked, inert: blocked, style } }
+}
+
+let current: WorkbotHost | null = null
+
+/** Set by WorkbotScreen before anything below it renders. */
+export function setWorkbotHost(host: WorkbotHost) {
+  current = host
+}
+
+/** The views of Workbot's computer this person has, Browser first; the Computer tab shows while there is one. */
+export function computerViews(host: WorkbotHost): Array<"browser" | "computer"> {
+  return [...(host.browser === true ? ["browser" as const] : []), ...(host.computer === true ? ["computer" as const] : [])];
+}
+
+/**
+ * What the tab for Workbot's computer is called everywhere it is offered (header, navigation drawer, command palette,
+ * the Open action under a reply): "Browser" when the browser is the only view this person has, "Computer" otherwise.
+ */
+export function computerTabLabel(host: WorkbotHost): "Browser" | "Computer" {
+  const views = computerViews(host);
+  return views.length === 1 && views[0] === "browser" ? "Browser" : "Computer";
+}
+
+export function workbotHost(): WorkbotHost {
+  if (!current) throw new Error("Workbot needs a host: render it through <WorkbotScreen host={...} />.")
+  return current
+}
+
+/** A raw request to a Workbot API path, signed in (streams and files). */
+export async function hostFetch(path: string, init: RequestInit = {}) {
+  const host = workbotHost()
+  const { url, headers, credentials } = await host.prepare(path)
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
+  if (host.identity) {
+    headers.set("x-openwork-client-user", host.identity.principalId)
+    headers.set("x-openwork-client-organization", host.identity.organizationId)
+  }
+  return fetch(url, { ...init, headers, credentials })
+}
+
+export function errorMessage(payload: unknown, fallback: string) {
+  if (typeof payload === "object" && payload !== null && "error" in payload && payload.error === "workbot_model_unavailable") {
+    return "I can't answer with your workspace's model right now. Ask your workspace admin to check Workbot's model."
+  }
+  const host = workbotHost()
+  if (host.errorMessage) return host.errorMessage(payload, fallback)
+  if (typeof payload === "object" && payload !== null && "message" in payload && typeof payload.message === "string") return payload.message
+  return fallback
+}

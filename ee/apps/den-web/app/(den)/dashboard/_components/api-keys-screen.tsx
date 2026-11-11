@@ -1,0 +1,565 @@
+"use client";
+
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Copy, KeyRound, Trash2 } from "lucide-react";
+import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
+import { DenButton } from "../../_components/ui/button";
+import { DenNotice } from "../../_components/ui/notice";
+import { DenCard } from "../../_components/ui/card";
+import { DenInput } from "../../_components/ui/input";
+import { DenBadge } from "../../_components/ui/badge";
+import { getRequestError, isReauthRequiredError, requestJson } from "../../_lib/den-flow";
+import {
+    getOrgAccessFlags,
+    orgFeatureEnabled,
+    parseOrgApiKeysPayload,
+    type DenOrgApiKey,
+    permissionLockReason,
+} from "../../_lib/den-org";
+import { useOrgDashboard } from "../_providers/org-dashboard-provider";
+import { useFeatureIntro } from "../_features/feature-intros";
+import { useConfigAreas } from "./config-blobs/config-blobs-data";
+import {
+    ConfigTokenFields,
+    configTokenRequestFields,
+    describeConfigToken,
+    EMPTY_CONFIG_TOKEN_DRAFT,
+    type ConfigTokenDraft,
+} from "./api-keys-config-token-fields";
+
+function formatDateTime(value: string | null) {
+    if (!value) {
+        return "Never";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return "Never";
+    }
+
+    return date.toLocaleString();
+}
+
+function formatKeyPreview(apiKey: DenOrgApiKey) {
+    if (apiKey.start) {
+        return `${apiKey.start}...`;
+    }
+
+    if (apiKey.prefix) {
+        return `${apiKey.prefix}${apiKey.id.slice(0, 6)}...`;
+    }
+
+    return `${apiKey.id.slice(0, 6)}...`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function getCreatedKey(payload: unknown) {
+    if (!isRecord(payload) || typeof payload.key !== "string") {
+        return null;
+    }
+
+    return payload.key;
+}
+
+export function ApiKeysScreen() {
+    const { orgId, orgContext, runReauthableAction } = useOrgDashboard();
+    const [apiKeys, setApiKeys] = useState<DenOrgApiKey[]>([]);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [name, setName] = useState("");
+    const [configDraft, setConfigDraft] = useState<ConfigTokenDraft>(EMPTY_CONFIG_TOKEN_DRAFT);
+    const [creating, setCreating] = useState(false);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [showCreateForm, setShowCreateForm] = useState(false);
+    const [createdKey, setCreatedKey] = useState<string | null>(null);
+    const [createdKeyName, setCreatedKeyName] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
+    /** The list for this organization has loaded at least once (feature intro facts). */
+    const [loadedOrgId, setLoadedOrgId] = useState<string | null>(null);
+    const searchParams = useSearchParams();
+    // Config tokens exist only with the configBlobs feature; areas are optional (left out if they fail to load).
+    const configTokensEnabled = orgFeatureEnabled(orgContext, "configBlobs");
+    const configAreasQuery = useConfigAreas(orgId, configTokensEnabled && Boolean(orgContext));
+    const configAreas = configTokensEnabled && configAreasQuery.data ? configAreasQuery.data.areas : null;
+
+    const access = useMemo(
+        () =>
+            getOrgAccessFlags(
+                orgContext?.currentMember.role ?? "member",
+                orgContext?.currentMember.isOwner ?? false,
+                orgContext?.currentMember.permissions,
+            ),
+        [orgContext?.currentMember.isOwner, orgContext?.currentMember.role, orgContext?.currentMember.permissions],
+    );
+
+    async function loadApiKeys(isCurrent = () => true) {
+        if (!orgId || !access.canViewApiKeys) {
+            if (isCurrent()) {
+                setApiKeys([]);
+            }
+            return;
+        }
+
+        if (isCurrent()) {
+            setBusy(true);
+            setError(null);
+        }
+        try {
+            const { response, payload } = await requestJson(
+                `/v1/api-keys`,
+                { method: "GET" },
+                12000,
+            );
+            if (!response.ok) {
+                throw getRequestError(payload, response, `Failed to load API keys (${response.status}).`);
+            }
+
+            if (isCurrent()) {
+                setApiKeys(parseOrgApiKeysPayload(payload));
+                setLoadedOrgId(orgId);
+            }
+        } catch (nextError) {
+            if (isReauthRequiredError(nextError)) {
+                throw nextError;
+            }
+
+            if (isCurrent()) {
+                setError(
+                    nextError instanceof Error
+                        ? nextError.message
+                        : "Failed to load API keys.",
+                );
+            }
+        } finally {
+            if (isCurrent()) {
+                setBusy(false);
+            }
+        }
+    }
+
+    useEffect(() => {
+        let active = true;
+        void runReauthableAction("load-api-keys", () => loadApiKeys(() => active)).catch((nextError) => {
+            if (active) {
+                setError(
+                    nextError instanceof Error
+                        ? nextError.message
+                        : "Failed to load API keys.",
+                );
+            }
+        });
+        return () => {
+            active = false;
+        };
+    }, [orgId, access.canViewApiKeys]);
+
+    useEffect(() => {
+        if (!copied) {
+            return;
+        }
+
+        const timeout = window.setTimeout(() => setCopied(false), 1500);
+        return () => window.clearTimeout(timeout);
+    }, [copied]);
+
+    async function handleCreate(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        if (!orgId) {
+            setError("Organization not found.");
+            return;
+        }
+        if (!access.canManageApiKeys) {
+            setError("You don't have permission to create API keys.");
+            return;
+        }
+
+        const typeFields = configTokensEnabled ? configTokenRequestFields(configDraft) : { ok: true as const, fields: {} };
+        if (!typeFields.ok) {
+            setError(typeFields.reason);
+            return;
+        }
+
+        setError(null);
+        setCreatedKey(null);
+        setCreatedKeyName(null);
+        setCopied(false);
+        try {
+            await runReauthableAction("create-api-key", async () => {
+                setCreating(true);
+                try {
+                    const { response, payload } = await requestJson(
+                        `/v1/api-keys`,
+                        {
+                            method: "POST",
+                            body: JSON.stringify({ name, ...typeFields.fields }),
+                        },
+                        12000,
+                    );
+
+                    if (!response.ok) {
+                        throw getRequestError(
+                            payload,
+                            response,
+                            `Failed to create API key (${response.status}).`,
+                        );
+                    }
+
+                    const nextKey = getCreatedKey(payload);
+                    if (!nextKey) {
+                        throw new Error(
+                            "API key was created, but the secret was not returned.",
+                        );
+                    }
+
+                    setCreatedKey(nextKey);
+                    setCreatedKeyName(name);
+                    setName("");
+                    setConfigDraft(EMPTY_CONFIG_TOKEN_DRAFT);
+                    setShowCreateForm(false);
+                    await loadApiKeys();
+                } finally {
+                    setCreating(false);
+                }
+            });
+        } catch (nextError) {
+            setError(
+                nextError instanceof Error
+                    ? nextError.message
+                    : "Failed to create API key.",
+            );
+        }
+    }
+
+    function openCreateForm() {
+        if (!access.canManageApiKeys) {
+            setError("You don't have permission to create API keys.");
+            return;
+        }
+
+        setError(null);
+        setCopied(false);
+        setCreatedKey(null);
+        setCreatedKeyName(null);
+        setName("");
+        setConfigDraft(EMPTY_CONFIG_TOKEN_DRAFT);
+        setShowCreateForm(true);
+    }
+
+    function closeCreateForm() {
+        setName("");
+        setConfigDraft(EMPTY_CONFIG_TOKEN_DRAFT);
+        setShowCreateForm(false);
+    }
+
+    async function handleDelete(apiKey: DenOrgApiKey) {
+        if (!access.canManageApiKeys) {
+            setError("You don't have permission to delete API keys.");
+            return;
+        }
+
+        if (
+            !orgId ||
+            !window.confirm(
+                `Delete ${apiKey.name ?? apiKey.start ?? "this API key"}? This cannot be undone.`,
+            )
+        ) {
+            return;
+        }
+
+        setError(null);
+        try {
+            await runReauthableAction("delete-api-key", async () => {
+                setDeletingId(apiKey.id);
+                try {
+                    const { response, payload } = await requestJson(
+                        `/v1/api-keys/${encodeURIComponent(apiKey.id)}`,
+                        { method: "DELETE" },
+                        12000,
+                    );
+
+                    if (response.status !== 204 && !response.ok) {
+                        throw getRequestError(
+                            payload,
+                            response,
+                            `Failed to delete API key (${response.status}).`,
+                        );
+                    }
+
+                    await loadApiKeys();
+                } finally {
+                    setDeletingId(null);
+                }
+            });
+        } catch (nextError) {
+            setError(
+                nextError instanceof Error
+                    ? nextError.message
+                    : "Failed to delete API key.",
+            );
+        }
+    }
+
+    async function copyCreatedKey() {
+        if (!createdKey) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(createdKey);
+            setCopied(true);
+        } catch {
+            setError(
+                "Could not copy the API key. Copy it manually before leaving this page.",
+            );
+        }
+    }
+
+    // With `featureIntros` on: full screen while the organization has no keys, until the
+    // Issue a new key form is open or a new key is on screen (DESIGN.md I1, I2).
+    const intro = useFeatureIntro(
+        "api-keys",
+        access.canViewApiKeys && loadedOrgId === orgId && orgId && !error ? { apiKeys: apiKeys.length } : null,
+    );
+
+    // Feature intro action (DESIGN.md I5): ?new=1 opens the Issue a new key form once, then leaves the address.
+    const newRequested = searchParams.get("new") === "1";
+    useEffect(() => {
+        if (!orgContext || !newRequested) return;
+        if (access.canManageApiKeys) {
+            setError(null);
+            setCreatedKey(null);
+            setCreatedKeyName(null);
+            setName("");
+            setConfigDraft(EMPTY_CONFIG_TOKEN_DRAFT);
+            setShowCreateForm(true);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete("new");
+        window.history.replaceState(null, "", url);
+    }, [orgContext, newRequested, access.canManageApiKeys]);
+
+    if (!orgContext) {
+        return (
+            <DashboardPageTemplate
+                icon={KeyRound}
+                title="API Keys"
+                description="Create named, rate-limited API keys for your own org membership and revoke any key in the workspace when needed."
+            >
+                <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-10 text-[15px] text-gray-500">
+                    Loading organization details...
+                </div>
+            </DashboardPageTemplate>
+        );
+    }
+
+    if (intro.size === "fullscreen" && !showCreateForm && !createdKey) return intro.element;
+
+    return (
+        <DashboardPageTemplate
+            icon={KeyRound}
+            title="API Keys"
+            description="Manage your OpenWork API keys."
+        >
+            {!access.canViewApiKeys ? (
+                <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] px-6 py-5 text-[14px] text-[var(--dls-text-primary)]">
+                    {permissionLockReason("api_keys.view")}
+                </div>
+            ) : (
+                <>
+                    {error ? (
+                        <DenNotice message={error} className="mb-6" />
+                    ) : null}
+
+                    {!access.canManageApiKeys ? (
+                        <div className="mb-6 rounded-[24px] border border-[var(--dls-border)] bg-[var(--dls-hover)] px-5 py-4 text-[14px] text-[var(--dls-text-primary)]">
+                            {`Read only. ${permissionLockReason("api_keys.manage")}`}
+                        </div>
+                    ) : null}
+
+                    <DenCard className="mb-6">
+                        {createdKey && access.canManageApiKeys ? (
+                            <div className="rounded-[24px] bg-[#0f172a] p-6 text-white">
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                    <div>
+                                        <p className="text-[16px] font-semibold tracking-[-0.03em]">
+                                            {createdKeyName
+                                                ? `${createdKeyName} is ready`
+                                                : "Your new API key is ready"}
+                                        </p>
+                                        <p className="mt-1 text-[14px] leading-6 text-slate-300">
+                                            The key will only be shown once.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 rounded-[20px] border border-white/10 bg-white/5 p-4">
+                                    <code className="block break-all text-[13px] leading-6 text-emerald-200">
+                                        {createdKey}
+                                    </code>
+                                </div>
+
+                                <div className="mt-5 flex flex-wrap justify-end gap-3">
+                                    <DenButton
+                                        variant="secondary"
+                                        icon={Copy}
+                                        onClick={() => void copyCreatedKey()}
+                                    >
+                                        {copied ? "Copied" : "Copy key"}
+                                    </DenButton>
+                                    <DenButton onClick={openCreateForm}>
+                                        Create another key
+                                    </DenButton>
+                                </div>
+                            </div>
+                        ) : showCreateForm && access.canManageApiKeys ? (
+                            <form onSubmit={handleCreate}>
+                                <div className="mb-5 flex items-start justify-between gap-4">
+                                    <div>
+                                        <p className="text-[16px] font-semibold tracking-[-0.03em] text-gray-900">
+                                            Issue a new key
+                                        </p>
+                                        <p className="mt-1 text-[14px] leading-6 text-gray-500">
+                                            Keys are issued to you for this
+                                            organization only.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <label className="grid gap-3">
+                                    <span className="text-[14px] font-medium text-gray-700">
+                                        Key name
+                                    </span>
+                                    <DenInput
+                                        type="text"
+                                        value={name}
+                                        onChange={(event) =>
+                                            setName(event.target.value)
+                                        }
+                                        placeholder="CI worker"
+                                        required
+                                    />
+                                </label>
+
+                                {configTokensEnabled ? (
+                                    <ConfigTokenFields
+                                        draft={configDraft}
+                                        onChange={setConfigDraft}
+                                        areas={configAreas}
+                                        disabled={creating}
+                                    />
+                                ) : null}
+
+                                <div className="mt-5 flex flex-wrap justify-end gap-3">
+                                    <DenButton
+                                        type="button"
+                                        variant="secondary"
+                                        onClick={closeCreateForm}
+                                    >
+                                        Cancel
+                                    </DenButton>
+                                    <DenButton type="submit" loading={creating}>
+                                        {configTokensEnabled && configDraft.type === "config"
+                                            ? "Create config token"
+                                            : "Create API key"}
+                                    </DenButton>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-[16px] font-semibold tracking-[-0.03em] text-gray-900">
+                                        Create a new API key
+                                    </p>
+                                </div>
+                                 <DenButton onClick={openCreateForm} disabled={!access.canManageApiKeys}>
+                                    New key
+                                </DenButton>
+                            </div>
+                        )}
+                    </DenCard>
+
+                    <div className="overflow-hidden rounded-[28px] border border-gray-100 bg-white">
+                        <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_180px_120px] gap-4 border-b border-gray-100 px-6 py-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                            <span>Key</span>
+                            <span>Owner</span>
+                            <span>Last used</span>
+                            <span />
+                        </div>
+
+                        {busy ? (
+                            <div className="px-6 py-8 text-center text-[13px] text-gray-400">
+                                Loading API keys...
+                            </div>
+                        ) : apiKeys.length === 0 ? (
+                            <div className="px-6 py-8 text-center text-[13px] text-gray-400">
+                                No API keys for this workspace yet.
+                            </div>
+                        ) : (
+                            apiKeys.map((apiKey) => (
+                                <div
+                                    key={apiKey.id}
+                                    className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_180px_120px] items-center gap-4 border-b border-gray-100 px-6 py-4 transition hover:bg-gray-50/70 last:border-b-0"
+                                >
+                                    <div className="min-w-0">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <p className="truncate text-[14px] font-medium text-gray-900">
+                                                {apiKey.name ??
+                                                    apiKey.start ??
+                                                    "Untitled key"}
+                                            </p>
+                                            {apiKey.type === "config" ? (
+                                                <DenBadge size="sm">Config token</DenBadge>
+                                            ) : null}
+                                        </div>
+                                        <p className="mt-1 truncate text-[12px] text-gray-400">
+                                            {formatKeyPreview(apiKey)}{" "}
+                                            {formatDateTime(apiKey.createdAt)}
+                                        </p>
+                                        {apiKey.type === "config" ? (
+                                            <p className="mt-1 truncate text-[12px] text-gray-500" data-testid="config-token-scopes-summary">
+                                                {describeConfigToken(apiKey, configAreas)}
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="min-w-0">
+                                        <p className="truncate text-[13px] font-medium text-gray-900">
+                                            {apiKey.owner.name}
+                                        </p>
+                                        <p className="truncate text-[12px] text-gray-400">
+                                            {apiKey.owner.email}
+                                        </p>
+                                    </div>
+
+                                    <span className="text-[13px] text-gray-500">
+                                        {formatDateTime(apiKey.lastRequest)}
+                                    </span>
+
+                                    <div className="flex justify-end">
+                                        <DenButton
+                                            variant="destructive"
+                                            size="sm"
+                                            icon={Trash2}
+                                            onClick={() =>
+                                                void handleDelete(apiKey)
+                                            }
+                                            disabled={!access.canManageApiKeys || deletingId === apiKey.id}
+                                        >
+                                            {deletingId === apiKey.id
+                                                ? "Deleting..."
+                                                : "Delete"}
+                                        </DenButton>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </>
+            )}
+        </DashboardPageTemplate>
+    );
+}

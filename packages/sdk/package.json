@@ -1,0 +1,34 @@
+{
+  "name": "@openwork/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Generated TypeScript SDK for the OpenWork Den cloud API",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "development": "./src/client.ts",
+      "default": "./dist/client.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "generate": "node script/generate.mjs",
+    "generate:check": "node ../../scripts/den-contract.mjs && tsc -p tsconfig.json --noEmit",
+    "build": "node ../../scripts/den-contract.mjs --if-needed && tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/den-contract.mjs --if-needed && tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.97.3",
+    "prettier": "3.8.3",
+    "typescript": "^5.9.0"
+  }
+}
