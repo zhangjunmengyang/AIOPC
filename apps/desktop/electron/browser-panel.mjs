@@ -2233,7 +2233,13 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
       requireTabOwner(tabId, sessionId);
       const tab = browserTabs.get(tabId);
       if (tab?.operation || tab?.suspending) throw new Error("Browser tab is busy.");
-      if (tab) tab.automationProtected = false;
+      if (tab) {
+        tab.automationProtected = false;
+        // Work declared complete: hand the page back at the panel's own size,
+        // as a takeover or the end of an agent turn does. Without this a tab
+        // driven through the control bridge stays locked to its opening width.
+        releaseAgentViewport(tab);
+      }
       sendBrowserState();
       return { tabId, released: true };
     });
