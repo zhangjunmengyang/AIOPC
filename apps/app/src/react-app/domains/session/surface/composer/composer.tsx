@@ -1376,7 +1376,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                 if (event.detail === 0) applySessionReferenceSelection(candidate);
               }}
             >
-              <img src={resolveExtensionIconSrc("/openwork-sidebar-mark.svg")} alt="" aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 object-contain opacity-80 dark:invert" />
+              <img src={resolveExtensionIconSrc("/aiopc-sidebar-mark.svg")} alt="" aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 object-contain opacity-80 dark:invert" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-3">
                   <span className="truncate text-xs font-semibold">{candidate.title}</span>

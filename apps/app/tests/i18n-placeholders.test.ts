@@ -4,7 +4,7 @@ import { t } from "../src/i18n";
 test("every occurrence of a placeholder is filled in", () => {
   // "{name}" appears twice in this string.
   const text = t("extensions.connector_note_org_app_member", { name: "Acme", lng: "en" });
-  expect(text).toBe("An admin adds your organization's Acme app in OpenWork Cloud. Then you sign in with your own Acme account.");
+  expect(text).toBe("An admin adds your organization's Acme app in AIOPC Cloud. Then you sign in with your own Acme account.");
   expect(text).not.toContain("{name}");
 });
 

@@ -103,7 +103,7 @@ export function composerPillBadge(pill: ComposerPill): ComposerBadge {
 
 /** The OpenWork mark, the same one task links in the transcript use. */
 function openworkMarkSlot(): ComposerBadge["slot"] {
-  return { logoUrls: [resolveExtensionIconSrc("/openwork-sidebar-mark.svg")], fallback: "message-square", invertInDark: true };
+  return { logoUrls: [resolveExtensionIconSrc("/aiopc-sidebar-mark.svg")], fallback: "message-square", invertInDark: true };
 }
 
 /** A referenced task. `title` is its current title when known, else the one saved with the reference. */

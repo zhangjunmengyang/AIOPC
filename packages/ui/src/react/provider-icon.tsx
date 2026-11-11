@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { providerLogoCandidates } from "./provider-logo-src";
-import { OpenWorkMark } from "./openwork-mark";
+import { AiopcMark } from "./aiopc-mark";
 
 export type ProviderIconProps = {
   providerId?: string | null;
@@ -106,7 +106,7 @@ export function ProviderIcon(props: ProviderIconProps) {
           <path d="M2 12l10 5 10-5" />
         </svg>
       ) : isOpenWork ? (
-        <OpenWorkMark size={size} />
+        <AiopcMark size={size} />
       ) : logoUrl ? (
         <img
           src={logoUrl}
@@ -134,4 +134,4 @@ export function ProviderIcon(props: ProviderIconProps) {
 }
 
 export { providerLogoCandidates } from "./provider-logo-src";
-export { OpenWorkMark } from "./openwork-mark";
+export { AiopcMark } from "./aiopc-mark";

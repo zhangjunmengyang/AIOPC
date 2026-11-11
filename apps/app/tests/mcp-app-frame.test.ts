@@ -22,6 +22,16 @@ import { markCloudCredentialRefreshed } from "../src/react-app/domains/connectio
 
 // happy-dom 21 loads no iframe page by default, so frames would have no window to talk to.
 GlobalRegistrator.register({ url: "https://web.example/", settings: { enableIframePageLoading: true } })
+// Its IntersectionObserver never reports anything, so an app frame would wait forever to be seen.
+// Here every observed element is on screen, which is what these tests are about.
+class VisibleIntersectionObserver {
+  constructor(private readonly callback: (entries: Array<{ isIntersecting: boolean; target: Element }>) => void) {}
+  observe(target: Element) { this.callback([{ isIntersecting: true, target }]) }
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return [] }
+}
+Object.defineProperty(globalThis, "IntersectionObserver", { configurable: true, writable: true, value: VisibleIntersectionObserver })
 afterAll(() => GlobalRegistrator.unregister())
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
 const { WorkspaceProvider } = await import("../src/react-app/shell/workspace-provider")

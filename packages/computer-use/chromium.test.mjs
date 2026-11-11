@@ -355,7 +355,8 @@ test("a page replaced during isolated-world creation gets the same one-read reco
   } finally { await f.close(); }
 });
 
-test("missing document-ready receipts respect the shared ten-second budget, without replaying navigation", async () => {
+// Deliberately waits out the ten-second budget, so it says so rather than relying on a runner's default.
+test("missing document-ready receipts respect the shared ten-second budget, without replaying navigation", { timeout: 30_000 }, async () => {
   let trees = 0;
   const f = await fixture({ onCommand(command) {
     if (command.method === "Page.getFrameTree" && ++trees === 1) return false;

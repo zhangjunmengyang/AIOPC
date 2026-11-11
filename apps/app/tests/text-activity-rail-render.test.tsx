@@ -156,7 +156,7 @@ test("every rail line starts on the reply's left edge, chevrons trail, marks sit
   expect(sentence?.parentElement?.firstElementChild).toBe(sentence ?? null)
   const mark = sentence?.querySelector("[data-text-rail-mark]")
   expect(mark?.previousElementSibling?.textContent?.length).toBeGreaterThan(0)
-  expect(mark?.querySelector("[data-openwork-mark]")?.className).toContain("bg-current")
+  expect(mark?.querySelector("[data-aiopc-mark]")?.className).toContain("bg-current")
   expect(capability?.querySelector("img")).toBeNull()
 })
 
@@ -165,7 +165,7 @@ test("the OpenWork mark is recognised however the identity reaches the row", asy
   const base = { name: "OpenWork", toolNamespace: null, connectionId: null }
   expect(isOpenWorkIdentity(OPENWORK_IDENTITY)).toBe(true)
   expect(isOpenWorkIdentity({ ...base, id: "connection:c1", iconUrl: "https://www.google.com/s2/favicons?sz=64&domain=openworklabs.com", serviceUrl: "https://api.openworklabs.com/mcp/agent" })).toBe(true)
-  expect(isOpenWorkIdentity({ ...base, id: "mcp:x", iconUrl: "/openwork-sidebar-mark.svg", serviceUrl: null })).toBe(true)
+  expect(isOpenWorkIdentity({ ...base, id: "mcp:x", iconUrl: "/aiopc-sidebar-mark.svg", serviceUrl: null })).toBe(true)
   expect(isOpenWorkIdentity({ ...base, id: "connection:slack", name: "Slack", iconUrl: "https://cdn.simpleicons.org/slack", serviceUrl: "https://mcp.slack.com" })).toBe(false)
   expect(isOpenWorkIdentity({ ...base, id: "connection:evil", iconUrl: null, serviceUrl: "https://openworklabs.com.evil.example" })).toBe(false)
 })

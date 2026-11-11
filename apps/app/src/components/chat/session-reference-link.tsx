@@ -34,7 +34,7 @@ export function SessionReferenceLink({ reference, openReference, children, class
       onMouseDown={(event) => { if (event.button === 1) event.preventDefault() }}
     >
       <img
-        src={resolveExtensionIconSrc("/openwork-sidebar-mark.svg")}
+        src={resolveExtensionIconSrc("/aiopc-sidebar-mark.svg")}
         alt=""
         aria-hidden="true"
         className={SESSION_REFERENCE_ICON_CLASS_NAME}

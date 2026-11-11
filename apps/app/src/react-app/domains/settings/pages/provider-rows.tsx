@@ -21,7 +21,7 @@ export function ProviderTile({ providerId, name, size = "md" }: { providerId: st
       filled ? "border-transparent bg-dls-text text-dls-surface" : "border-dls-border bg-dls-surface text-dls-text",
     )}>
       {filled
-        ? <img src={resolveExtensionIconSrc("/openwork-mark.svg")} alt="" className={cn("brightness-0 invert dark:invert-0", size === "md" ? "size-5" : "size-[18px]")} />
+        ? <img src={resolveExtensionIconSrc("/aiopc-mark.svg")} alt="" className={cn("brightness-0 invert dark:invert-0", size === "md" ? "size-5" : "size-[18px]")} />
         : <ProviderIcon providerId={providerId} providerName={name} size={size === "md" ? 20 : 18} />}
     </div>
   );

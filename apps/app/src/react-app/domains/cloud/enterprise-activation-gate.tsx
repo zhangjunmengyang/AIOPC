@@ -191,7 +191,7 @@ function EnterpriseActivationPage() {
         >
           <div className="flex items-center gap-2.5">
             <img
-              src={resolveExtensionIconSrc("/openwork-mark.svg")}
+              src={resolveExtensionIconSrc("/aiopc-mark.svg")}
               alt=""
               width={26}
               height={26}

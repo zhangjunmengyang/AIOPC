@@ -115,7 +115,7 @@ describe("install re-validates the organization's desktop version policy", () =>
     expect(updater.updateStatus).toMatchObject({
       state: "blocked",
       version: downloadedVersion,
-      message: `OpenWork ${downloadedVersion} is available, but this installation is not eligible for it yet.`,
+      message: `AIOPC ${downloadedVersion} is available, but this installation is not eligible for it yet.`,
     });
     expect(statuses.some((status) => status?.state === "error")).toBe(false);
   });

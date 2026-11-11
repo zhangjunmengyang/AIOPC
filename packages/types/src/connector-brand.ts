@@ -23,13 +23,13 @@ const BUNDLED_ICONS_BY_APEX: Record<string, string> = {
   "context7.com": "/integrations/context7.png",
   "google.com": "/integrations/google.svg",
   "openai.com": "/integrations/openai.svg",
-  "openworklabs.com": "/openwork-mark.svg",
+  "openworklabs.com": "/aiopc-mark.svg",
 };
 
 const BUNDLED_ICONS_BY_SLUG: Record<string, string> = {
   okta: "/integrations/okta.svg",
   openai: "/integrations/openai.svg",
-  openwork: "/openwork-mark.svg",
+  openwork: "/aiopc-mark.svg",
   slack: "/integrations/slack.svg",
 };
 

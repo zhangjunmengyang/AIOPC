@@ -2,7 +2,7 @@
 import { ProviderIcon as SharedProviderIcon, type ProviderIconProps } from "@openwork/ui/provider-icon"
 
 export type { ProviderIconProps }
-export { OpenWorkMark } from "@openwork/ui/provider-icon"
+export { AiopcMark } from "@openwork/ui/provider-icon"
 
 /** The shared provider logo, with the app's own monogram tokens. */
 export function ProviderIcon(props: ProviderIconProps) {

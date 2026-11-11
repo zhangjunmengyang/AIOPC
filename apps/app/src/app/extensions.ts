@@ -157,7 +157,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
     name: "OpenWork Browser",
     description: "Automate the built-in browser panel that stays visible inside OpenWork.",
     source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/openwork-mark.svg" },
+    icon: { src: "/aiopc-mark.svg" },
     composer: { prompt: "Use the OpenWork Browser extension to " },
     setup: {
       instructions: "OpenWork Browser is ready by default in desktop workspaces.",

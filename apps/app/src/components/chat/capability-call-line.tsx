@@ -48,13 +48,13 @@ type CapabilityCallLineProps = ChatToolReconnectCallbacks & {
 export const OPENWORK_IDENTITY: ConnectorToolIdentity = {
   id: "openwork",
   name: "AIOPC",
-  iconUrl: resolveExtensionIconSrc("/openwork-sidebar-mark.svg"),
+  iconUrl: resolveExtensionIconSrc("/aiopc-sidebar-mark.svg"),
   serviceUrl: null,
   toolNamespace: null,
   connectionId: null,
 }
 
-const OPENWORK_MARK_SRC = resolveExtensionIconSrc("/openwork-sidebar-mark.svg")
+const AIOPC_MARK_SRC = resolveExtensionIconSrc("/aiopc-sidebar-mark.svg")
 
 /**
  * Is this identity OpenWork's own (our skills, or the Connect/Cloud server
@@ -64,7 +64,7 @@ const OPENWORK_MARK_SRC = resolveExtensionIconSrc("/openwork-sidebar-mark.svg")
 export function isOpenWorkIdentity(connector: ConnectorToolIdentity): boolean {
   if (connector.id === OPENWORK_IDENTITY.id) return true
   const icon = connector.iconUrl ?? ""
-  if (/\/openwork-(?:sidebar-)?mark\.svg(?:$|[?#])/.test(icon)) return true
+  if (/\/(?:openwork|aiopc)-(?:sidebar-)?mark\.svg(?:$|[?#])/.test(icon)) return true
   const host = (value: string | null | undefined) => {
     if (!value) return ""
     try { return new URL(value).hostname } catch { return "" }
@@ -73,16 +73,16 @@ export function isOpenWorkIdentity(connector: ConnectorToolIdentity): boolean {
 }
 
 /**
- * The OpenWork mark drawn in the current text colour (a mask, not an image),
+ * The AIOPC mark drawn in the current text colour (a mask, not an image),
  * so it reads on light and dark and dims with the sentence around it.
  */
-export function OpenWorkMark({ className }: { className?: string }) {
+export function AiopcMark({ className }: { className?: string }) {
   return (
     <span
       aria-hidden="true"
-      data-openwork-mark=""
+      data-aiopc-mark=""
       className={cn("inline-block shrink-0 bg-current", className)}
-      style={{ maskImage: `url("${OPENWORK_MARK_SRC}")`, maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center", WebkitMaskImage: `url("${OPENWORK_MARK_SRC}")`, WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center" }}
+      style={{ maskImage: `url("${AIOPC_MARK_SRC}")`, maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center", WebkitMaskImage: `url("${AIOPC_MARK_SRC}")`, WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center" }}
     />
   )
 }
@@ -97,7 +97,7 @@ export function ConnectorMark({ connector }: { connector: ConnectorToolIdentity 
     return (
       <span data-connector-icon={connector.id} data-connector-name={connector.name} title={connector.name} aria-hidden="true" className="inline-flex size-3.5 shrink-0 items-center justify-center">
         {/* Full ink, not the sentence's muted tone: white on dark, ink on light. */}
-        <OpenWorkMark className="size-3.5 text-foreground" />
+        <AiopcMark className="size-3.5 text-foreground" />
       </span>
     )
   }

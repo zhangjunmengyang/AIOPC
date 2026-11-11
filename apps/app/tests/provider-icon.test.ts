@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "bun:test";
 
-import { OpenWorkMark, ProviderIcon } from "../src/react-app/design-system/provider-icon";
+import { AiopcMark, ProviderIcon } from "../src/react-app/design-system/provider-icon";
 
 function paths(markup: string) {
   return [...markup.matchAll(/<path\b[^>]*>/g)].map(([path]) => ({
@@ -12,27 +12,27 @@ function paths(markup: string) {
   }));
 }
 
-const canonicalMark = readFileSync(new URL("../public/openwork-mark.svg", import.meta.url), "utf8");
+const canonicalMark = readFileSync(new URL("../public/aiopc-mark.svg", import.meta.url), "utf8");
 const canonicalPaths = paths(canonicalMark);
 
-function expectOpenWorkMark(markup: string) {
-  expect(markup).toContain('viewBox="0 0 834 649"');
-  expect(markup).toContain('fill="currentColor"');
-  expect(markup).toContain('aria-label="OpenWork"');
+function expectAiopcMark(markup: string) {
+  expect(markup).toContain('viewBox="0 0 512 512"');
+  expect(markup).toContain('stroke="currentColor"');
+  expect(markup).toContain('aria-label="AIOPC"');
   expect(paths(markup)).toEqual(canonicalPaths);
   expect(markup).not.toContain("<img");
   expect(markup).not.toContain("https://");
-  expect(markup).not.toMatch(/fill="(?:#|white|black)/);
+  expect(markup).not.toMatch(/fill="(?:white|black)/);
 }
 
-describe("OpenWork provider brand mark", () => {
+describe("AIOPC provider brand mark", () => {
   test.each([
     { providerId: "openwork" },
     { providerId: "  OpEnWoRk  " },
     { providerId: "550e8400-e29b-41d4-a716-446655440000", providerName: "OpenWork" },
     { providerId: "550e8400-e29b-41d4-a716-446655440000", providerName: "  oPeNwOrK Cloud  " },
   ])("uses the themed inline mark for $providerId / $providerName", (props) => {
-    expectOpenWorkMark(renderToStaticMarkup(createElement(ProviderIcon, {
+    expectAiopcMark(renderToStaticMarkup(createElement(ProviderIcon, {
       ...props,
       baseUrl: "https://api.example.com/v1",
     })));
@@ -42,28 +42,27 @@ describe("OpenWork provider brand mark", () => {
     const markup = renderToStaticMarkup(createElement(ProviderIcon, {
       providerId: "openwork", size: 28, className: "text-gray-12 provider-brand",
     }));
-    expectOpenWorkMark(markup);
+    expectAiopcMark(markup);
     expect(markup).toContain('<div class="text-gray-12 provider-brand"');
     expect(markup).toContain("width:28px;height:28px");
     expect(markup).toContain('width="28" height="28"');
   });
 
-  test("shared mark keeps canonical geometry and evenodd transparent cutouts", () => {
-    const markup = renderToStaticMarkup(createElement(OpenWorkMark));
-    expect(canonicalPaths).toHaveLength(2);
-    expect(canonicalPaths.every((path) => path.d && path.fillRule === "evenodd")).toBe(true);
-    expectOpenWorkMark(markup);
+  test("shared mark draws the same ring the app's own file does", () => {
+    const markup = renderToStaticMarkup(createElement(AiopcMark));
+    expect(canonicalPaths).toHaveLength(1);
+    expectAiopcMark(markup);
     expect(markup).toContain('width="16" height="16"');
-    // The canonical subpaths form holes, not background-colored overlays.
-    expect(paths(markup).every((path) => (path.d?.match(/M/g)?.length ?? 0) > 1)).toBe(true);
-    expect(markup).not.toMatch(/<(?:rect|circle|image)\b/);
+    // The orange dot keeps its colour; only the ring follows the host's ink.
+    expect(markup).toContain('<circle cx="404" cy="155" r="56" fill="#FF7A1A"');
+    expect(markup).not.toMatch(/<(?:rect|image)\b/);
   });
 
   test("shared mark accepts its own size and className", () => {
-    const markup = renderToStaticMarkup(createElement(OpenWorkMark, {
+    const markup = renderToStaticMarkup(createElement(AiopcMark, {
       size: 32, className: "text-gray-12 shared-brand",
     }));
-    expectOpenWorkMark(markup);
+    expectAiopcMark(markup);
     expect(markup).toContain('width="32" height="32" class="text-gray-12 shared-brand"');
   });
 });
