@@ -4,7 +4,7 @@ const { spawnSync } = require("node:child_process");
 const asar = require("@electron/asar");
 const { Arch } = require("electron-builder");
 
-const computerUseHelperAppName = "OpenWork Computer Use.app";
+const computerUseHelperAppName = "AIOPC Computer Use.app";
 
 const sidecarBases = [
   "opencode",

@@ -16,7 +16,7 @@ export const COMPUTER_TOOLS = Object.freeze({
   computer_close: "computer_close_session",
 });
 export const COMPUTER_PROTOCOL = "openwork.computer-use/1";
-export const COMPUTER_STOP_GUIDANCE = "Computer session revocation could not be confirmed. Use Stop on the agent's pill over the app window or in the OpenWork Computer Use menu before continuing.";
+export const COMPUTER_STOP_GUIDANCE = "Computer session revocation could not be confirmed. Use Stop on the agent's pill over the app window or in the AIOPC Computer Use menu before continuing.";
 const ARGUMENTS = Object.freeze({
   computer_open: ["app_id", "pid", "window_id", "mode", "purpose", "screenshot", "file"],
   computer_observe: ["session_id", "include_image", "elements", "menus"],

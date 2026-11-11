@@ -11,7 +11,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const helperName = "OpenWork Computer Use.app";
+const helperName = "AIOPC Computer Use.app";
 
 const digest = async (file) => createHash("sha256").update(await readFile(file)).digest("hex");
 

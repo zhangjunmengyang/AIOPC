@@ -8,7 +8,7 @@ import test from "node:test";
 import { installComputerHelper } from "./computer-helper-install.mjs";
 import { createLocalComputerAdapter } from "./computer-local.mjs";
 
-const helperName = "OpenWork Computer Use.app";
+const helperName = "AIOPC Computer Use.app";
 const executable = path.join("Contents", "MacOS", "ComputerUse");
 
 /** @param {(context: { helpersRoot: string, directory: string, binary: string, installed: string, copies: string[][], exec: (file: string, args: string[]) => Promise<void> }) => Promise<void>} run */

@@ -29,7 +29,7 @@ function status(): ComputerStatus {
   const local = targetId === "local"
   const targets: ComputerStatus["targets"] = [{ id: "local", label: "This Mac", placement: "local" }]
   if (query.get("targets") === "2" || !local) targets.push({ id: "vm", label: "Design VM", placement: "remote" })
-  const entry = { name: query.has("theirs") ? "Terminal" : "OpenWork Computer Use", ours: !query.has("theirs") }
+  const entry = { name: query.has("theirs") ? "Terminal" : "AIOPC Computer Use", ours: !query.has("theirs") }
   const base = { enabled: true, entry, targetId, targets, placement: local ? "local" : "remote" } satisfies Partial<ComputerStatus>
   if (!local) return { ...base, readiness: "ready", detail: "Ready" }
   if (state === "unsupported") return { ...base, readiness: "unsupported", detail: "This Mac requires macOS 14 or later for Computer Use." }

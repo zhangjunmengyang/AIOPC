@@ -1,14 +1,14 @@
 # Computer Use
 
 A small macOS 14+ helper that lets OpenWork see and use the requested app window while computer use is enabled. It is a single Swift executable
-(`native/`) that the OpenWork desktop packages as **OpenWork Computer Use.app**
+(`native/`) that the OpenWork desktop packages as **AIOPC Computer Use.app**
 (bundle id `com.differentai.openwork.computer-use`) and launches from its main
 process. It has no model, API key or network listener. It touches the
 clipboard only for the agent's own copy and paste (below) and never returns
 clipboard contents.
 
 On start the helper relaunches itself once with macOS responsibility
-disclaimed, so System Settings lists **OpenWork Computer Use** for
+disclaimed, so System Settings lists **AIOPC Computer Use** for
 Accessibility and Screen Recording. A grant then only needs this short-lived
 helper to restart, never OpenWork. macOS still charges Screen Recording to the
 outermost app around a disclaimed process, so a packaged desktop runs an exact

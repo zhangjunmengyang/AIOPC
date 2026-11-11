@@ -31,7 +31,7 @@ afterAll(async () => {
   if (ownedDom) await GlobalRegistrator.unregister()
 })
 
-const mac = { enabled: true, entry: { name: "OpenWork Computer Use", ours: true }, targetId: "local", targets: [{ id: "local", label: "This Mac", placement: "local" }], placement: "local" } satisfies Partial<ComputerStatus>
+const mac = { enabled: true, entry: { name: "AIOPC Computer Use", ours: true }, targetId: "local", targets: [{ id: "local", label: "This Mac", placement: "local" }], placement: "local" } satisfies Partial<ComputerStatus>
 
 async function render(read: () => ComputerStatus | Promise<ComputerStatus>, enabled = true) {
   const calls: string[] = []
@@ -57,7 +57,7 @@ test("setup names the one permission left, counts what is on and offers only tha
   expect(element.textContent).toContain("1 of 2 on")
   expect(state(element, "permission-accessibility")).toBe("done")
   expect(state(element, "permission-screenRecording")).toBe("todo")
-  expect(element.querySelector('[data-testid="settings-computer-entry"]')?.textContent).toBe("OpenWork Computer Use")
+  expect(element.querySelector('[data-testid="settings-computer-entry"]')?.textContent).toBe("AIOPC Computer Use")
   const buttons = [...element.querySelectorAll("button")].map((button) => button.textContent)
   expect(buttons).toEqual(["Open Screen Recording"])
   await act(async () => element.querySelector<HTMLButtonElement>("button")?.click())

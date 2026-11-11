@@ -14,7 +14,7 @@ const environment = {
 const originalEnvironment = {};
 const appOutDir = mkdtempSync(path.join(tmpdir(), "openwork-signing-test-"));
 const appPath = path.join(appOutDir, "Test App.app");
-const helperPath = path.join(appPath, "Contents", "Resources", "helpers", "OpenWork Computer Use.app");
+const helperPath = path.join(appPath, "Contents", "Resources", "helpers", "AIOPC Computer Use.app");
 mkdirSync(helperPath, { recursive: true });
 before(() => {
   for (const [name, value] of Object.entries(environment)) {

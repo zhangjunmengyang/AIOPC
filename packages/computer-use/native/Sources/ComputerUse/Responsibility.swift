@@ -5,7 +5,7 @@ import Foundation
 /// process, which for a plain child is the app that started it. Started by
 /// OpenWork, a Screen Recording grant would only apply once OpenWork itself
 /// quit. The helper therefore relaunches itself once with responsibility
-/// disclaimed: System Settings lists "OpenWork Computer Use", and only this
+/// disclaimed: System Settings lists "AIOPC Computer Use", and only this
 /// short-lived helper ever has to restart after a grant. macOS still charges
 /// Screen Recording to an app around this one, so the desktop runs a copy of
 /// this helper from outside OpenWork.app.

@@ -106,7 +106,6 @@ import {
 } from "./process-resilience.mjs";
 import { createQuitSequencer } from "./quit-sequence.mjs";
 import { createAiopcService } from "./aiopc-service.mjs";
-import { useStandardUserAgent } from "./aiopc-user-agent.mjs";
 import { createKeepAwake } from "./keep-awake.mjs";
 import { attachFloatingViewWindow, floatingViewWindowOptions } from "./floating-view-window.mjs";
 import { createStartupLog, startupPhase, withStartupPhase } from "./startup-log.mjs";
@@ -234,7 +233,7 @@ const computerTargetsPath = () => path.join(app.getPath("userData"), "computer-u
 // bundle, which takes responsibility for itself so grants never restart OpenWork.
 let computerPermissionEntry = null;
 const computerHelperBundle = () => [process.resourcesPath, path.resolve(__dirname, "..", "resources")]
-  .map((root) => root && path.join(root, "helpers", "OpenWork Computer Use.app"))
+  .map((root) => root && path.join(root, "helpers", "AIOPC Computer Use.app"))
   .find((candidate) => candidate && existsSync(candidate)) ?? null;
 const readComputerPermissionEntry = () => (computerPermissionEntry ??= resolvePermissionEntry({ helperBundle: computerHelperBundle(), fallbackName: APP_NAME })
   .catch(() => ({ name: APP_NAME, bundleId: null, ours: false })));
@@ -3252,7 +3251,6 @@ or use: pnpm dev:worktree`);
 
   app.whenReady().then(() => withStartupPhase("bootstrap.apply", async () => {
     endAppReady();
-    useStandardUserAgent();
     void aiopcService.start();
     holdSpellcheckerUntilActivation(workspaceStore.readDesktopBootstrapConfigSync());
     const systemCaCertificates = await runtimeManager.systemCaCertificates();

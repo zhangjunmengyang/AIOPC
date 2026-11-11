@@ -175,7 +175,7 @@ final class SessionControls: NSObject {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: "OpenWork computer use")
         item.button?.setAccessibilityTitle("OpenWork computer use controls")
-        item.button?.toolTip = "OpenWork Computer Use · Take over or Stop"
+        item.button?.toolTip = "AIOPC Computer Use · Take over or Stop"
         let menu = NSMenu(); menu.autoenablesItems = false
         let pause = NSMenuItem(title: "Take over", action: #selector(togglePause), keyEquivalent: "")
         pause.target = self; menu.addItem(pause); menuToggle = pause
@@ -227,7 +227,7 @@ final class SessionControls: NSObject {
         } else {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 230),
             styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "OpenWork Computer Use"
+        panel.title = "AIOPC Computer Use"
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false

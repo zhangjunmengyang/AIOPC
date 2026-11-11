@@ -83,7 +83,7 @@ mac:
     - from: resources/helpers
       to: helpers
       filter:
-        - "OpenWork Computer Use.app/**"
+        - "AIOPC Computer Use.app/**"
         - openwork-dictation
   target:
     - dmg

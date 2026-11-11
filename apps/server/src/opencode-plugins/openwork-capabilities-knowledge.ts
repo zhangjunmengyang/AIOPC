@@ -4,78 +4,55 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { appendAgentInstructions, createInstructionSection } from "./agent-instruction-compose.js";
 import { correctWorkspaceRoot, workspaceFileGuidance, workspaceFileHooks } from "./workspace-file-destinations.js";
-import { automationRuntimeKnowledge } from "../automation-runtime-knowledge.js";
 
 /**
- * OpenWork Capabilities Knowledge Plugin
+ * AIOPC Capabilities Knowledge Plugin
  *
- * Injects knowledge about OpenWork's capabilities into the agent's system
- * prompt so it can proactively help users with:
- * - Adding AI providers (including local models via Ollama)
- * - Fixing authorized folders
- * - Connect, Library, and custom MCP servers
- * - Using OpenWork Cloud
- * - Finding OpenWork docs before falling back to code
- * - Other sessions, skills, automations, plugins
+ * Injects what AIOPC can do into the agent's system prompt (projects, models,
+ * accounts, authorized folders, connections, other sessions) and serves
+ * AIOPC's user guide (packages/docs) through the docs tools.
  *
  * Each rule lives in exactly one place: Connect tool mechanics are in the base
  * agent prompt, readiness in the runtime steering, app control and browser
  * mechanics in the extensions plugin, and live catalogs in their own sections.
  */
 
-const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside OpenWork.
+const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside AIOPC, a desktop workbench for one-person companies.
 
-For OpenWork product questions, use openwork_docs_search and openwork_docs_read as the first source of truth. OpenWork documentation tools answer product questions. Never use them as a substitute for performing an action against a connected service, marketplace capability, or remote skill. Read and summarize relevant docs before answering, and cite the docs-relative path (for example cloud/run-in-the-cloud/cloud-mcp.mdx) when it helps the user verify or continue. If the docs are missing, ambiguous, or appear stale, inspect the implementation code as a last resort and say that you are inferring from code.
+For questions about AIOPC itself (pages, settings, how to connect or publish), use openwork_docs_search and openwork_docs_read first; they hold AIOPC's user guide. Cite the docs-relative path (for example accounts/accounts.md) when it helps. These tools answer product questions only; never use them instead of doing the work with your tools.
 
-Here is what you can help users with:
+What you can help users with:
 
-## Adding AI Providers
-- **Cloud providers**: Go to Settings > AI Providers to add Anthropic, OpenAI, Google, OpenRouter, or other providers with an API key.
-- **OpenWork Cloud models**: Users can sign up for OpenWork Cloud at the Den sign-in page for managed AI models without needing their own API keys.
-- **Custom provider scripts**: Users can add custom OpenAI-compatible endpoints in Settings > AI Providers by adding a provider with a custom base URL.
+## Projects
+- Each workspace is a project (one product, or the company itself); switching workspaces switches projects. The project's memory lives in its files (CONTEXT.md, brand.md, MEMORY.md, knowledge/, assets/, content/). The user sees them on the Space page (资料空间).
 
-## Fixing Authorized Folders
-- Go to Settings > Permissions to manage which folders OpenWork can access.
-- When the agent gets a "permission denied" or "not authorized" error for a file path, the user needs to add that folder (or a parent folder) to the authorized folders list.
-- The agent can navigate there: use the UI control action \`settings.panel.open\` with \`{panel: "permissions"}\`.
+## Models
+- Settings > AI Providers adds Anthropic, OpenAI, Google, OpenRouter or any OpenAI-compatible endpoint; Settings > Ollama connects local models. AIOPC offers no hosted models.
 
-## Connect and MCP servers
-- If the runtime steering says OpenWork Cloud is not ready, do not substitute documentation, browser, or UI tools for the connected-service action; direct the user to \`Settings > Library\` for inventory and \`Settings > Debug\` (developer mode) to repair and test agent access.
-- Prefer organization apps and connections listed in \`Settings > Library\` over adding the same managed service as a custom MCP. \`Settings > Library\` and custom MCP commands/URLs are also the path for a custom or local MCP server that OpenWork Cloud does not provide.
-- OpenWork Connect's public hosted endpoint for external MCP clients is \`https://api.openworklabs.com/mcp/agent\`; it exposes \`search_capabilities\` and \`execute_capability\`, governed by org membership, roles, policies, and exposure allowlists. \`app.openworklabs.com/api/den\` is an internal same-origin desktop proxy, not an external-client URL. Client setup (OpenCode, Codex, Cursor, ChatGPT Desktop, Claude Code, VS Code), OAuth flows, token lifetimes, and troubleshooting are documented — read cloud/run-in-the-cloud/cloud-mcp.mdx with openwork_docs_read before answering from memory.
+## Social accounts
+- The Accounts page (账号) connects platforms: every platform through a browser login (the built-in browser, or AIOPC's own Chrome for sites that block embedded browsers such as Google/YouTube); some also through official APIs or third-party data. Use the aiopc social tools; never ask the user for passwords or API keys in chat, point them to the account's details on the Accounts page instead.
+
+## Authorized folders
+- Settings > Permissions manages which folders AIOPC can access. When a path is "not authorized", the user adds that folder there; the UI control action \`settings.panel.open\` with \`{panel: "permissions"}\` opens it.
+
+## Connections: skills, MCP and plugins
+- The Connections page (连接) lists skills, MCP servers and plugins. Add a local or remote MCP server there.
+- Skills are instruction packs for a kind of work; create them as the \`Skill creation:\` instruction in this prompt directs.
+- Plugins extend the runtime with custom tools: a file in \`.opencode/plugins/\` listed in the \`plugin\` array of \`opencode.json\`.
 
 ## Other sessions
-- For questions about another chat (what was said, decided, or done), use the session affordances described under OpenWork app context; match by ID, title, workspace, or topic words, ask a short clarifying question if several sessions match, and answer only from the returned transcript — say so when it is limited or missing older context.
+- For questions about another chat (what was said, decided, or done), use the session affordances described under the app context; match by ID, title, workspace, or topic words, ask a short clarifying question if several sessions match, and answer only from the returned transcript.
 - Sidebar groups (such as Done or In progress) are listed with session.group.list and changed with session.group.create, session.group.move or session.group.remove; never search code or files for them.
 
-## OpenWork Cloud
-- Users sign up at the Den portal (accessible from the status bar "Sign in" button).
-- Cloud features: managed AI models, team workspaces, shared skills, Collections, org provisioning, and the hosted OpenWork Cloud MCP server.
-- Organization owners and admins can use desktop policies to control desktop app capabilities for the whole org, specific members, or teams. For setup details, read cloud/share-with-your-team/desktop-policies.mdx.
-- After signing in, cloud-provisioned providers and extensions appear automatically.
-
-## Skills
-- Specialized instruction packs for specific workflows, manageable via Settings > Library. Create them as the \`Skill creation:\` instruction in this prompt directs.
-
-## Automations
-${automationRuntimeKnowledge()}
-- Never write a cron entry, launchd/systemd unit, Task Scheduler job, or workspace script as a substitute for an OpenWork Automation.
-
-## Creating Plugins
-- Plugins extend OpenWork/OpenCode with custom tools.
-- Create a file in \`.opencode/plugins/my-plugin.ts\` and add it to the \`plugin\` array in \`opencode.json\`.
-- Plugins are async factory functions returning a hooks object with \`tool\` definitions.
-- See the \`create-plugin\` skill for the full API reference.
-
-When users ask "what can I do?" or "what can OpenWork do?", summarize these capabilities; for a specific how-to, read the relevant docs first, then give direct steps.`;
+When users ask what AIOPC can do, summarize these capabilities and the one-person-company work in your instructions; for a specific how-to, read the docs first, then give direct steps.`;
 
 const docsSearchArgsSchema = z.object({
-  query: z.string().min(1).describe("OpenWork docs search query, for example 'connect slack mcp'."),
+  query: z.string().min(1).describe("AIOPC docs search query, for example '连接账号'."),
   limit: z.number().int().min(1).max(10).optional().describe("Maximum number of matching docs to return."),
 });
 
 const docsReadArgsSchema = z.object({
-  path: z.string().min(1).describe("Docs-relative path returned by openwork_docs_search, for example start-here/connect-your-stack/connect-services.mdx."),
+  path: z.string().min(1).describe("Docs-relative path returned by openwork_docs_search, for example accounts/accounts.md."),
 });
 
 type DocsEntry = {

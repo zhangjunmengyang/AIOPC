@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const defaultAppRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const helperName = "OpenWork Computer Use.app";
+const helperName = "AIOPC Computer Use.app";
 const helperExecutable = path.join("Contents", "MacOS", "ComputerUse");
 const protocolVersion = "openwork.computer-use/1";
 // Exactly the native helper's tools in mcp-embedded mode. The handshake rejects

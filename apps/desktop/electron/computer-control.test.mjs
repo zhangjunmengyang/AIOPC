@@ -348,12 +348,12 @@ function fakeExec(processes, plists) {
 test("a packaged app that ps lists without its path still names its own bundle", async () => {
   const entry = await resolvePermissionEntry({
     pid: 4100,
-    execPath: "/Applications/OpenWork.app/Contents/MacOS/OpenWork",
-    exec: fakeExec({ 4100: [1, "OpenWork"] }, {
-      "/Applications/OpenWork.app": { CFBundleName: "OpenWork", CFBundleIdentifier: "com.differentai.openwork" },
+    execPath: "/Applications/AIOPC.app/Contents/MacOS/AIOPC",
+    exec: fakeExec({ 4100: [1, "AIOPC"] }, {
+      "/Applications/AIOPC.app": { CFBundleName: "AIOPC", CFBundleIdentifier: "com.aiopc.desktop" },
     }),
   });
-  assert.deepEqual(entry, { name: "OpenWork", bundleId: "com.differentai.openwork", ours: true });
+  assert.deepEqual(entry, { name: "AIOPC", bundleId: "com.aiopc.desktop", ours: true });
 });
 
 test("a development build names the terminal that started it, which is not ours to reset", async () => {
@@ -374,16 +374,16 @@ test("a development build names the terminal that started it, which is not ours 
   assert.deepEqual(entry, { name: "Terminal", bundleId: "com.apple.Terminal", ours: false });
 });
 
-test("the helper bundle is its own entry, since it disclaims OpenWork's responsibility", async () => {
-  const helper = "/Applications/OpenWork.app/Contents/Resources/helpers/OpenWork Computer Use.app";
+test("the helper bundle is its own entry, since it disclaims AIOPC's responsibility", async () => {
+  const helper = "/Applications/AIOPC.app/Contents/Resources/helpers/AIOPC Computer Use.app";
   const entry = await resolvePermissionEntry({
     helperBundle: helper,
     pid: 4100,
-    exec: fakeExec({ 4100: [1, "OpenWork"] }, {
-      [helper]: { CFBundleDisplayName: "OpenWork Computer Use", CFBundleIdentifier: "com.differentai.openwork.computer-use" },
+    exec: fakeExec({ 4100: [1, "AIOPC"] }, {
+      [helper]: { CFBundleDisplayName: "AIOPC Computer Use", CFBundleIdentifier: "com.aiopc.desktop.computer-use" },
     }),
   });
-  assert.deepEqual(entry, { name: "OpenWork Computer Use", bundleId: "com.differentai.openwork.computer-use", ours: true });
+  assert.deepEqual(entry, { name: "AIOPC Computer Use", bundleId: "com.aiopc.desktop.computer-use", ours: true });
 });
 
 test("screenshot false settles the act with elements only and never reaches the native call", async (t) => {
