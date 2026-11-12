@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createCompanyProject, listCompanyProjects, resolveCompanyExecutionDirectory } from "../src/company-projects.js";
+import { normalizeSessionGroupState, sessionGroupSnapshot } from "../src/session-groups.js";
+
 import { ensureWorkspaceFiles } from "../src/workspace-init.js";
 
 test("company bootstrap establishes discovery boundary before any project or engine exists", async () => {
@@ -51,4 +53,25 @@ test("project creation preserves an existing directory and does not follow a pro
     await symlink(other, join(other, "projects"));
     await assert.rejects(() => createCompanyProject(other, "escaped"));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("projects with supplementary Unicode characters retain their full group identity", async () => {
+  const company = await realpath(await mkdtemp(join(tmpdir(), "aiopc-project-unicode-")));
+  const name = "𠮷".repeat(63);
+  const directory = join(company, "projects", name);
+  const projectId = `proj:${name}`;
+  try {
+    await mkdir(directory, { recursive: true });
+    assert.equal(await resolveCompanyExecutionDirectory(company, directory), directory);
+    const projects = await listCompanyProjects(company);
+    assert.deepEqual(projects, [{ id: projectId, name, directory }]);
+    const state = normalizeSessionGroupState({
+      groups: [{ id: projectId, label: name }],
+      sessionMeta: { session: { projectId, agentName: "designer" } },
+    });
+    const snapshot = sessionGroupSnapshot(state, projects);
+    assert.deepEqual(snapshot.groups, [{ id: projectId, label: name }]);
+    assert.deepEqual(snapshot.sessionMeta, { session: { projectId, agentName: "designer" } });
+    assert.deepEqual(snapshot.assignments, { session: projectId });
+  } finally { await rm(company, { recursive: true, force: true }); }
 });

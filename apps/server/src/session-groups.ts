@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { listCompanyProjects, type CompanyProject } from "./company-projects.js";
+import { isCompanyProjectName, listCompanyProjects, type CompanyProject } from "./company-projects.js";
 import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -20,6 +20,7 @@ export type SessionGroupState = {
 
 /** Missing projectId is a legacy record; explicit null permanently means company scope. */
 export type SessionMetadata = { agentName?: string; projectId?: string | null };
+export type SessionProject = { projectId: string | null; executionDirectory: string };
 
 export type SessionGroupEventAction = "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported" | "meta";
 
@@ -41,10 +42,14 @@ type SessionGroupEventState = {
   events: SessionGroupEvent[];
 };
 
+function isProjectGroupId(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("proj:") && isCompanyProjectName(value.slice(5));
+}
+
 function normalizeGroupId(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
-  if (!trimmed) return "";
+  if (trimmed.startsWith("proj:")) return isProjectGroupId(trimmed) ? trimmed : "";
   return trimmed.slice(0, 128);
 }
 
@@ -66,7 +71,9 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
     for (const item of value.groups) {
       if (!isRecord(item)) continue;
       const id = normalizeGroupId(item.id);
-      const label = normalizeLabel(item.label);
+      const label = id.startsWith("proj:") && typeof item.label === "string"
+        ? Array.from(item.label.trim()).slice(0, 120).join("")
+        : normalizeLabel(item.label);
       if (!id || !label || seenGroupIds.has(id)) continue;
       groups.push({ id, label });
       seenGroupIds.add(id);
@@ -88,9 +95,7 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
       const id = sessionId.trim().slice(0, 256);
       if (!id || !isRecord(rawMeta)) return [];
       const agentName = typeof rawMeta.agentName === "string" ? rawMeta.agentName.trim().slice(0, 256) : "";
-      const projectId = rawMeta.projectId === null ? null
-        : typeof rawMeta.projectId === "string" && /^proj:[^./\\\u0000-\u001f\u007f][^/\\\u0000-\u001f\u007f]{0,119}$/.test(rawMeta.projectId)
-          ? rawMeta.projectId : undefined;
+      const projectId = rawMeta.projectId === null || isProjectGroupId(rawMeta.projectId) ? rawMeta.projectId : undefined;
       return [[id, { ...(agentName ? { agentName } : {}), ...(projectId !== undefined ? { projectId } : {}) }]];
     }),
   );
@@ -108,7 +113,7 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
 }
 
 /** Real project directories own reserved group names; custom group order survives discovery. */
-export function synchronizeSessionProjectGroups(state: SessionGroupState, projects: CompanyProject[]): SessionGroupState {
+export function synchronizeSessionProjectGroups(state: SessionGroupState, projects: readonly CompanyProject[]): SessionGroupState {
   const remaining = new Map(projects.map((project) => [project.id, { id: project.id, label: project.name }]));
   const groups = state.groups.flatMap((group) => {
     if (!group.id.startsWith("proj:")) return [group];
@@ -262,7 +267,7 @@ export async function resolveSessionProject(
   workspace: Pick<WorkspaceInfo, "id" | "path">,
   sessionId: string,
   nativeDirectory?: string,
-): Promise<{ projectId: string | null; executionDirectory: string }> {
+): Promise<SessionProject> {
   let { state } = await readSessionGroupState(config, workspace.id);
   if (!Object.hasOwn(state.sessionMeta[sessionId] ?? {}, "projectId")) {
     ({ state } = await registerCreatedSessionGroup(config, workspace, {
@@ -274,6 +279,58 @@ export async function resolveSessionProject(
   const project = (await listCompanyProjects(workspace.path)).find((entry) => entry.id === projectId);
   if (!project) throw new ApiError(404, "session_project_not_found", "会话所属项目目录不存在，请先移动到有效项目");
   return { projectId, executionDirectory: project.directory };
+}
+
+/** Backfill a batch only after each native session's company home has been verified. */
+export async function resolveVerifiedSessionProjects(
+  config: ServerConfig,
+  workspace: Pick<WorkspaceInfo, "id" | "path">,
+  sessions: ReadonlyArray<{ sessionId: string; nativeDirectory: string | null }>,
+  projects: readonly CompanyProject[],
+): Promise<Map<string, SessionProject>> {
+  const valid = sessions.filter(({ sessionId }) => sessionId && sessionId.trim() === sessionId && sessionId.length <= 256);
+  if (!valid.length) return new Map();
+  const company = await realpath(workspace.path);
+  const projectsById = new Map(projects.map(project => [project.id, project]));
+  const projectsByDirectory = new Map(projects.map(project => [project.directory, project.id]));
+  const directories = new Set<string>();
+  if (projects.length) {
+    for (const { nativeDirectory } of valid) {
+      if (nativeDirectory && isAbsolute(nativeDirectory)) directories.add(nativeDirectory);
+    }
+  }
+  const projectByNativeDirectory = new Map(await Promise.all([...directories].map(async directory => {
+    const canonical = await realpath(directory).catch(() => null);
+    return [directory, canonical ? projectsByDirectory.get(canonical) ?? null : null] as const;
+  })));
+  const initialized = new Map<string, SessionMetadata>();
+  const { state } = await updateSessionGroupState(config, workspace.id, current => {
+    for (const { sessionId, nativeDirectory } of valid) {
+      const meta = Object.hasOwn(current.sessionMeta, sessionId) ? current.sessionMeta[sessionId] : undefined;
+      if (!Object.hasOwn(meta ?? {}, "projectId")) {
+        const projectId = nativeDirectory ? projectByNativeDirectory.get(nativeDirectory) ?? null : null;
+        initialized.set(sessionId, { ...meta, projectId });
+      }
+    }
+    if (!initialized.size) return current;
+    return synchronizeSessionProjectGroups({
+      ...current,
+      sessionMeta: { ...current.sessionMeta, ...Object.fromEntries(initialized) },
+    }, projects);
+  });
+  if (initialized.size) {
+    const events = getSessionGroupEventStore(config);
+    for (const [sessionId, { projectId }] of initialized) {
+      events.record(workspace.id, "assigned", { sessionId, ...(projectId ? { groupId: projectId } : {}) });
+    }
+  }
+  const resolved = new Map<string, SessionProject>();
+  for (const { sessionId } of valid) {
+    const projectId = state.sessionMeta[sessionId]?.projectId ?? null;
+    const executionDirectory = projectId === null ? company : projectsById.get(projectId)?.directory;
+    if (executionDirectory) resolved.set(sessionId, { projectId, executionDirectory });
+  }
+  return resolved;
 }
 
 export class SessionGroupEventStore {
