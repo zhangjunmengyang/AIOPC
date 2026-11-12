@@ -7,12 +7,15 @@ import { encodeComposerMentionValue } from "../surface/composer/mention-encoding
 export type NewSessionDestination = {
   workspaceId: string;
   groupId?: string;
+  taskId?: string;
   parent?: WorkbenchSessionTab;
 };
 
 export function newSessionDraftSlot(destination: NewSessionDestination): string {
-  if (!destination.groupId && !destination.parent) return NEW_TASK_DRAFT_SESSION_ID;
-  return `${NEW_TASK_DRAFT_SESSION_ID}${JSON.stringify([destination.groupId ?? null, destination.parent?.sessionId ?? null])}`;
+  if (!destination.groupId && !destination.parent && !destination.taskId) return NEW_TASK_DRAFT_SESSION_ID;
+  const parts = [destination.groupId ?? null, destination.parent?.sessionId ?? null];
+  if (destination.taskId) parts.push(destination.taskId);
+  return `${NEW_TASK_DRAFT_SESSION_ID}${JSON.stringify(parts)}`;
 }
 
 export function newSessionDraftOwnerKey(scope: string | null | undefined, destination: NewSessionDestination) {
@@ -28,6 +31,20 @@ export function draftHasWorkspaceFiles(state: Pick<ComposerSessionState, "attach
 export function draftWorkspaceChangeBlocked(source: string, destination: string, state: ComposerSessionState) {
   if (source === destination) return false;
   return draftHasWorkspaceFiles(state);
+}
+
+export function newSessionDestinationFromSearch(workspaceId: string, search: string): NewSessionDestination {
+  const params = new URLSearchParams(search);
+  const groupId = params.get("draftGroup") || undefined;
+  const taskId = groupId?.startsWith("proj:") ? params.get("draftTask") : null;
+  return { workspaceId, groupId, ...(taskId ? { taskId } : {}) };
+}
+
+export function carryDraftTask(source: NewSessionDestination, target: NewSessionDestination): NewSessionDestination {
+  const { taskId: _discarded, ...destination } = target;
+  return source.taskId && source.workspaceId === target.workspaceId && source.groupId === target.groupId
+    ? { ...destination, taskId: source.taskId }
+    : destination;
 }
 
 /** One navigation-only command for every New session entry point. */
@@ -47,6 +64,8 @@ export function openNewSessionDraft(destination: NewSessionDestination, navigate
     return;
   }
   workbench.focusPane("primary");
-  const query = destination.groupId ? `?draftGroup=${encodeURIComponent(destination.groupId)}` : "";
-  navigate(`${workspaceSessionRoute(destination.workspaceId)}${query}`);
+  const query = new URLSearchParams();
+  if (destination.groupId) query.set("draftGroup", destination.groupId);
+  if (destination.taskId) query.set("draftTask", destination.taskId);
+  navigate(`${workspaceSessionRoute(destination.workspaceId)}${query.size ? `?${query}` : ""}`);
 }
