@@ -132,3 +132,52 @@ def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
     kinds = [item.type for item in content]
     assert kinds == ["text", "image"]
     assert '"login_opened"' in content[0].text and "screenshot" not in content[0].text
+
+
+def test_background_account_check_keeps_state_logs_safely_and_retries(tmp_path, monkeypatch, caplog):
+    import httpx
+
+    from aiopc.accounts import AccountStore
+    from aiopc.social.service import SocialService
+
+    store = AccountStore(tmp_path / 'home')
+    account = store.upsert('xhs', {'id': 'A', 'name': '账号 A'}, project=str(tmp_path))
+    before = store.get(account['id'])
+    calls = []
+    unhandled = []
+
+    async def scenario():
+        completed = [asyncio.Event(), asyncio.Event()]
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+
+        async def check_logins(self):
+            calls.append(1)
+            completed[len(calls) - 1].set()
+            if len(calls) == 1:
+                raise OSError('CDP unavailable: wss://local.test/?token=do-not-log')
+            return {'checked': []}
+
+        monkeypatch.setattr(SocialService, 'check_logins', check_logins)
+        try:
+            api = create_api(tmp_path / 'home', TOKEN, authorized_roots=[tmp_path])
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url='http://test') as client:
+                params = {'workspace': str(tmp_path), 'environment': 'env_test', 'check': '1'}
+                first = await client.get('/api/accounts', params=params, headers=auth())
+                assert first.json()['accounts'][0]['status'] == 'ready'
+                await asyncio.wait_for(completed[0].wait(), 1)
+                await asyncio.sleep(0)
+                assert store.get(account['id']) == before
+                second = await client.get('/api/accounts', params=params, headers=auth())
+                await asyncio.wait_for(completed[1].wait(), 1)
+                await asyncio.sleep(0)
+                assert second.json()['accounts'][0]['status'] == 'ready'
+                assert not unhandled
+                assert len(calls) == 2
+        finally:
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(scenario())
+    assert 'OSError' in caplog.text and 'env_test' in caplog.text
+    assert 'do-not-log' not in caplog.text and 'wss://' not in caplog.text

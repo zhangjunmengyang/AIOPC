@@ -16,6 +16,7 @@ import asyncio
 import base64
 import inspect
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -391,8 +392,18 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
             key = str(ws.root) + ":" + request.query_params.get("environment", "")
             if key not in checking or checking[key].done():
                 async def check_accounts():
-                    with ui_browser_context(request, ws):
-                        return await ws.social.check_logins()
+                    try:
+                        with ui_browser_context(request, ws):
+                            return await ws.social.check_logins()
+                    except Exception as exc:  # noqa: BLE001 - consume detached-task failures without logging CDP secrets
+                        environment = request.query_params.get("environment", "")
+                        safe_environment = environment if len(environment) <= 128 and environment.replace("_", "").replace("-", "").isalnum() else "default"
+                        # Transport failures are not proof of logout. Do not log
+                        # exception text: a CDP URL can contain a provider token.
+                        logging.getLogger(__name__).warning(
+                            "账号复查暂不可用：project=%s environment=%s error=%s；保留上次状态，下次轮询重试",
+                            ws.root, safe_environment, type(exc).__name__,
+                        )
                 checking[key] = asyncio.get_running_loop().create_task(check_accounts())
         return respond({"accounts": ws.social.accounts()})
 
