@@ -118,3 +118,27 @@ async def test_mcp_adoption_uses_verified_session_and_exposes_no_project_overrid
     authority.project_id = None
     authority.project_directory = company
     assert (await fn(id=skill.id, ctx=ctx, scope="company"))["can_adopt_company"] is True
+
+
+async def test_catalog_glossary_retries_marketing_page_with_qmd(tmp_path, skill):
+    index = tmp_path / "skills-index"
+    index.mkdir()
+    source = index / f"{skill.id}.md"
+    source.write_text(render_index(skill, "# Landing page\n"))
+    write_manifest(tmp_path, {skill.id: skill}, {}, {})
+    queries = []
+
+    class FakeSearch:
+        async def search(self, collection, query, *, scopes, kind=None, limit=10):
+            assert (collection, scopes, kind) == ("skills", ("skills",), "skill")
+            assert limit == (20 if query == '"landing page"' else 5)
+            queries.append(query)
+            if query == '"landing page"':
+                return [{"source_path": source.name, "title": skill.title, "scope": "skills", "score": 0.4,
+                         "frontmatter": {"id": skill.id, "content_hash": skill.content_hash}}]
+            return []
+
+    result = await SkillHub(tmp_path, FakeSearch()).find_skill("复刻营销页")
+    assert queries == ["复刻营销页", '"landing page"']
+    assert result["matched_query"] == '"landing page"'
+    assert [candidate["id"] for candidate in result["candidates"]] == [skill.id]

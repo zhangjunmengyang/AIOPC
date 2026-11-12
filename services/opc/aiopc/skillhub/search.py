@@ -7,9 +7,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
-from .manifest import read_skills
+from .manifest import SkillRecord, read_skills
 
 SKILLS_COLLECTION = "skills"
+_CATALOG_TERMS = {"营销页": '"landing page"'}
+_MARKETING_PAGE_LABELS = ("landing page", "marketing page", "落地页", "营销页", "销售页")
 
 
 class CollectionSearch(Protocol):
@@ -32,7 +34,17 @@ class SkillHub:
         records = await asyncio.to_thread(read_skills, self.root)
         if not records:
             return {"candidates": [], "indexed": False}
-        hits = await self.searcher.search(SKILLS_COLLECTION, query, scopes=("skills",), kind="skill", limit=5)
+        candidates = await self._candidates(query, records)
+        if not candidates:
+            related = next((term for label, term in _CATALOG_TERMS.items() if label in query and f"-{label}" not in query), None)
+            if related:
+                candidates = await self._candidates(related, records, catalog_terms=_MARKETING_PAGE_LABELS)
+                if candidates:
+                    return {"candidates": candidates, "indexed": True, "matched_query": related}
+        return {"candidates": candidates, "indexed": True}
+
+    async def _candidates(self, query: str, records: Mapping[str, SkillRecord], *, catalog_terms: tuple[str, ...] = ()) -> list[dict]:
+        hits = await self.searcher.search(SKILLS_COLLECTION, query, scopes=("skills",), kind="skill", limit=20 if catalog_terms else 5)
         candidates = []
         seen = set()
         for hit in hits:
@@ -47,6 +59,8 @@ class SkillHub:
                 continue
             if not _matches_index(hit.get("source_path"), self.index_root, identifier):
                 continue
+            if catalog_terms and not _matches_catalog(record, catalog_terms):
+                continue
             seen.add(identifier)
             candidates.append({
                 "id": identifier, "title": record.title, "source_url": record.source_url, "commit": record.commit,
@@ -59,7 +73,7 @@ class SkillHub:
             })
             if len(candidates) == 5:
                 break
-        return {"candidates": candidates, "indexed": True}
+        return candidates
 
 
 def _matches_index(source: Any, root: Path, identifier: str) -> bool:
@@ -73,3 +87,10 @@ def _matches_index(source: Any, root: Path, identifier: str) -> bool:
         return path.resolve(strict=True) == expected and expected.is_file()
     except (OSError, RuntimeError, ValueError):
         return False
+
+
+def _matches_catalog(record: SkillRecord, terms: tuple[str, ...]) -> bool:
+    labels = [record.title, *(label for items in record.names.values() for label in items),
+              *(text for items in record.descriptions.values() for text in items)]
+    normalized = [label.casefold().replace("-", " ") for label in labels]
+    return any(term in label for label in normalized for term in terms)
