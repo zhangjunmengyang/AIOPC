@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { listCompanyProjects, type CompanyProject } from "./company-projects.js";
 import { ApiError } from "./errors.js";
+import { isProjectTaskId } from "./project-task-files.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { shortId } from "./utils.js";
@@ -19,7 +20,7 @@ export type SessionGroupState = {
 };
 
 /** Missing projectId is a legacy record; explicit null permanently means company scope. */
-export type SessionMetadata = { agentName?: string; projectId?: string | null };
+export type SessionMetadata = { agentName?: string; projectId?: string | null; taskId?: string };
 
 export type SessionGroupEventAction = "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported" | "meta";
 
@@ -91,7 +92,12 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
       const projectId = rawMeta.projectId === null ? null
         : typeof rawMeta.projectId === "string" && /^proj:[^./\\\u0000-\u001f\u007f][^/\\\u0000-\u001f\u007f]{0,119}$/.test(rawMeta.projectId)
           ? rawMeta.projectId : undefined;
-      return [[id, { ...(agentName ? { agentName } : {}), ...(projectId !== undefined ? { projectId } : {}) }]];
+      const taskId = projectId && isProjectTaskId(rawMeta.taskId) ? rawMeta.taskId : undefined;
+      return [[id, {
+        ...(agentName ? { agentName } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
+        ...(taskId ? { taskId } : {}),
+      }]];
     }),
   );
 
@@ -239,8 +245,12 @@ export async function registerCreatedSessionGroup(
     }
     if (!Object.hasOwn(current.sessionMeta, input.sessionId) && input.parentSessionId
       && Object.hasOwn(current.sessionMeta, input.parentSessionId)) {
-      const agentName = current.sessionMeta[input.parentSessionId]?.agentName;
-      current.sessionMeta[input.sessionId] = agentName ? { agentName } : {};
+      const parent = current.sessionMeta[input.parentSessionId];
+      const taskId = project?.id === parent?.projectId ? parent?.taskId : undefined;
+      current.sessionMeta[input.sessionId] = {
+        ...(parent?.agentName ? { agentName: parent.agentName } : {}),
+        ...(taskId ? { taskId } : {}),
+      };
       inheritedMeta = true;
     }
     if (!Object.hasOwn(current.sessionMeta[input.sessionId] ?? {}, "projectId")) {

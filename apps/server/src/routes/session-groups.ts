@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { createCompanyProject, listCompanyProjects } from "../company-projects.js";
 import { ApiError } from "../errors.js";
+import { isProjectTaskId, requireProjectTaskFile } from "../project-task-files.js";
 import {
   createSessionGroupId,
   getSessionGroupEventStore,
@@ -92,6 +93,9 @@ export function registerSessionGroupRoutes(options: RegisterSessionGroupRoutesOp
       for (const [id, meta] of Object.entries(state.sessionMeta)) {
         if (Object.hasOwn(meta, "projectId") && meta.projectId !== current.sessionMeta[id]?.projectId) {
           throw immutableProject();
+        }
+        if (meta.taskId && meta.taskId !== current.sessionMeta[id]?.taskId) {
+          throw new ApiError(409, "task_link_requires_patch", "请通过会话的任务关联接口修改任务");
         }
         sessionMeta[id] = { ...current.sessionMeta[id], ...meta };
       }
@@ -196,6 +200,43 @@ export function registerSessionGroupRoutes(options: RegisterSessionGroupRoutesOp
       return { ...current, assignments };
     });
     sessionGroupEvents.record(workspace.id, "assigned", { sessionId, ...(groupId ? { groupId } : {}) });
+    return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/session-groups/task/:sessionId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = (ctx.params.sessionId ?? "").trim();
+    if (!sessionId || sessionId.length > 256) throw new ApiError(400, "invalid_payload", "sessionId is invalid");
+    const { taskId, expectedTaskId } = await readJsonBody(ctx.request);
+    if ((taskId !== null && !isProjectTaskId(taskId))
+      || (expectedTaskId !== undefined && expectedTaskId !== null && !isProjectTaskId(expectedTaskId))) {
+      throw new ApiError(400, "invalid_task_id", "任务 ID 无效");
+    }
+    const { state } = await readSessionGroupState(config, workspace.id);
+    const projectId = Object.hasOwn(state.sessionMeta, sessionId) ? state.sessionMeta[sessionId]?.projectId : null;
+    if (!projectId) throw new ApiError(409, "project_session_required", "请选择已创建的项目会话");
+    const project = (await listCompanyProjects(workspace.path)).find((entry) => entry.id === projectId);
+    if (!project) throw new ApiError(404, "session_project_not_found", "会话所属项目目录不存在");
+    if (taskId !== null) await requireProjectTaskFile(project.directory, taskId);
+
+    let changed = false;
+    const result = await updateWorkspaceSessionGroups(workspace, (current) => {
+      const meta = current.sessionMeta[sessionId];
+      if (meta?.projectId !== project.id) throw immutableProject();
+      const previous = meta.taskId ?? null;
+      if (previous === taskId) return current;
+      if (expectedTaskId !== undefined && expectedTaskId !== previous) {
+        throw new ApiError(409, "task_link_changed", "会话的任务关联已更新，请刷新后重试");
+      }
+      const updated = { ...meta };
+      if (taskId === null) delete updated.taskId;
+      else updated.taskId = taskId;
+      changed = true;
+      return { ...current, sessionMeta: { ...current.sessionMeta, [sessionId]: updated } };
+    });
+    if (changed) sessionGroupEvents.record(workspace.id, "meta", { sessionId });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
