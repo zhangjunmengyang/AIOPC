@@ -529,11 +529,15 @@ function mapV2Session(value: unknown, directory: string | undefined, eventCreate
   const variant = readString(model, "variant");
   const revert = readRecord(source, "revert");
   const revertMessageID = revert && readString(revert, "messageID");
-  const mapped: Session = {
+  const executionDirectory = readString(source, "executionDirectory")
+    ?? (readString(source, "openworkHomeDirectory") ? readString(location, "directory") : undefined);
+  const mapped: Session & { executionDirectory?: string; projectId?: string | null } = {
     id,
     slug: readString(source, "slug") ?? id,
     projectID: readString(source, "projectID") ?? "v2",
     directory: readString(source, "openworkHomeDirectory") ?? readString(source, "directory") ?? readString(location, "directory") ?? directory ?? "",
+    ...(executionDirectory ? { executionDirectory } : {}),
+    ...(Object.hasOwn(source, "projectId") ? { projectId: readString(source, "projectId") ?? null } : {}),
     // Keep native untitled sessions eligible for compatibility title recovery.
     title: readString(source, "title") || `New session - ${new Date(created).toISOString()}`,
     version: readString(source, "version") ?? "v2",
@@ -2364,8 +2368,9 @@ export function createClientV2(
   // chat is checked once per client, so later sends cost no request.
   let agentCatalog: Agent[] = [];
   let agentsMissingFromCatalog = new Set<string>();
-  const readAgentCatalog = async (signal?: AbortSignal): Promise<TransportResult> => {
-    const result = await request("GET", "/api/agent", undefined, signal);
+  const readAgentCatalog = async (signal?: AbortSignal, executionDirectory = directory): Promise<TransportResult> => {
+    const query = executionDirectory ? `?${new URLSearchParams({ directory: executionDirectory })}` : "";
+    const result = await request("GET", `/api/agent${query}`, undefined, signal);
     if (result.response.ok) {
       agentCatalog = responseItems(result.payload).flatMap((item) => {
         const agent = mapV2Agent(item);
@@ -3110,10 +3115,10 @@ export function createClientV2(
     },
     app: {
       agents: async (
-        _parameters: DirectoryParameters = {},
+        parameters: DirectoryParameters = {},
         options?: RequestOptions,
       ): Promise<FieldsResult<Agent[]>> => {
-        const result = await readAgentCatalog(options?.signal);
+        const result = await readAgentCatalog(options?.signal, parameters.directory ?? directory);
         return result.response.ok ? successfulResult(result, agentCatalog) : failedResult(result);
       },
     },

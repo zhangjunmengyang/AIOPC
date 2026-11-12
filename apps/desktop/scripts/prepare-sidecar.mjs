@@ -1,4 +1,5 @@
 import { prepareOpencodeV2 } from "./prepare-opencode-v2.mjs";
+import { prepareAiopcOpencode } from "../../server/scripts/prepare-aiopc-opencode.mjs";
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import {
@@ -334,6 +335,11 @@ if (shouldDownloadOpencode) {
 
   console.log(`OpenCode sidecar updated to ${normalizedOpencodeVersion}.`);
 }
+
+// Browser ownership requires native session metadata on both v1 MCP call paths.
+// An upstream unpatched release must never silently replace this local fork.
+await prepareAiopcOpencode(sidecarDir, { version: normalizedOpencodeVersion, targetTriple: resolvedTargetTriple });
+if (opencodeTargetPath) copyFileSync(opencodePath, opencodeTargetPath);
 
 const opencodeV2Path = await prepareOpencodeV2(sidecarDir, resolvedTargetTriple);
 const opencodeV2TargetPath = join(sidecarDir, `opencode2-${resolvedTargetTriple}${isWindowsTarget ? ".exe" : ""}`);

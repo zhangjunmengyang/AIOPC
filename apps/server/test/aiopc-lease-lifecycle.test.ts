@@ -5,6 +5,7 @@ import { createAiopcLeaseLifecycle, createAiopcLeaseReleaser, leaseLifecycleEven
 test("lease lifecycle recognizes native v1/v2 completion, abort and deletion only", () => {
   assert.deepEqual(leaseLifecycleEvent({ payload: { type: "session.idle", properties: { sessionID: "ses_a" } } }), { sessionId: "ses_a", reason: "turn_end" });
   assert.deepEqual(leaseLifecycleEvent({ type: "session.execution.interrupted", data: { sessionID: "ses_b" } }), { sessionId: "ses_b", reason: "abort" });
+  assert.deepEqual(leaseLifecycleEvent({ type: "session.archived", data: { sessionID: "ses_archived", timestamp: 1000 } }), { sessionId: "ses_archived", reason: "deleted" });
   assert.deepEqual(leaseLifecycleEvent({ type: "session.deleted", properties: { info: { id: "ses_c" } } }), { sessionId: "ses_c", reason: "deleted" });
   assert.deepEqual(leaseLifecycleEvent({ type: "session.updated", properties: { info: { id: "ses_c", time: { archived: 1 } } } }), { sessionId: "ses_c", reason: "deleted" });
   assert.equal(leaseLifecycleEvent({ type: "session.status", properties: { sessionID: "ses_a", status: { type: "busy" } } }), null);

@@ -22,7 +22,7 @@ import {
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
-import { environmentTab, useSidePanelTabs } from "./use-side-panel-tabs";
+import { useOpenEnvironmentPane, useSidePanelTabs } from "./use-side-panel-tabs";
 import { handlePanelEscape, PanelEmpty } from "./panel-empty";
 
 type SidePanelProps = {
@@ -125,9 +125,7 @@ export function SidePanel({
 
   const { closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
   // The project's own computer, watched beside the chat.
-  const openEnvironmentTab = React.useCallback(() => {
-    usePanelTabStore.getState().openTab(sessionId, environmentTab(workspaceRoot));
-  }, [sessionId, workspaceRoot]);
+  const { open: openEnvironmentTab, picker: environmentPicker } = useOpenEnvironmentPane(sessionId, workspaceRoot, false, () => {});
 
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
@@ -357,7 +355,7 @@ export function SidePanel({
           <BuiltMcpAppPanel key={activeTab.id} tab={activeTab} onClose={onClose} />
         ) : activeTab?.type === "environment" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
-            <EnvironmentView key={activeTab.id} workspaceRoot={activeTab.workspaceRoot} />
+            <EnvironmentView key={`${activeTab.workspaceRoot}:${activeTab.id}`} workspaceRoot={activeTab.workspaceRoot} environmentId={activeTab.environmentId} />
           </div>
         ) : activeTab?.type === "artifact" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -374,6 +372,7 @@ export function SidePanel({
           </div>
         ) : null}
       </div>
+      {environmentPicker}
     </TooltipProvider>
   );
 }

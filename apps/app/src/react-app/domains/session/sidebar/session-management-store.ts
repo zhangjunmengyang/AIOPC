@@ -4,13 +4,17 @@
  * zustand/middleware/persist.
  *
  * Archive is server-side (OpenCode session.time.archived). Session groups are
- * synced server-side; this store keeps a local optimistic mirror plus UI-only
+ * synced server-side; this store keeps a local server-backed mirror plus UI-only
  * collapsed state. Components import it directly with selectors, avoiding
  * context/prop drilling.
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { sessionManagementStorage } from "./session-management-storage";
+import { t } from "@/i18n";
+import { canAssignSessionGroup, sessionProjectId, isProjectSessionGroup, deriveProjectAssignments } from "@/react-app/domains/aiopc/company-project";
+
+export type SessionMeta = Record<string, { agentName?: string; projectId?: string | null }>;
 
 export type SessionGroupDefinition = {
   id: string;
@@ -20,15 +24,19 @@ export type SessionGroupDefinition = {
 export type WorkspaceGroupState = {
   groups: SessionGroupDefinition[];
   assignments: Record<string, string>;
+  sessionMeta?: SessionMeta;
   collapsedGroupIds?: string[];
 };
 
 export type SessionGroupServerState = {
   groups: SessionGroupDefinition[];
   assignments: Record<string, string>;
+  sessionMeta: SessionMeta;
 };
 
 type SessionGroupSyncHandler = {
+  getGroups: (workspaceId: string) => Promise<SessionGroupServerState | null>;
+  setSessionAgent: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<SessionGroupServerState | null>;
   createGroup: (workspaceId: string, group: SessionGroupDefinition) => Promise<SessionGroupServerState | null>;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => Promise<SessionGroupServerState | null>;
   reorderGroups: (workspaceId: string, groupIds: string[]) => Promise<SessionGroupServerState | null>;
@@ -94,9 +102,12 @@ type SessionManagementState = {
   feedSortBy: FeedSortBy;
   orderByWorkspace: Record<string, string[]>;
   groupsByWorkspace: Record<string, WorkspaceGroupState>;
+  /** Runtime freshness, deliberately excluded from the persisted cache. */
+  serverSyncedWorkspaces: Record<string, true>;
 };
 
 type SessionManagementActions = {
+  setSessionAgent: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<void>;
   togglePin: (sessionId: string) => void;
   reorderPins: (sessionIds: string[]) => void;
   markUnread: (sessionId: string) => void;
@@ -113,7 +124,7 @@ type SessionManagementActions = {
   setFeedSortBy: (sortBy: FeedSortBy) => void;
   toggleFeedFolder: (workspaceId: string, groupId: string) => void;
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
-  assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
+  assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => Promise<void>;
   createGroup: (workspaceId: string, label: string) => void;
   renameGroup: (workspaceId: string, groupId: string, label: string) => void;
   reorderGroups: (workspaceId: string, groupIds: string[]) => void;
@@ -142,6 +153,13 @@ function sameAssignments(left: Record<string, string>, right: Record<string, str
   const entries = Object.entries(left);
   return entries.length === Object.keys(right).length
     && entries.every(([sessionId, groupId]) => right[sessionId] === groupId);
+}
+
+function sameSessionMeta(left: SessionMeta = {}, right: SessionMeta = {}): boolean {
+  const entries = Object.entries(left);
+  return entries.length === Object.keys(right).length
+    && entries.every(([id, meta]) => Object.hasOwn(right, id) && meta.agentName === right[id]?.agentName
+      && meta.projectId === right[id]?.projectId && Object.hasOwn(meta, "projectId") === Object.hasOwn(right[id]!, "projectId"));
 }
 
 let sessionGroupSyncHandler: SessionGroupSyncHandler | null = null;
@@ -235,6 +253,28 @@ export async function assignNewSessionGroup(workspaceId: string, sessionId: stri
   }
 }
 
+/** Called after OPC creates the project folder; the server also discovers it on reload. */
+export async function createProjectSessionGroup(workspaceId: string, name: string): Promise<void> {
+  const id = `proj:${name}`;
+  if (!isProjectSessionGroup(id)) throw new Error("Invalid project name.");
+  const version = beginSessionGroupMutation(workspaceId);
+  try {
+    const state = await sessionGroupSyncHandler?.createGroup(workspaceId, { id, label: name });
+    if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
+    completeSessionGroupMutation(workspaceId, version, state);
+  } catch (error) {
+    completeSessionGroupMutation(workspaceId, version, null);
+    throw error;
+  }
+}
+
+export async function refreshSessionGroupState(workspaceId: string): Promise<void> {
+  const version = beginSessionGroupServerSync(workspaceId);
+  const state = await sessionGroupSyncHandler?.getGroups(workspaceId);
+  if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
+  applySessionGroupServerState(workspaceId, state, version);
+}
+
 function syncServerState(request: Promise<SessionGroupServerState | null> | undefined, workspaceId: string): void {
   if (!request) return;
   const version = beginSessionGroupMutation(workspaceId);
@@ -259,6 +299,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       feedSortBy: DEFAULT_FEED_SORT_BY,
       orderByWorkspace: {},
       groupsByWorkspace: {},
+      serverSyncedWorkspaces: {},
 
       togglePin: (sessionId) =>
         set((state) => {
@@ -320,28 +361,10 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
             : { orderByWorkspace: { ...state.orderByWorkspace, [workspaceId]: sessionIds } }
         )),
 
-      assignGroup: (workspaceId, sessionId, groupId) => {
-        set((state) => {
-          const ws = state.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE;
-          const nextGroupId = groupId && ws.groups.some((group) => group.id === groupId) ? groupId : null;
-          if ((ws.assignments[sessionId] ?? null) === nextGroupId) return state;
-          const assignments = { ...ws.assignments };
-          if (nextGroupId) {
-            assignments[sessionId] = nextGroupId;
-          } else {
-            delete assignments[sessionId];
-          }
-          return {
-            groupsByWorkspace: {
-              ...state.groupsByWorkspace,
-              [workspaceId]: { ...ws, assignments },
-            },
-          };
-        });
-        syncServerState(
-          sessionGroupSyncHandler?.assignGroup(workspaceId, sessionId, groupId),
-          workspaceId,
-        );
+      assignGroup: async (workspaceId, sessionId, groupId) => {
+        const projectId = sessionProjectId(get().groupsByWorkspace[workspaceId], sessionId);
+        if (!canAssignSessionGroup(projectId, groupId)) throw new Error(t("session.project_fixed"));
+        await assignNewSessionGroup(workspaceId, sessionId, groupId);
       },
 
       createGroup: (workspaceId, label) => {
@@ -360,6 +383,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       },
 
       renameGroup: (workspaceId, groupId, label) => {
+        if (isProjectSessionGroup(groupId)) return;
         set((state) => {
           const ws = state.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE;
           const target = ws.groups.find((group) => group.id === groupId);
@@ -423,21 +447,27 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       replaceWorkspaceGroups: (workspaceId, serverState) =>
         set((state) => {
           const ws = state.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE;
+          const assignments = deriveProjectAssignments(serverState.assignments, serverState.sessionMeta);
           const knownGroupIds = new Set(serverState.groups.map((group) => group.id));
           const collapsedGroupIds = (ws.collapsedGroupIds ?? []).filter(
             (id) => id === "__openwork_ungrouped" || knownGroupIds.has(id),
           );
           if (
+            state.serverSyncedWorkspaces[workspaceId]
+            &&
             sameGroupDefinitions(ws.groups, serverState.groups)
-            && sameAssignments(ws.assignments, serverState.assignments)
+            && sameAssignments(ws.assignments, assignments)
+            && sameSessionMeta(ws.sessionMeta, serverState.sessionMeta)
             && sameStrings(ws.collapsedGroupIds ?? [], collapsedGroupIds)
           ) return state;
           return {
+            serverSyncedWorkspaces: { ...state.serverSyncedWorkspaces, [workspaceId]: true },
             groupsByWorkspace: {
               ...state.groupsByWorkspace,
               [workspaceId]: {
                 groups: serverState.groups,
-                assignments: serverState.assignments,
+                assignments,
+                sessionMeta: serverState.sessionMeta ?? {},
                 collapsedGroupIds,
               },
             },
@@ -445,6 +475,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         }),
 
       removeGroup: (workspaceId, groupId, destinationGroupId = null) => {
+        if (isProjectSessionGroup(groupId)) return;
         const ws = useSessionManagementStore.getState().groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE;
         const validDestinationGroupId = destinationGroupId && ws.groups.some(
           (group) => group.id === destinationGroupId && group.id !== groupId,
@@ -467,7 +498,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
           return {
             groupsByWorkspace: {
               ...state.groupsByWorkspace,
-              [workspaceId]: { groups, assignments, collapsedGroupIds },
+              [workspaceId]: { ...ws, groups, assignments, collapsedGroupIds },
             },
           };
         });
@@ -481,17 +512,44 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         );
       },
 
+      setSessionAgent: async (workspaceId, sessionId, agentName) => {
+        const version = beginSessionGroupMutation(workspaceId);
+        try {
+          const state = await sessionGroupSyncHandler?.setSessionAgent(workspaceId, sessionId, agentName);
+          if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
+          completeSessionGroupMutation(workspaceId, version, state);
+        } catch (error) {
+          completeSessionGroupMutation(workspaceId, version, null);
+          throw error;
+        }
+      },
+
       forgetWorkspace: (workspaceId) =>
         set((state) => {
           if (!(workspaceId in state.orderByWorkspace) && !(workspaceId in state.groupsByWorkspace)) return state;
           const { [workspaceId]: _o, ...orderRest } = state.orderByWorkspace;
           const { [workspaceId]: _g, ...groupsRest } = state.groupsByWorkspace;
-          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
+          const { [workspaceId]: _s, ...syncedRest } = state.serverSyncedWorkspaces;
+          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest, serverSyncedWorkspaces: syncedRest };
         }),
     }),
     {
       name: "openwork.react.sessionManagement",
+      merge: (cached, current) => {
+        const state = { ...current, ...(cached as Partial<SessionManagementStore>) };
+        state.serverSyncedWorkspaces = {};
+        state.groupsByWorkspace = Object.fromEntries(Object.entries(state.groupsByWorkspace).map(([id, workspace]) => [id, {
+          ...workspace, assignments: deriveProjectAssignments(workspace.assignments, workspace.sessionMeta),
+        }]));
+        return state;
+      },
       storage: createJSONStorage(sessionManagementStorage),
+      partialize: ({ serverSyncedWorkspaces: _freshness, ...state }) => ({ ...state,
+        groupsByWorkspace: Object.fromEntries(Object.entries(state.groupsByWorkspace).map(([id, workspace]) => [id, {
+          ...workspace, assignments: Object.fromEntries(Object.entries(workspace.assignments).filter(([sessionId, groupId]) =>
+            !isProjectSessionGroup(groupId) || !Object.hasOwn(workspace.sessionMeta?.[sessionId] ?? {}, "projectId"))),
+        }])),
+      }),
     },
   ),
 );

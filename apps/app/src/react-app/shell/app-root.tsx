@@ -85,6 +85,7 @@ export function AppRoot() {
                 <Route path="/workspace/:workspaceId/session" element={<SessionRoute />} />
                 <Route path="/workspace/:workspaceId/session/:sessionId" element={<SessionRoute />} />
 
+                <Route path="/workspace/:workspaceId/projects/:projectName?" element={<SessionRoute />} />
                 <Route path="/space" element={<SessionRoute />} />
                 <Route path="/accounts" element={<SessionRoute />} />
                 {COMPANY_PAGES.map((page) => (

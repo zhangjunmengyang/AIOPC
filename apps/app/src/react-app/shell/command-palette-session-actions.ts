@@ -34,7 +34,8 @@ export function sessionGroupActionsToPalette(actions: readonly MenuAction[], onC
   return actions.flatMap((action): PaletteItem[] => action.type !== "item" ? [] : [{
     id: action.id === "ungroup" ? "group:none" : action.id === "new-group" ? "group:new" : action.id,
     title: action.label, disabled: action.disabled,
-    meta: action.disabled ? "Current" : undefined,
+    detail: action.disabledReason,
+    meta: action.disabled && !action.disabledReason ? "Current" : undefined,
     searchText: `group ${action.label}`,
     action: () => {
       if (action.disabled) return;

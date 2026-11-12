@@ -115,3 +115,7 @@ class Provider:
 
     async def destroy(self, key: ProjectKey, state: dict[str, Any]) -> None:
         return None
+
+    async def reset(self, key: ProjectKey, state: dict[str, Any]) -> None:
+        """Prove the entire old profile was removed before another project can bind."""
+        raise SandboxError(f"{self.info.name} 无法自动清空完整浏览器档案，不能跨项目重新绑定此环境")

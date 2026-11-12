@@ -1,5 +1,8 @@
 import { useCallback, useEffect } from "react";
 import { create } from "zustand";
+import { toast } from "@/components/ui/sonner";
+import { t } from "@/i18n";
+import { useSessionManagementStore } from "../sidebar/session-management-store";
 
 const STORAGE_KEY = "openwork.sessionAgents.v1";
 const MAX_REMEMBERED_SESSIONS = 200;
@@ -50,30 +53,39 @@ export const useSessionAgentStore = create<SessionAgentStore>((set) => ({
   }),
 }));
 
-export function getSessionAgentSelection(sessionId: string, fallbackAgent: string | null = null): string | null {
+export function getSessionAgentSelection(sessionId: string, fallbackAgent: string | null = null, workspaceId?: string): string | null {
+  const state = useSessionManagementStore.getState();
+  const metadata = workspaceId ? state.groupsByWorkspace[workspaceId]?.sessionMeta?.[sessionId] : undefined;
+  if (metadata) return metadata.agentName ?? null;
+  if (workspaceId && state.serverSyncedWorkspaces[workspaceId]) return null;
   const selections = useSessionAgentStore.getState().bySessionId;
   return Object.hasOwn(selections, sessionId) ? selections[sessionId] : fallbackAgent;
 }
 
 export function useSessionAgentSelection(input: {
+  workspaceId: string;
   sessionId: string | null;
   fallbackAgent: string | null;
   onFallbackAgentChange: (agent: string | null) => void;
 }) {
-  const { sessionId, fallbackAgent, onFallbackAgentChange } = input;
+  const { workspaceId, sessionId, fallbackAgent, onFallbackAgentChange } = input;
+  const metadata = useSessionManagementStore((state) => sessionId
+    ? state.groupsByWorkspace[workspaceId]?.sessionMeta?.[sessionId] : undefined);
+  const serverLoaded = useSessionManagementStore((state) => Boolean(state.serverSyncedWorkspaces[workspaceId]));
   const selection = useSessionAgentStore((state) => sessionId && Object.hasOwn(state.bySessionId, sessionId)
     ? state.bySessionId[sessionId]
     : undefined);
-  // Adopt the existing preference once, not whenever another new task changes it.
-  // A remembered null is an explicit Default choice, not missing memory.
+  // Server metadata is authoritative; local storage only caches its last known value.
   useEffect(() => {
-    if (!sessionId) return;
-    const store = useSessionAgentStore.getState();
-    if (!Object.hasOwn(store.bySessionId, sessionId)) store.setAgent(sessionId, fallbackAgent);
-  }, [fallbackAgent, sessionId]);
+    if (sessionId && (metadata || serverLoaded)) useSessionAgentStore.getState().setAgent(sessionId, metadata?.agentName ?? null);
+  }, [metadata, serverLoaded, sessionId]);
   const setAgent = useCallback((agent: string | null) => {
-    if (sessionId) useSessionAgentStore.getState().setAgent(sessionId, agent);
+    if (sessionId) {
+      void useSessionManagementStore.getState().setSessionAgent(workspaceId, sessionId, agent).catch((error: unknown) => {
+        toast.error(t("session.role_save_failed"), { description: error instanceof Error ? error.message : String(error) });
+      });
+    }
     else onFallbackAgentChange(agent);
-  }, [onFallbackAgentChange, sessionId]);
-  return { selectedAgent: selection === undefined ? fallbackAgent : selection, setAgent };
+  }, [onFallbackAgentChange, sessionId, workspaceId]);
+  return { selectedAgent: metadata ? metadata.agentName ?? null : sessionId && serverLoaded ? null : selection === undefined ? fallbackAgent : selection, setAgent };
 }

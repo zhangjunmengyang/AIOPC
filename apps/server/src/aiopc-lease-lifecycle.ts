@@ -16,7 +16,7 @@ export function leaseLifecycleEvent(value: unknown): LeaseRelease | null {
   const info = isRecord(data.info) ? data.info : data;
   const sessionId = typeof data.sessionID === "string" ? data.sessionID : typeof info.id === "string" ? info.id : undefined;
   if (!sessionId?.startsWith("ses_")) return null;
-  if (event.type === "session.deleted" || (event.type === "session.updated" && isRecord(info.time) && Number(info.time.archived) > 0)) return { sessionId, reason: "deleted" };
+  if (event.type === "session.deleted" || event.type === "session.archived" || (event.type === "session.updated" && isRecord(info.time) && Number(info.time.archived) > 0)) return { sessionId, reason: "deleted" };
   if (event.type === "session.execution.interrupted") return { sessionId, reason: "abort" };
   if (["session.idle", "session.execution.succeeded", "session.execution.failed"].includes(String(event.type))
     || event.type === "session.status" && isRecord(data.status) && data.status.type === "idle") return { sessionId, reason: "turn_end" };

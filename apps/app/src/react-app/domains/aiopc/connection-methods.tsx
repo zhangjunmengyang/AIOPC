@@ -45,7 +45,7 @@ export function HelpLink(props: { text: string; url: string }) {
 
 /** One official route for one account: what it does, its state, and its keys. */
 export function EnhancementCard(props: { account: AiopcAccount; enhancement: AiopcEnhancement; workspaceRoot: string; onChanged: () => void }) {
-  const { request } = useAiopc(props.workspaceRoot);
+  const { request } = useAiopc(props.workspaceRoot, props.account.environment ?? undefined);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

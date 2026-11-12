@@ -9,15 +9,16 @@ and nothing else in AIOPC changes.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 from pathlib import Path
 from typing import Any
 
 from aiopc import credentials
 
 from .environment import Environment, ProjectKey, Provider, SandboxError
+from .leases import LeaseManager
 from .local import LocalDockerProvider
+from .pool import EnvironmentPool
+from .pool_store import PoolStore
 from .remote import REMOTE_CATALOG, ManualProvider, RemoteProvider
 
 SERVICE = "sandbox"
@@ -28,11 +29,13 @@ def secret_key(provider_id: str) -> str:
     return f"{SERVICE}:{provider_id}"
 
 
-class Sandboxes:
+class Sandboxes(EnvironmentPool):
     """Every project's environment, and the provider behind each one."""
 
     def __init__(self, home: Path):
         self.home = Path(home)
+        self._store = PoolStore(self.home)
+        self.leases = LeaseManager(self.home, binding_resolver=self.get)
         self.file = self.home / "sandbox.json"
         self._lock = asyncio.Lock()
         self._providers: dict[str, Provider] = {DEFAULT: LocalDockerProvider(self.home), "manual": ManualProvider()}
@@ -41,40 +44,24 @@ class Sandboxes:
 
     # ── what AIOPC remembers ────────────────────────────────────────────
     def _read(self) -> dict[str, Any]:
-        try:
-            data = json.loads(self.file.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            return {}
-
-    def _write(self, data: dict[str, Any]) -> None:
-        self.home.mkdir(parents=True, exist_ok=True)
-        temporary = self.file.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(temporary, 0o600)
-        temporary.replace(self.file)
+        return self._store.read()
 
     def record(self, project: str) -> dict[str, Any]:
-        data = self._read()
-        record = (data.get("projects") or {}).get(str(project)) or {}
-        return {"provider": record.get("provider") or data.get("provider") or DEFAULT,
-                "state": dict(record.get("state") or {})}
-
-    def save(self, project: str, record: dict[str, Any]) -> None:
-        data = self._read()
-        projects = dict(data.get("projects") or {})
-        projects[str(project)] = record
-        data["projects"] = projects
-        self._write(data)
+        try:
+            record = self.resolve(project)
+            return {"provider": record["provider"], "state": record["state"]}
+        except SandboxError:
+            if any(item.get("boundProject") == str(Path(project).resolve())
+                   for item in self._store.read()["environments"].values()):
+                raise
+            return {"provider": self.default_provider(), "state": {}}
 
     def default_provider(self) -> str:
         return str(self._read().get("provider") or DEFAULT)
 
     def set_default_provider(self, provider_id: str) -> None:
         self.provider(provider_id)
-        data = self._read()
-        data["provider"] = provider_id
-        self._write(data)
+        self._store.update(lambda data: data.update(provider=provider_id))
 
     # ── providers ───────────────────────────────────────────────────────
     def provider(self, provider_id: str) -> Provider:
@@ -122,49 +109,49 @@ class Sandboxes:
         if provider_id != DEFAULT:
             state["_secret"] = credentials.load(SERVICE, provider_id) or {}
 
-    async def status(self, project: str) -> Environment:
-        record = self.record(project)
-        provider = self.provider(record["provider"])
-        self._bind(record["provider"], record["state"])
-        try:
-            environment = await provider.status(self.key(project), record["state"])
-        except SandboxError as exc:
-            return Environment(provider=record["provider"], status="missing", detail=str(exc))
-        return environment
-
-    async def ensure(self, project: str) -> Environment:
-        async with self._lock:
-            record = self.record(project)
-            provider = self.provider(record["provider"])
-            self._bind(record["provider"], record["state"])
-            environment = await provider.ensure(self.key(project), record["state"])
-            record["state"].pop("_secret", None)
-            self.save(project, record)
-            return environment
-
-    async def stop(self, project: str) -> dict[str, Any]:
-        record = self.record(project)
-        self._bind(record["provider"], record["state"])
-        await self.provider(record["provider"]).stop(self.key(project), record["state"])
-        record["state"].pop("_secret", None)
-        self.save(project, record)
+    async def stop(self, project: str, environment: str = "") -> dict[str, Any]:
+        record = self.resolve(project, environment)
+        async with self._mutation(record["id"]):
+            record = self.get(record["id"])
+            self._secrets(record)
+            await self.provider(record["provider"]).stop(self._resource_key(record), record["state"])
+            self._save_record(record)
         return {"stopped": True}
 
-    async def destroy(self, project: str) -> dict[str, Any]:
-        record = self.record(project)
-        self._bind(record["provider"], record["state"])
-        await self.provider(record["provider"]).destroy(self.key(project), record["state"])
-        self.save(project, {**record, "state": {}})
+    async def destroy(self, project: str, environment: str = "") -> dict[str, Any]:
+        record = self.resolve(project, environment)
+        async with self._mutation(record["id"]):
+            record = self.get(record["id"])
+            self._secrets(record)
+            await self.provider(record["provider"]).destroy(self._resource_key(record), record["state"])
+            record["state"] = {}
+            self._save_record(record)
         return {"destroyed": True}
 
     async def move(self, project: str, provider_id: str) -> Environment:
-        """Point a project at a different provider. The old environment is left alone, not deleted."""
+        """Compatibility for the former provider chooser: keep old resources in the pool."""
         self.provider(provider_id)
         if provider_id != DEFAULT and not self.configured(provider_id):
             raise SandboxError("这个提供方还没有填密钥")
-        record = self.record(project)
-        if record["provider"] != provider_id:
-            self.save(project, {**record, "provider": provider_id, "state": {}})
+        try:
+            current = self.resolve(project)
+        except SandboxError:
+            current = None
+        if current and current["provider"] == provider_id:
+            return await self.status(project)
+        if current:
+            await self.unbind(current["id"])
+        import uuid
+        env_id = "env_" + uuid.uuid4().hex[:24]
+        canonical = str(Path(project).resolve())
+        from aiopc.company import Company
+        record = {"id": env_id, "name": Path(project).name or "环境", "company": str(Company.from_directory(Path(project)).root),
+                  "provider": provider_id, "boundProject": canonical, "lastProject": canonical, "bindingRevision": 1,
+                  "resourceKey": env_id, "state": {}}
+        self._store.save(record)
+        self._store.sync_bindings(canonical)
+        if provider_id == "manual":
+            credentials.save("environment", env_id, credentials.load(SERVICE, provider_id) or {})
         return await self.status(project)
 
     def can_run_environment(self, project: str = "") -> bool:

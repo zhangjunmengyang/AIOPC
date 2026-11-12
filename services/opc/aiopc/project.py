@@ -1,9 +1,7 @@
-"""A project is a workspace: one folder holds one product's brief, brand, knowledge, assets and drafts.
+"""Files belonging to one project below a company workspace.
 
-Switching workspaces in the app is switching projects, and the agent already
-works inside that folder, so nothing here names a project by ID. Everything
-shared across projects (the methods library, social accounts) lives outside
-the folder and is open to every workspace.
+Company resolves project identity and boundaries; this class reads and writes
+the selected project's brief, brand, memory, knowledge, assets and drafts.
 """
 
 from __future__ import annotations
@@ -54,6 +52,12 @@ class Project:
         """Starter brief, brand, memory and knowledge files; existing files are never overwritten."""
         if not isinstance(description, str) or len(description) > 2000:
             raise ProjectError(400, "项目介绍不超过 2000 字")
+        # Check every destination before creating anything, including directory
+        # symlinks whose leaf file does not exist yet.
+        for relative in [*SKELETON, "assets"]:
+            path = self.root / relative
+            if path.is_symlink() or not path.resolve().is_relative_to(self.root.resolve()):
+                raise ProjectError(400, "项目初始化不能通过符号链接写入项目外目录")
         created = []
         for relative, template in SKELETON.items():
             path = self.root / relative
@@ -71,7 +75,7 @@ class Project:
 
     # ── agent brief ──────────────────────────────────────────────────────
     def _read(self, path: Path) -> str | None:
-        if not path.is_file() or path.is_symlink():
+        if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(self.root.resolve()):
             return None
         text = path.read_text(encoding="utf-8", errors="replace")
         return text if len(text) <= MAX_BRIEF_FILE_CHARS else text[:MAX_BRIEF_FILE_CHARS] + "\n[已截断；读取原文件获取全文]"
@@ -103,7 +107,8 @@ class Project:
             "accounts": [{**account, "voice_path": str(self.voice_path({"id": account["account_id"]})),
                           "voice": self._read(self.voice_path({"id": account["account_id"]}))} for account in accounts],
             "guidance": (
-                "This workspace is the project. Missing files mean nothing is known yet: ask, or use init_project. "
-                "Accounts are shared by every project; a voice file in accounts/ says how an account speaks for this one."
+                "This is the selected project's directory under its company workspace. "
+                "Missing files mean nothing is known yet: ask, or use init_project. "
+                "Only accounts owned by this project are listed; accounts/ contains this project's account voices."
             ),
         }
