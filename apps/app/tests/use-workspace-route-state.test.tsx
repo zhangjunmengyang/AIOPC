@@ -159,6 +159,8 @@ async function mount(workspaceId = "ws_1", sessionId?: string, initialPath?: str
           <Route path="/workspace/:workspaceId/session" element={<Probe />} />
           <Route path="/workspace/:workspaceId/session/:sessionId" element={<Probe />} />
           <Route path="/workspace/:workspaceId/projects/:projectName?" element={<Probe />} />
+          <Route path="/team" element={<Probe />} />
+          <Route path="/inbox" element={<Probe />} />
           <Route path="/workspace/:workspaceId/settings/*" element={<div>Settings</div>} />
         </Routes>
       </MemoryRouter>,
@@ -214,6 +216,19 @@ test("a project page keeps its company route and an unavailable company falls ba
   expect(router.pathname).toBe("/workspace/ws_2/projects/Beta");
   expect(hydrationRequests).toEqual([]);
 });
+
+test.each([["team", "?role=brand-designer"], ["inbox", ""]] as const)(
+  "company initialization preserves the %s page and its query string",
+  async (page, search) => {
+    input.workspaceRoute = page;
+    await mount("ws_1", undefined, `/${page}${search}`);
+    await publishRouting(false);
+    expect(route().selectedWorkspaceId).toBe("ws_1");
+    expect(router.pathname).toBe(`/${page}`);
+    expect(router.search).toBe(search);
+    expect(hydrationRequests).toEqual([]);
+  },
+);
 
 test("workspace initialization preserves an owned pending route and never hydrates its local identity", async () => {
   input.preservePendingConversationRoute = true;
