@@ -37,3 +37,23 @@ def memory_keyring(monkeypatch):
     monkeypatch.delenv("TWITTERAPI_IO_KEY", raising=False)
     yield backend
     keyring.set_keyring(previous)
+
+
+@pytest.fixture
+def project_mcp_metadata(monkeypatch):
+    """Send real MCP metadata while keeping the host identity lookup in the test."""
+    from aiopc.runtime_context import RuntimeContextError, RuntimeContextResolver, RuntimeIdentity
+
+    def configure(company, project_name):
+        session_id = "ses_" + project_name
+        project = company.resolve_project(project_name)
+
+        async def resolve_session(_resolver, requested, *, runtime_id=None):
+            if requested != session_id:
+                raise RuntimeContextError("会话不属于当前项目")
+            return RuntimeIdentity("test-runtime", session_id, company.root, f"proj:{project_name}", project, "Fixture")
+
+        monkeypatch.setattr(RuntimeContextResolver, "resolve_session", resolve_session)
+        return {"ai.opencode/sessionID": session_id}
+
+    return configure

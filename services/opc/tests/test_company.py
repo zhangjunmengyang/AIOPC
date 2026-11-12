@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import pytest
+from mcp.shared.memory import create_connected_server_and_client_session
 from starlette.testclient import TestClient
 
 from aiopc.company import Company
@@ -102,7 +103,7 @@ async def test_concurrent_mcp_calls_keep_their_own_project(tmp_path, monkeypatch
         assert json.loads(result[0].text)["path"].endswith("projects/" + expected)
 
 
-async def test_mcp_publish_card_retains_selected_project(tmp_path):
+async def test_mcp_publish_card_retains_selected_project(tmp_path, project_mcp_metadata):
     from PIL import Image
 
     from aiopc.accounts import AccountStore
@@ -120,9 +121,13 @@ async def test_mcp_publish_card_retains_selected_project(tmp_path):
     await pool.bind(resource["id"], str(company.resolve_project("alpha")))
     AccountStore(home).assign_legacy_environment(str(company.resolve_project("alpha")), resource["id"])
     server = create_server(home, company.root)
-    result = await server.call_tool("social_publish", {"account_id": account["id"], "text": "测试草稿", "project": "alpha",
-                                                      "media": [str(image)]})
-    assert result.structuredContent["project"] == item["path"]
+    metadata = project_mcp_metadata(company, "alpha")
+    async with create_connected_server_and_client_session(server) as client:
+        result = await client.call_tool("social_publish", {"account_id": account["id"], "text": "测试草稿", "project": "alpha",
+                                                          "media": [str(image)]}, meta=metadata)
+        assert not result.isError
+        assert result.structuredContent["project"] == item["path"]
+        assert result.structuredContent["sessionId"] == metadata["ai.opencode/sessionID"]
 
 
 def test_project_creation_api_and_project_description(tmp_path):
