@@ -43,6 +43,7 @@ from aiopc.runtime_context import RuntimeContextError, RuntimeContextResolver, u
 from aiopc.sandbox import Sandboxes
 from aiopc.sandbox.environment import SandboxError
 from aiopc.sandbox.leases import LeaseError
+from aiopc.skill_library_api import skill_library_routes
 from aiopc.social.context import use_browser_context
 from aiopc.social.review import RESOURCE, PublishReview
 from aiopc.social.service import SocialError, SocialService
@@ -448,6 +449,7 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
         return respond({"items": workspace_of(request).social.history()})
 
     routes = [
+        *skill_library_routes(home, workspace_access, body, respond),
         ("/api/project", project_route, ["GET", "POST"]),
         ("/api/projects", projects_route, ["GET", "POST"]),
         ("/api/space", space_route, ["GET"]),
