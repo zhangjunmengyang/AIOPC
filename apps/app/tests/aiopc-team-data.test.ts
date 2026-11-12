@@ -3,6 +3,7 @@ import {
   buildTeamRoster,
   buildTeamOutputs,
   teamCardSkillNames,
+  teamProjectsForCompany,
   latestTeamToolTitle,
   startOfTeamWeek,
 } from "../src/react-app/domains/aiopc/team-data";
@@ -67,6 +68,17 @@ describe("AIOPC team activity", () => {
     const [idle] = buildTeamRoster(roles, meta, sessions, { active: new Set(), waiting: new Set() });
     expect(teamCardSkillNames(working!, projects)).toEqual(["naming", "alpha-skill"]);
     expect(teamCardSkillNames(idle!, projects)).toEqual(["naming"]);
+  });
+
+  test("only reads business projects confirmed by the company's role endpoint", () => {
+    const listed = [
+      { id: "proj:Alpha", name: "Alpha", path: "/company/projects/Alpha" },
+      { id: "proj:Other", name: "Other", path: "/company/projects/Other" },
+    ];
+    expect(teamProjectsForCompany(listed, { "proj:Alpha": [] })).toEqual([
+      { id: "proj:Alpha", name: "Alpha", directory: "/company/projects/Alpha", skills: [] },
+    ]);
+    expect(teamProjectsForCompany(listed, undefined)).toEqual([]);
   });
 
   test("reads the newest actual tool title from assistant messages, with a tool-name fallback", () => {

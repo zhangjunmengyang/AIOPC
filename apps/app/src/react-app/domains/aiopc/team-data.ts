@@ -23,6 +23,7 @@ export type TeamMember = {
 };
 
 export type TeamProject = { id: string; name: string; directory: string; skills: string[] };
+export type TeamProjectListing = { id: string; name: string; path: string };
 export type TeamTask = {
   id: string;
   title: string;
@@ -49,6 +50,16 @@ export type TeamOutput = OutputBase & (
   | { kind: "task"; task: TeamTask }
   | { kind: "publish"; record: TeamPublishRecord }
 );
+
+export function teamProjectsForCompany(
+  projects: readonly TeamProjectListing[],
+  projectSkills: Record<string, string[]> | undefined,
+): TeamProject[] {
+  if (!projectSkills) return [];
+  return projects.flatMap(({ id, name, path }) => Object.hasOwn(projectSkills, id)
+    ? [{ id, name, directory: path, skills: projectSkills[id]! }]
+    : []);
+}
 
 export function teamCardSkillNames(member: TeamMember, projects: ReadonlyArray<Pick<TeamProject, "id" | "skills">>) {
   const project = projects.find((item) => item.id === member.currentSession?.projectId);
