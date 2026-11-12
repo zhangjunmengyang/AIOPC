@@ -80,15 +80,6 @@ export function screenFromRoute(route: string): OpenworkScreen {
 }
 
 function panelTab(tab: PanelTabStore["sessions"][string]["tabs"][number]): OpenworkPanelTab {
-  if (tab.type === "browser") {
-    return {
-      id: tab.id,
-      kind: "browser",
-      label: tab.label,
-      url: tab.url,
-      status: tab.status,
-    };
-  }
   return {
     id: tab.id,
     kind: "artifact",

@@ -4,6 +4,10 @@
  */
 
 export default {
+  "aiopc.browsing.ready": "Ready by default",
+  "aiopc.browsing.where": "The AI opens websites in this project's own environment — a real Chrome where the project's accounts are already signed in. It starts by itself the first time.",
+  "aiopc.browsing.takeover": "When a site needs you (a sign-in that refuses automation, a payment), the AI asks you to finish in the 项目环境 panel beside the chat, then carries on.",
+  "aiopc.links.open_failed": "Could not open this link.",
   "aiopc.accounts.unverified": "Login not checked",
   "aiopc.environment.not_running": "This project's environment is not running.",
   "aiopc.environment.refresh": "Refresh",

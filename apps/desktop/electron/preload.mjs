@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
-import { installBrowserShortcutFocusTracking } from "./browser-shortcut-focus.mjs";
 
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
@@ -7,28 +6,7 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "openwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "openwork:native-menu:zoom";
 const AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT = "openwork:automation-runner:credential-rejected";
-const BROWSER_BOUNDS_INVALIDATED_EVENT = "openwork:browser:bounds-invalidated";
-
-let lastBrowserGeometry = null;
 let windowFullscreen = ipcRenderer.sendSync("openwork:window-fullscreen-sync") === true;
-
-async function sendBrowserGeometry(channel, bounds, ...args) {
-  // Capture zoom in the same renderer turn as the CSS measurement, not after IPC.
-  const geometry = { ...bounds, zoomFactor: webFrame.getZoomFactor() };
-  if (channel === "openwork:browser:bounds" && lastBrowserGeometry
-    && ["x", "y", "width", "height", "zoomFactor"].every((key) => geometry[key] === lastBrowserGeometry[key])) {
-    return true;
-  }
-  lastBrowserGeometry = geometry;
-  try {
-    const accepted = await ipcRenderer.invoke(channel, geometry, ...args);
-    if (accepted === false && lastBrowserGeometry === geometry) lastBrowserGeometry = null;
-    return accepted;
-  } catch (error) {
-    if (lastBrowserGeometry === geometry) lastBrowserGeometry = null;
-    throw error;
-  }
-}
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -73,25 +51,12 @@ function installMenuOverlayDismissListeners() {
   }
 }
 
-function linkOpenPreferences() {
-  // Read at activation so Settings changes and reloads use the same saved
-  // preference as the renderer, without a second main-process preference store.
-  try {
-    const prefs = JSON.parse(window.localStorage.getItem("openwork.preferences"));
-    return { external: prefs?.linkOpenDestination === "external", ask: prefs?.askBeforeOpeningLinks !== false };
-  } catch {
-    return { external: false, ask: true };
-  }
-}
-
-function openLink(url, sessionId) {
-  ipcRenderer.send("openwork:browser:linkClick", { url, sessionId, ...linkOpenPreferences() });
+// Web links leave the app: they open in the person's own browser.
+function openLink(url) {
+  ipcRenderer.send("openwork:link:open", { url });
 }
 
 if (process.isMainFrame) {
-  installBrowserShortcutFocusTracking(window, (tabId) => {
-    ipcRenderer.send("openwork:browser:shortcut-focus", tabId);
-  });
   window.addEventListener("click", (event) => {
     if (!event.isTrusted || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.composedPath().find((node) => node instanceof HTMLAnchorElement);
@@ -103,7 +68,7 @@ if (process.isMainFrame) {
     if (url.origin === location.origin && url.pathname === location.pathname && url.search === location.search) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    openLink(url.href, anchor.closest("[data-session-surface-id]")?.getAttribute("data-session-surface-id") ?? null);
+    openLink(url.href);
   }, { capture: true });
 }
 
@@ -138,11 +103,7 @@ window.addEventListener("contextmenu", (event) => {
   if (url.origin === location.origin && url.pathname === location.pathname && url.search === location.search) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  ipcRenderer.send("openwork:browser:linkContextMenu", {
-    url: url.href,
-    point: { x: event.clientX, y: event.clientY },
-    sessionId: anchor.closest("[data-session-surface-id]")?.getAttribute("data-session-surface-id") ?? null,
-  });
+  ipcRenderer.send("openwork:link:contextMenu", { url: url.href, point: { x: event.clientX, y: event.clientY } });
 }, { capture: true });
 
 let desktopBootstrap = null;
@@ -261,71 +222,6 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
     },
     use(id) {
       return ipcRenderer.invoke("openwork:recovery:use", id);
-    },
-  },
-  browser: {
-    openLink,
-    chooseLinkDestination(id, destination) { return ipcRenderer.invoke("openwork:browser:chooseLinkDestination", id, destination); },
-    onLinkOpenRequest(callback) {
-      const handler = (_event, request) => callback(request);
-      ipcRenderer.on("openwork:browser:link-open-request", handler);
-      return () => ipcRenderer.removeListener("openwork:browser:link-open-request", handler);
-    },
-    show(bounds, sessionId, target) { return sendBrowserGeometry("openwork:browser:show", bounds, sessionId, target); },
-    hide(options) {
-      lastBrowserGeometry = null;
-      return ipcRenderer.invoke("openwork:browser:hide", options);
-    },
-    openUrl(url, provider, options) { return ipcRenderer.invoke("openwork:browser:openUrl", url, provider, options); },
-    setVisibleSession(sessionId) { return ipcRenderer.invoke("openwork:browser:setVisibleSession", sessionId); },
-    setPresentation(sessionId, mode) { return ipcRenderer.invoke("openwork:browser:presentation", { sessionId, mode }); },
-    focusWindow() { return ipcRenderer.invoke("openwork:browser:focusWindow"); },
-    claimDraftTabs(sessionId) { return ipcRenderer.invoke("openwork:browser:claimDraftTabs", sessionId); },
-    navigate(url) { return ipcRenderer.invoke("openwork:browser:navigate", url); },
-    back() { return ipcRenderer.invoke("openwork:browser:back"); },
-    forward() { return ipcRenderer.invoke("openwork:browser:forward"); },
-    reload() { return ipcRenderer.invoke("openwork:browser:reload"); },
-    setBounds(bounds, target) { return sendBrowserGeometry("openwork:browser:bounds", bounds, target); },
-    getState() { return ipcRenderer.invoke("openwork:browser:state"); },
-    createTab(url, sessionId) { return ipcRenderer.invoke("openwork:browser:createTab", url, sessionId); },
-    closeTab(tabId) { return ipcRenderer.invoke("openwork:browser:closeTab", tabId); },
-    suspendTab(tabId) { return ipcRenderer.invoke("openwork:browser:suspendTab", tabId); },
-    restoreTab(tabId, sessionId) { return ipcRenderer.invoke("openwork:browser:restoreTab", tabId, sessionId); },
-    releaseTab(tabId, sessionId) { return ipcRenderer.invoke("openwork:browser:releaseTab", tabId, sessionId); },
-    closeSessionTabs(sessionId) { return ipcRenderer.invoke("openwork:browser:closeSessionTabs", sessionId); },
-    selectTab(tabId) { return ipcRenderer.invoke("openwork:browser:selectTab", tabId); },
-    reorderTabs(tabIds) { return ipcRenderer.invoke("openwork:browser:reorderTabs", tabIds); },
-    taskControl(tabId, action) { return ipcRenderer.invoke("openwork:browser:taskControl", tabId, action); },
-    setProxy(proxy) { return ipcRenderer.invoke("openwork:browser:setProxy", proxy); },
-    setControlEnabled(enabled) { return ipcRenderer.invoke("openwork:browser:setControlEnabled", enabled); },
-    setAgentViewport(key) { return ipcRenderer.invoke("openwork:browser:setAgentViewport", key); },
-    startAgentTurn(sessionId) { return ipcRenderer.invoke("openwork:browser:startAgentTurn", sessionId); },
-    endAgentTurn(sessionId) { return ipcRenderer.invoke("openwork:browser:endAgentTurn", sessionId); },
-    setAgentPermissionRules(rules) { return ipcRenderer.invoke("openwork:browser:setAgentPermissionRules", rules); },
-    showTabContextMenu(tabId, point) { return ipcRenderer.invoke("openwork:browser:tabContextMenu", tabId, point); },
-    destroy() {
-      lastBrowserGeometry = null;
-      return ipcRenderer.invoke("openwork:browser:destroy");
-    },
-    onStateChange(callback) {
-      const handler = (_event, state) => callback(state);
-      ipcRenderer.on("openwork:browser:state", handler);
-      return () => ipcRenderer.removeListener("openwork:browser:state", handler);
-    },
-    onPanelOpened(callback) {
-      const handler = (_event, payload) => callback(payload);
-      ipcRenderer.on("openwork:browser:panel-opened", handler);
-      return () => ipcRenderer.removeListener("openwork:browser:panel-opened", handler);
-    },
-    onPanelClosed(callback) {
-      const handler = (_event, payload) => callback(payload);
-      ipcRenderer.on("openwork:browser:panel-closed", handler);
-      return () => ipcRenderer.removeListener("openwork:browser:panel-closed", handler);
-    },
-    onPresentationExit(callback) {
-      const handler = (_event, payload) => callback(payload);
-      ipcRenderer.on("openwork:browser:presentation-exit", handler);
-      return () => ipcRenderer.removeListener("openwork:browser:presentation-exit", handler);
     },
   },
   // Development-only observation of native popup menus; main registers no handler otherwise.

@@ -9,7 +9,6 @@ import { gatewayUsageQueryPrefix } from "../../cloud/gateway-usage-state";
 import { mergeReplyMetadata, replyModelFromInfo } from "./reply-model";
 import { providerCredentialScope, useProviderCredentialHealth } from "../../connections/provider-auth/credential-health";
 import { isProviderCredentialRejection } from "./session-error";
-import { closeSessionBrowserTabs } from "@/app/lib/desktop";
 import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { trackTaskCompleted, trackTaskFailed } from "@/app/lib/den-telemetry";
 import { noteActivationRunCompleted } from "../../cloud/activation/use-activation";
@@ -1326,7 +1325,6 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     }
     queryClient.removeQueries({ queryKey: permissionKey(workspaceId, sessionId), exact: true });
     queryClient.removeQueries({ queryKey: questionKey(workspaceId, sessionId), exact: true });
-    void closeSessionBrowserTabs(sessionId);
     entry.titleRecovery?.resolve(sessionId);
     useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
     useBackgroundShellStore.getState().update(workspaceId, (book) => clearBackgroundShellSession(book, sessionId));

@@ -154,26 +154,24 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
   {
     schemaVersion: 1,
     id: "openwork-browser",
-    name: "OpenWork Browser",
-    description: "Automate the built-in browser panel that stays visible inside OpenWork.",
+    name: "网页浏览",
+    description: "让 AI 在项目环境里打开网页、点击、填写和读取。项目的账号已经登录在那里。",
     source: { format: "openwork-builtin", origin: "builtin", trusted: true },
     icon: { src: "/aiopc-mark.svg" },
-    composer: { prompt: "Use the OpenWork Browser extension to " },
+    composer: { prompt: "在项目环境里打开网页，" },
     setup: {
-      instructions: "OpenWork Browser is ready by default in desktop workspaces.",
+      instructions: "默认就绪：第一次使用时会自动启动项目环境。",
     },
     resources: [
       {
         type: "opencode-plugin",
         id: "openwork-chrome-devtools",
-        label: "OpenWork browser tools",
+        label: "网页浏览工具",
         required: true,
       },
     ],
     contributions: [
-      { type: "settings-panel", ref: "openwork.browser.settings", location: "settings-detail" },
-      { type: "session-side-panel", ref: "openwork.browser.panel", location: "session-right-pane" },
-      { type: "composer-prompt", prompt: "Use the OpenWork Browser extension to ", location: "composer" },
+      { type: "composer-prompt", prompt: "在项目环境里打开网页，", location: "composer" },
     ],
     enablement: [
       { type: "toggle-enabled", ref: "openwork-browser", label: "Enabled" },

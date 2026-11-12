@@ -47,21 +47,7 @@ import type {
   NukeReceipt,
   WorkspaceList,
 } from "./desktop-types";
-import type {
-  AgentViewportKey,
-  BrowserPanelOwnerPayload,
-  BrowserPanelTab,
-  BrowserStatePayload,
-  OpenBrowserUrlResult,
-} from "@openwork/browser-tabs";
 import type { ComputerRequest } from "@openwork/types/desktop-ipc";
-export type { BrowserStatePayload } from "@openwork/browser-tabs";
-
-export type BrowserPresentationMode = "hidden" | "floating" | "side" | "fullscreen";
-
-export type BrowserProxyState = {
-  proxy: { rules: string; authenticated: boolean } | null;
-};
 
 export type RecoveryRelease = {
   id: string;
@@ -191,61 +177,6 @@ declare global {
         restorePrevious?: () => Promise<RecoveryActionResult>;
         use?: (id: string) => Promise<RecoveryActionResult>;
       };
-      browser?: {
-        openLink?: (url: string, sessionId: string | null) => void;
-        chooseLinkDestination?: (id: string, destination: "openwork" | "external" | null) => Promise<boolean>;
-        onLinkOpenRequest?: (callback: (request: { id: string; url: string } | null) => void) => () => void;
-        show?: (bounds: { x: number; y: number; width: number; height: number }, sessionId?: string | null) => Promise<boolean | void>;
-        hide?: (options?: { preserveShortcutFocus?: boolean }) => Promise<void>;
-        openUrl?: (
-          url: string,
-          provider?: "auto" | "builtin",
-          options?: { sessionId?: string | null },
-        ) => Promise<OpenBrowserUrlResult>;
-        setVisibleSession?: (sessionId: string | null) => Promise<string | null>;
-        /** Tells the host how the visible conversation shows its browser, so Escape inside a full-screen page can leave full screen. */
-        setPresentation?: (sessionId: string | null, mode: BrowserPresentationMode) => Promise<boolean>;
-        /** A small JPEG preview of the visible conversation's on-screen tab, or null when none may be captured. */
-        /** Brings the popped-out browser window to the front. Only for the person's own action. */
-        focusWindow?: () => Promise<boolean>;
-        /** A new thread's first message made it this session: its browser tabs become the session's. */
-        claimDraftTabs?: (sessionId: string) => Promise<boolean>;
-        navigate?: (url: string) => Promise<void>;
-        back?: () => Promise<void>;
-        forward?: () => Promise<void>;
-        reload?: () => Promise<void>;
-        setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean | void>;
-        getState?: () => Promise<BrowserStatePayload | null>;
-        createTab?: (url?: string, sessionId?: string | null) => Promise<{ tabId: string }>;
-        closeTab?: (tabId: string) => Promise<string | null>;
-        suspendTab?: (tabId: string) => Promise<string | null>;
-        restoreTab?: (tabId: string, sessionId: string | null) => Promise<OpenBrowserUrlResult>;
-        releaseTab?: (tabId: string, sessionId: string | null) => Promise<{ tabId: string; released: true }>;
-        closeAllTabs?: () => Promise<string[]>;
-        closeSessionTabs?: (sessionId: string) => Promise<string[]>;
-        selectTab?: (tabId: string) => Promise<string>;
-        reorderTabs?: (tabIds: string[]) => Promise<BrowserPanelTab[]>;
-        taskControl?: (tabId: string, action: "pause" | "resume") => Promise<void>;
-        listTabs?: () => Promise<BrowserPanelTab[]>;
-        setProxy?: (proxy?: string | null) => Promise<BrowserProxyState>;
-        getProxy?: () => Promise<BrowserProxyState>;
-        setControlEnabled?: (enabled: boolean) => Promise<boolean>;
-        /** The size tabs lay out at while the agent controls them, drawn scaled to fit the panel. */
-        setAgentViewport?: (key: AgentViewportKey) => Promise<AgentViewportKey>;
-        /** The conversation started a new turn: tabs the person took over go back to the agent. */
-        startAgentTurn?: (sessionId: string) => Promise<boolean>;
-        /** The conversation's turn ended: its tabs fit the panel again. */
-        endAgentTurn?: (sessionId: string) => Promise<boolean>;
-        /** The member's agent permission rules for websites, applied to every page the built-in browser opens; null while they are being verified for an organization that uses them, which opens none. */
-        setAgentPermissionRules?: (rules: DesktopAgentPermissionRule[] | null) => Promise<boolean>;
-        showTabContextMenu?: (tabId: string, point?: { x: number; y: number }) => Promise<void>;
-        destroy?: () => Promise<void>;
-        onStateChange?: (callback: (state: BrowserStatePayload) => void) => () => void;
-        onPanelOpened?: (callback: (payload?: BrowserPanelOwnerPayload) => void) => () => void;
-        onPanelClosed?: (callback: (payload?: BrowserPanelOwnerPayload) => void) => () => void;
-        /** Escape was pressed inside the page of a conversation shown full screen. */
-        onPresentationExit?: (callback: (payload: { sessionId: string | null; tabId: string }) => void) => () => void;
-      };
       /** AIOPC's OPC service (projects, Space, accounts), started by the desktop app. */
       aiopc?: {
         connection?: () => Promise<{
@@ -279,15 +210,6 @@ declare global {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-export async function closeSessionBrowserTabs(sessionId: string): Promise<void> {
-  if (typeof window === "undefined" || !sessionId.trim()) return;
-  try {
-    await window.__OPENWORK_ELECTRON__?.browser?.closeSessionTabs?.(sessionId);
-  } catch {
-    // Cleanup is idempotent and must not undo a confirmed session deletion.
-  }
-}
 
 async function invokeElectronHelper<C extends DesktopCommandName>(
   command: C,

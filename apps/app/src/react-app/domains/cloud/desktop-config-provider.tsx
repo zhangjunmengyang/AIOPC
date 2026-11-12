@@ -10,8 +10,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { MCP_QUICK_CONNECT } from "../../../app/constants";
-import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../settings/extension-state";
 import { desktopCapabilityConfig, desktopPolicyKeys } from "@openwork/types/den/desktop-policies";
 
 import {
@@ -275,7 +273,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     freshConfigStatus: "pending",
     known: false,
   });
-  const { config, freshConfigStatus, known, loading } = desktopConfigState;
+  const { config, freshConfigStatus, loading } = desktopConfigState;
   // Bumped whenever the browser tells us the Den session or settings changed.
   const [settingsVersion, bumpSettingsVersion] = useReducer((value: number) => value + 1, 0);
   // Monotonic run id — same guard-against-stale-resolution pattern as DenAuthProvider.
@@ -288,38 +286,6 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
   const devRefreshDesktopConfigRef = useRef<DenDesktopConfig | null>(null);
   const isSignedIn = denAuth.isSignedIn;
   const userId = denAuth.user?.id?.trim() ?? "";
-
-  useEffect(() => {
-    const syncBrowserControl = () => {
-      const browser = MCP_QUICK_CONNECT.find((item) => item.id === "openwork-browser");
-      const enabled = !!browser && isOpenWorkExtensionEnabled(browser) && config.allowBuiltInExtensions !== false;
-      void window.__OPENWORK_ELECTRON__?.browser?.setControlEnabled?.(enabled);
-    };
-    syncBrowserControl();
-    window.addEventListener(OPENWORK_EXTENSION_STATE_CHANGED, syncBrowserControl);
-    return () => window.removeEventListener(OPENWORK_EXTENSION_STATE_CHANGED, syncBrowserControl);
-  }, [config.allowBuiltInExtensions]);
-
-  // The built-in browser applies the member's website rules to every page it
-  // opens, from the last config received for this member (fresh, or cached
-  // while Den is unreachable), like every other desktop policy. A config
-  // without agent permissions opens every page, so organizations that do not
-  // use them see no change. Only before any config for this member is known
-  // (a first sign-in, another member's cache) does it wait, unless the
-  // organization's cached config shows it does not use agent permissions.
-  // When Den can't be reached it doesn't wait either: the desktop applies the
-  // latest rules stored on this computer, so the member keeps working.
-  const denUnreachable = freshConfigStatus === "failed";
-  const websiteRules = useMemo(() => {
-    if (!isSignedIn && denAuth.status !== "checking") return [];
-    if (known) return (config.agentPermissions?.rules ?? []).filter((rule) => rule.action === "webfetch");
-    if (denUnreachable) return [];
-    const cached = readCachedDenDesktopConfig(getDenDesktopConfigCacheKey());
-    return cached && cached.agentPermissions === undefined ? [] : null;
-  }, [config.agentPermissions, denAuth.status, denUnreachable, isSignedIn, known]);
-  useEffect(() => {
-    void window.__OPENWORK_ELECTRON__?.browser?.setAgentPermissionRules?.(websiteRules);
-  }, [websiteRules]);
 
   const applyDesktopConfigActions = useCallback((latestConfig: DenDesktopConfig) => {
     const normalizedConfig = desktopCapabilityConfig(normalizeDenDesktopConfig(latestConfig));

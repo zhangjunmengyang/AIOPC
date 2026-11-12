@@ -32,11 +32,10 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createNativeContextMenus } from "./context-menu.mjs";
 import { createNativeDictation, createSpeechDictation } from "./native-dictation.mjs";
 import { applyBrandAppName } from "./brand-app-name.mjs";
-import { createBrowserPanel } from "./browser-panel.mjs";
+import { isExternalWebUrl, isMainWindowAllowedNavigation } from "./main-window-navigation.mjs";
 import { deferBrowserStop } from "@openwork/computer-use/browser-navigation";
 import { createComputerControl } from "@openwork/computer-use/computer-control";
 import { createComputerAgentPermissions } from "./computer-agent-permissions.mjs";
-import { createBrowserUploadGrantStore, createBrowserUploadPermissions } from "./browser-upload-permissions.mjs";
 import { installComputerHelper } from "./computer-helper-install.mjs";
 import { createLocalComputerAdapter } from "./computer-local.mjs";
 import { createComputerScripting } from "./computer-scripting.mjs";
@@ -219,10 +218,8 @@ const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
   docsUrl: DOCS_PAGE_URL,
   getWindow: () => createMainWindow(),
-  closeBrowserTab: (host) => browserPanel?.closeFocusedBrowserTab(host) ?? false,
 });
 
-let browserPanel = null;
 // Must match COMPUTER_POPOUT_PREFIX in the app's computer-popout.ts.
 const COMPUTER_POPOUT_NAME = /^openwork-computer-view-\d+$/;
 
@@ -1213,9 +1210,12 @@ const explicitCdpPort = Number.parseInt(
   process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
   10,
 );
+// The app's own DevTools port is for development and test harnesses only. Nothing in AIOPC drives
+// this window over DevTools (the AI browses in the project environment), and an open port would let
+// any program on the machine do so.
 const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
   ? explicitCdpPort
-  : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
+  : isDevMode && !app.isPackaged ? await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]) : 0;
 if (remoteDebugPort > 0) {
   app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
@@ -1302,88 +1302,6 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const pendingDeepLinks = [];
 const nativeContextMenus = createNativeContextMenus({ Menu, clipboard, getWindow: () => mainWindow });
-
-const browserUploadPermissions = createBrowserUploadPermissions({
-  store: createBrowserUploadGrantStore({ directory: path.join(app.getPath("userData"), "browser-file-grants") }),
-  readPolicy: async () => {
-    const server = await runtimeManager.openworkServerInfo();
-    if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) throw new Error("OpenWork server unavailable");
-    // Trusted local service verifies the current Den organization, member and rollout.
-    // loopback-fetch: the local OpenWork server on 127.0.0.1
-    const response = await fetch(`${server.baseUrl}/managed-policy/browser-upload-permissions`, {
-      headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}` }, signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error("Your organization's file-sharing permissions could not be verified. Reconnect and try again.");
-    return response.json();
-  },
-  requestFiles: (request, options) => computerControl.requestBrowserFiles(request, options),
-  legacyApprove: (sessionId, request, signal) => computerControl.approveFiles({ sessionId, app: request.app, files: request.files }, { signal }),
-  chooseFolder: async (origin) => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: `Allow uploads from this folder to ${origin}`,
-      message: `Agents may share readable files in this folder and its subfolders with ${origin}, across your chats and Slack-started tasks on this computer. You can remove this permission in Settings.`,
-      buttonLabel: "Remember folder",
-      properties: ["openDirectory"],
-    });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  },
-});
-
-browserPanel = createBrowserPanel({
-  // Organization policy is checked before any remembered or in-chat consent.
-  approveFiles: (sessionId, request, signal) => browserUploadPermissions.approve(sessionId, request, signal),
-  // A password or code is typed only on a site the person confirmed in the chat.
-  approveCredential: (sessionId, request, signal) => computerControl.approveCredential({ sessionId, site: request.site }, { signal }),
-  showNativeContextMenu: nativeContextMenus.show,
-  closeNativeContextMenu: nativeContextMenus.close,
-  remoteDebugPort,
-  getWindow: () => mainWindow,
-  onDeepLink: (urls) => queueDeepLinks(urls),
-  // Whether website rules were ever in force on this computer. Kept across
-  // restarts and sign-outs, so the browser opens no page before the first
-  // verified answer; computers that never had them see no change.
-  websiteRulesWereInForce: existsSync(websiteRulesInForcePath()),
-  onWebsiteRulesInForce: () => {
-    try {
-      writeFileSync(websiteRulesInForcePath(), "1", { mode: 0o600 });
-    } catch {
-      // Without the record the next start opens pages until rules arrive, as before.
-    }
-  },
-  // The member's website rules, read from the local OpenWork server (which
-  // verifies them with Den), never taken from the app window.
-  readWebsiteRules: async () => {
-    const server = await runtimeManager.openworkServerInfo();
-    if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) throw new Error("OpenWork server unavailable");
-    // loopback-fetch: the policy service is the locally managed OpenWork server.
-    const response = await fetch(`${server.baseUrl}/managed-policy/website-rules`, {
-      headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}` }, signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error("Website rules unavailable");
-    const payload = await response.json();
-    return Array.isArray(payload?.rules) ? payload.rules : [];
-  },
-  checkPolicy: async (input) => {
-    if (!DESKTOP_POLICY_ENFORCEMENT_ENABLED) return;
-    let code = "policy_unavailable";
-    try {
-      const server = await runtimeManager.openworkServerInfo();
-      if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) throw new Error("Policy service unavailable");
-      // loopback-fetch: the policy service is the locally managed OpenWork server.
-      const response = await fetch(`${server.baseUrl}/managed-policy/evaluate`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: input.external ? "browser_external" : "browser", input }), signal: AbortSignal.timeout(15_000),
-      });
-      if (response.ok) return;
-      const payload = await response.json();
-      if (payload?.code === "organization_policy_denied" || payload?.code === "policy_unavailable") code = payload.code;
-    } catch { /* Fail closed without exposing transport or response details. */ }
-    throw Object.assign(new Error(code === "organization_policy_denied"
-      ? "Your organization's policy blocked this browser request."
-      : "Your organization's policy could not be verified."), { code });
-  },
-});
 
 const workspaceStore = createWorkspaceStore({
   app,
@@ -2258,15 +2176,6 @@ const desktopCommandHandlers = {
       const folder = chatOutputFolder(app.getPath("downloads"), computerControl.chatOf({ sessionId: String(input?.sessionId ?? "") }));
       return readChatOutputImage(folder, String(input?.path ?? ""), { home: app.getPath("home") });
   },
-  "computerListFileGrants": async (event) => {
-      assertComputerSender(event);
-      return browserUploadPermissions.list();
-  },
-  "computerRemoveFileGrant": async (event, id) => {
-      assertComputerSender(event);
-      if (typeof id !== "string" || !id) throw new Error("Choose a remembered file sharing permission to remove.");
-      return browserUploadPermissions.remove(id);
-  },
   "computerSetFeatureEnabled": async (event, enabled) => {
       assertComputerSender(event);
       return computerControl.setFeatureEnabled(enabled === true);
@@ -2742,7 +2651,6 @@ const desktopCommandHandlers = {
         return false;
       }
       window.webContents.setZoomFactor(factor);
-      window.webContents.send("openwork:browser:bounds-invalidated");
       return true;
   },
   "__setNativeTheme": async (event, ...args) => {
@@ -2930,7 +2838,6 @@ async function createMainWindowInner() {
   }
   windowState.track(mainWindow);
   applicationMenu.applyVisibility(mainWindow);
-  browserPanel.registerWindowShortcuts(mainWindow);
 
   // Native fullscreen is independent of the DOM Fullscreen API. The preload
   // also reads the initial value, so reloading in fullscreen keeps its layout.
@@ -2969,7 +2876,6 @@ async function createMainWindowInner() {
   mainWindow.on("session-end", () => holdInstallForSessionEnd());
 
   mainWindow.on("closed", () => {
-    browserPanel.destroy();
     mainWindow = null;
   });
 
@@ -3022,14 +2928,8 @@ async function createMainWindowInner() {
       return { action: "deny" };
     }
 
-    if (/^https?:\/\//i.test(url)) {
-      // Transcript links and local previews belong in the thread's browser,
-      // never an unmanaged BrowserWindow. Explicit external/auth actions use
-      // the shell bridge and do not pass through this popup handler.
-      browserPanel.routeBlockedMainWindowNavigation(url);
-    } else {
-      runDetachedTask("open external URL", () => openExternalUrl(url));
-    }
+    // Links open in the person's own browser; the app never opens web pages in windows of its own.
+    runDetachedTask("open external URL", () => openExternalUrl(url));
     return { action: "deny" };
   });
 
@@ -3037,7 +2937,6 @@ async function createMainWindowInner() {
     if (!floatingViewWindowOptions({ url: "about:blank", frameName })) return;
     attachFloatingViewWindow(child);
     applicationMenu.applyVisibility(child);
-    browserPanel.adoptPopOutWindow(child);
     const closeWithMain = () => { if (!child.isDestroyed()) child.close(); };
     mainWindow?.once("closed", closeWithMain);
     child.once("closed", () => mainWindow?.off("closed", closeWithMain));
@@ -3056,17 +2955,18 @@ async function createMainWindowInner() {
 
   // A link clicked in the inline PDF viewer reaches both handlers below for
   // the same navigation (`did-start-navigation` first, then `will-navigate`),
-  // so open each blocked URL once instead of in two browser tabs.
+  // so open each blocked URL once instead of twice in the person's browser.
   let lastRoutedNavigation = null;
   const routeBlockedNavigationOnce = (url) => {
     const now = Date.now();
     if (lastRoutedNavigation?.url === url && now - lastRoutedNavigation.at < 1000) return;
     lastRoutedNavigation = { url, at: now };
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    if (isExternalWebUrl(url)) runDetachedTask("open external URL", () => openExternalUrl(url));
   };
+  const allowedInWindow = (url) => isMainWindowAllowedNavigation(url, mainWindow?.webContents.getURL());
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
+    if (allowedInWindow(url)) return;
     event.preventDefault();
     routeBlockedNavigationOnce(url);
   });
@@ -3076,12 +2976,12 @@ async function createMainWindowInner() {
   // window itself is the first page target when no browser tab exists — used
   // to replace the entire workspace UI with the website, with no way back
   // (#2000). Catch those at `did-start-navigation`, cancel the load, and
-  // reroute the URL into a built-in browser tab instead.
+  // open the URL in the person's browser instead.
   let mainNavigationRevision = 0;
   mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
     const revision = ++mainNavigationRevision;
-    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
+    if (allowedInWindow(url)) return;
     // Capture the originating contents: the window may be replaced before
     // Chromium has unwound its navigation callback. Never stop its successor.
     const contents = mainWindow.webContents;
@@ -3119,6 +3019,23 @@ ipcMain.on("openwork:window-fullscreen-sync", (event) => {
   event.returnValue = BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false;
 });
 ipcMain.handle("openwork:desktop", handleDesktopInvoke);
+// A web link in the app opens in the person's browser; right-clicking one offers that or copying it.
+const isLinkFromMainWindow = (event) => event.sender === mainWindow?.webContents && event.senderFrame === mainWindow?.webContents.mainFrame;
+ipcMain.on("openwork:link:open", (event, payload) => {
+  const url = typeof payload?.url === "string" ? payload.url : "";
+  if (!isLinkFromMainWindow(event) || !isExternalWebUrl(url) || url.length > 32_768) return;
+  runDetachedTask("open external URL", () => openExternalUrl(url));
+});
+ipcMain.on("openwork:link:contextMenu", (event, payload) => {
+  const url = typeof payload?.url === "string" ? payload.url : "";
+  if (!isLinkFromMainWindow(event) || !isExternalWebUrl(url) || url.length > 32_768) return;
+  const x = Number(payload?.point?.x), y = Number(payload?.point?.y);
+  Menu.buildFromTemplate([
+    { label: "在浏览器中打开", click: () => runDetachedTask("open external URL", () => openExternalUrl(url)) },
+    { label: "复制链接地址", click: () => clipboard.writeText(url) },
+  ]).popup({ window: mainWindow, ...(Number.isFinite(x) && Number.isFinite(y) ? { x: Math.round(x), y: Math.round(y) } : {}) });
+});
+
 ipcMain.handle("openwork:shell:openExternal", async (_event, url) => {
   if (typeof url !== "string" || url.trim().length === 0) {
     return { ok: false, error: "empty url" };
@@ -3183,7 +3100,6 @@ ipcMain.handle("openwork:terminal:kill", (event, terminalId) => {
   killTerminal(String(terminalId));
 });
 
-browserPanel.registerIpc(ipcMain);
 // Native popups cannot be seen or clicked over CDP. In development only, let the
 // app's main frame read the open/last menu as plain data and choose an item.
 if (isDevMode && !app.isPackaged) {

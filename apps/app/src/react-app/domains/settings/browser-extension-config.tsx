@@ -1,23 +1,23 @@
 /** @jsxImportSource react */
 import { MonitorSmartphone } from "lucide-react";
 
+import { t } from "@/i18n";
+
 import { surfaceCardClass } from "../workspace/modal-styles";
 import { registerExtensionConfig } from "./extension-registry";
 
-const openWorkBrowserConfigFactory = () => <OpenWorkBrowserConfig />;
+registerExtensionConfig("openwork-browser", () => <ProjectBrowsingConfig />);
 
-registerExtensionConfig("openwork.browser.settings", openWorkBrowserConfigFactory);
-registerExtensionConfig("openwork-browser", openWorkBrowserConfigFactory);
-
-function OpenWorkBrowserConfig() {
+/** What the AI's browsing tools do: they work in the project's own environment. */
+function ProjectBrowsingConfig() {
   return (
     <div className={`${surfaceCardClass} space-y-3 p-4`}>
       <div className="flex items-start gap-3">
         <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-blue-11" />
         <div className="space-y-1 text-[13px] leading-relaxed text-dls-secondary">
-          <div className="font-medium text-dls-text">Ready by default</div>
-          <div>Each conversation uses its own tabs in the built-in browser. The session can navigate, read, click, type and use website tools without asking. Choose Take over to pause the agent and sign in; Resume browser hands control back.</div>
-          <div>Sign in directly in the built-in browser; your session stays available across browser tasks. Your regular browser profile stays separate. Site tools support the imperative WebMCP document API; declarative forms and external browser control are not supported yet.</div>
+          <div className="font-medium text-dls-text">{t("aiopc.browsing.ready")}</div>
+          <div>{t("aiopc.browsing.where")}</div>
+          <div>{t("aiopc.browsing.takeover")}</div>
         </div>
       </div>
     </div>

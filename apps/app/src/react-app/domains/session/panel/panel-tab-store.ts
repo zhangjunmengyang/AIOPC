@@ -1,16 +1,11 @@
 import type { DynamicToolUIPart } from "ai";
 import type { McpAppOrigin } from "@/components/chat/mcp-app-origin";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 
-export const PERSISTED_PANEL_TAB_STORE_KEY = "openwork:panel-tabs:v1";
 
-export type PanelTabType = "artifact" | "browser" | "app" | "mcp-app" | "remote-thread" | "environment";
-
-export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
-import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
+export type PanelTabType = "artifact" | "app" | "mcp-app" | "remote-thread" | "environment";
 
 export type ArtifactPanelTab = {
   id: string;
@@ -30,25 +25,11 @@ export type RemoteThreadPanelTab = { id: string; type: "remote-thread"; label: s
 /** This project's own computer, watched live; the person takes over here when the AI needs them to. */
 export type EnvironmentPanelTab = { id: string; type: "environment"; label: string; workspaceRoot: string };
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab | McpAppPanelTab | RemoteThreadPanelTab | EnvironmentPanelTab;
+export type PanelTab = ArtifactPanelTab | AppPanelTab | McpAppPanelTab | RemoteThreadPanelTab | EnvironmentPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
   activeTabId: string | null;
-};
-
-type PersistedPanelTabRef = {
-  id: string;
-  type: PanelTabType;
-};
-
-type PersistedSessionPanelState = {
-  tabs: PersistedPanelTabRef[];
-  activeTabId: string | null;
-};
-
-type PersistedPanelTabStore = {
-  sessions: Record<string, PersistedSessionPanelState>;
 };
 
 export type PanelTabStore = {
@@ -58,7 +39,6 @@ export type PanelTabStore = {
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string | null) => void;
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
-  syncBrowserTabs: (sessionId: string, browserTabs: BrowserPanelTab[], activeBrowserTabId: string | null) => void;
   syncTranscriptArtifacts: (sessionId: string, targets: OpenTarget[]) => void;
   clearSession: (sessionId: string) => void;
 };
@@ -164,25 +144,6 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return left.label === right.label && left.appId === right.appId && left.revisionId === right.revisionId && left.receiptId === right.receiptId;
   }
 
-  if (left.type === "browser" && right.type === "browser") {
-    return (
-      left.label === right.label &&
-      left.url === right.url &&
-      left.favicon === right.favicon &&
-      left.status === right.status &&
-      left.automationProtected === right.automationProtected &&
-      left.canGoBack === right.canGoBack &&
-      left.canGoForward === right.canGoForward &&
-      left.ownerSessionId === right.ownerSessionId &&
-      JSON.stringify(left.loadError) === JSON.stringify(right.loadError) &&
-      JSON.stringify(left.browserTask) === JSON.stringify(right.browserTask) &&
-      JSON.stringify(left.agentViewport) === JSON.stringify(right.agentViewport) &&
-      left.siteToolCount === right.siteToolCount &&
-      JSON.stringify(left.siteTools) === JSON.stringify(right.siteTools) &&
-      JSON.stringify(left.siteToolActivity) === JSON.stringify(right.siteToolActivity)
-    );
-  }
-
   return false;
 }
 
@@ -198,50 +159,7 @@ function isSameSessionPanelState(
   );
 }
 
-function mergePersistedSessions(
-  persistedState: unknown,
-  currentState: PanelTabStore,
-): PanelTabStore {
-  const persisted = persistedState as PersistedPanelTabStore | undefined;
-
-  if (!persisted?.sessions) {
-    return currentState;
-  }
-
-  const sessions: Record<string, SessionPanelState> = {};
-
-  for (const [sessionId, session] of Object.entries(persisted.sessions)) {
-    const tabs = session.tabs
-      .filter(({ type }) => type === "browser")
-      .map(({ id }): PanelTab => ({
-        id,
-        type: "browser",
-        label: "New tab",
-        url: "",
-        favicon: null,
-        status: "ready",
-        canGoBack: false,
-        canGoForward: false,
-        ownerSessionId: sessionId,
-        siteToolCount: 0,
-        siteTools: [],
-        siteToolActivity: [],
-      }));
-
-    sessions[sessionId] = {
-      tabs,
-      activeTabId: session.activeTabId === null ? null : resolveActiveTabId(tabs, session.activeTabId),
-    };
-  }
-
-  return {
-    ...currentState,
-    sessions,
-  };
-}
-
 export const usePanelTabStore = create<PanelTabStore>()(
-  persist(
     (set, get) => ({
       sessions: {},
       transcriptArtifactTargets: {},
@@ -309,48 +227,6 @@ export const usePanelTabStore = create<PanelTabStore>()(
           tabs: reorderedTabs,
         });
       }),
-      syncBrowserTabs: (sessionId, browserTabs, activeBrowserTabId) => set((state) => {
-        const session = getWritableSession(state, sessionId);
-        const browserTabsById = new Map(browserTabs.map((tab) => [tab.id, tab]));
-
-        const mergedTabs: PanelTab[] = [];
-
-        for (const tab of session.tabs) {
-          if (tab.type !== "browser") {
-            mergedTabs.push(tab);
-            continue;
-          }
-
-          const browserTab = browserTabsById.get(tab.id);
-          if (browserTab) {
-            mergedTabs.push(browserTab);
-            browserTabsById.delete(tab.id);
-          }
-        }
-
-        for (const browserTab of browserTabsById.values()) {
-          mergedTabs.push(browserTab);
-        }
-
-        const currentActiveTab = session.tabs.find((tab) => tab.id === session.activeTabId);
-        // A null selection with retained tabs is the Files empty state, not
-        // permission for background browser updates to take over the panel.
-        const shouldSyncActiveFromElectron =
-          session.tabs.length === 0 || currentActiveTab?.type === "browser";
-
-        const activeTabId = shouldSyncActiveFromElectron
-          ? resolveActiveTabId(mergedTabs, activeBrowserTabId)
-          : session.activeTabId === null ? null : resolveActiveTabId(mergedTabs, session.activeTabId);
-
-        if (isSameSessionPanelState(session, mergedTabs, activeTabId)) {
-          return state;
-        }
-
-        return updateSession(state, sessionId, {
-          tabs: mergedTabs,
-          activeTabId,
-        });
-      }),
       syncTranscriptArtifacts: (sessionId, targets) => set((state) => {
         const currentTranscript = state.transcriptArtifactTargets[sessionId] ?? [];
         const session = getWritableSession(state, sessionId);
@@ -405,29 +281,6 @@ export const usePanelTabStore = create<PanelTabStore>()(
         };
       }),
     }),
-    {
-      name: PERSISTED_PANEL_TAB_STORE_KEY,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        sessions: Object.fromEntries(
-          Object.entries(state.sessions).map(([sessionId, session]) => {
-            const tabs = session.tabs
-              .filter((tab) => tab.type === "browser")
-              .map(({ id, type }) => ({ id, type }));
-
-            return [
-              sessionId,
-              {
-                tabs,
-                activeTabId: session.activeTabId === null ? null : resolveActiveTabId(tabs, session.activeTabId),
-              },
-            ];
-          }),
-        ),
-      }),
-      merge: (persistedState, currentState) => mergePersistedSessions(persistedState, currentState),
-    },
-  ),
 );
 
 export function useSessionPanelState(sessionId: string): SessionPanelState {

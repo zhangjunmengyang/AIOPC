@@ -7,6 +7,10 @@
  */
 
 export default {
+  "aiopc.browsing.ready": "默认就绪",
+  "aiopc.browsing.where": "AI 在这个项目自己的环境里打开网页——那是一台真正的 Chrome，项目的账号已经登录在里面。第一次用时会自动启动。",
+  "aiopc.browsing.takeover": "遇到需要你亲自来的步骤（拒绝自动化的登录、付款），AI 会请你在对话旁的「项目环境」面板里完成，然后接着干。",
+  "aiopc.links.open_failed": "打不开这个链接。",
   "aiopc.accounts.unverified": "无法自动确认登录",
   "aiopc.environment.not_running": "这个项目的环境还没有启动。",
   "aiopc.environment.refresh": "刷新",

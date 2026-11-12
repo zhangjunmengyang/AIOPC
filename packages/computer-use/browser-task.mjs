@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deferBrowserStop } from "./browser-navigation.mjs";
 
-/** Tabs opened by an app page rather than a conversation (see @openwork/browser-tabs DRAFT_OWNER_KEY). */
+/** Tabs opened by an app page rather than a conversation. */
 const NO_CONVERSATION_OWNER = "__openwork_no_session__";
 
 const WORLD = 1001;

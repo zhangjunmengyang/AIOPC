@@ -32,6 +32,7 @@ export function createSandboxBrowser({ app, aiopcService, workspaceStore }) {
     if (connection?.status !== "ready" || !connection.url) throw new Error("AIOPC 的服务还没有就绪");
     const url = new URL(route, connection.url);
     url.searchParams.set("workspace", workspaceRoot);
+    // loopback-fetch: the AIOPC service this app started on 127.0.0.1
     const response = await fetch(url, {
       method,
       headers: { Authorization: `Bearer ${connection.token}`, ...(body ? { "Content-Type": "application/json" } : {}) },

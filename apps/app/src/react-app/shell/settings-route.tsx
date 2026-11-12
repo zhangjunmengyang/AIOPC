@@ -23,7 +23,6 @@ import {
   type OpenworkCloudMcpProviderModelContext,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
-  type OpenworkWorkspaceInfo,
   type DesktopFreePreferences,
 } from "@/app/lib/openwork-server";
 import { buildOpenworkEnvRuntimeKey } from "@/app/lib/openwork-env-runtime";
@@ -42,8 +41,7 @@ import type {
   SettingsTab,
   WorkspaceConnectionState,
   WorkspaceDisplay,
-  WorkspaceSessionGroup,
-} from "@/app/types";
+  } from "@/app/types";
 import { currentLocale, t, setLocale, type Language } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { GatewayModelAccessProvider } from "@/react-app/domains/connections/provider-auth/gateway-model-access";
@@ -56,7 +54,6 @@ import {
   listRouteSessions,
   mapDesktopWorkspace,
   mergeRouteWorkspaces,
-  orderRouteWorkspaces,
   readRouteSessionsWithRetry,
   toSessionGroups,
   workspaceLabel,
@@ -136,7 +133,6 @@ import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/d
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import {
-  openworkServerInfo,
   openworkServerRestart,
   engineStart,
   resolveWorkspaceListSelectedId,
@@ -145,7 +141,6 @@ import {
   workspaceSetRuntimeActive,
   workspaceSetSelected,
   readDesktopDistributionInfo,
-  type WorkspaceInfo,
   type WorkspaceList,
   revealDesktopItemInDir,
 } from "@/app/lib/desktop";
@@ -170,8 +165,7 @@ import {
   normalizeDirectoryPath,
   resolveModelDisplayName,
   resolveProviderDisplayName,
-  safeStringify,
-} from "@/app/utils";
+  } from "@/app/utils";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import type { ModelRef } from "@/app/types";
@@ -191,7 +185,7 @@ import { applyDefaultModelPreference } from "./command-palette-models";
 import { buildCommandPaletteSessions } from "./command-palette-sessions";
 import { useCommandPaletteShortcut } from "./use-shell-shortcuts";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
-import { getDenInferenceUrl, readDenSettings, type DenSettings } from "@/app/lib/den";
+import { readDenSettings, type DenSettings } from "@/app/lib/den";
 import { denDashboardUrl } from "@/app/lib/den-dashboard-links";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { useUiStateStore } from "./ui-state-store";
@@ -2331,10 +2325,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <PreferencesView
             busy={busy}
-            linkOpenDestination={local.prefs.linkOpenDestination}
-            onLinkOpenDestinationChange={(linkOpenDestination) => {
-              local.setPrefs((previous) => ({ ...previous, linkOpenDestination, askBeforeOpeningLinks: false }));
-            }}
             showThinking={local.prefs.showThinking}
             onToggleShowThinking={() => {
               local.setPrefs((previous) => ({ ...previous, showThinking: !previous.showThinking }));

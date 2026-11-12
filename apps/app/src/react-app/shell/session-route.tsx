@@ -32,7 +32,6 @@ import { composeNativeSessionHistory } from "@/app/lib/opencode-session-native";
 import { prefetchOpeningSessionHistory, sessionHistoryIdentity, sessionHistoryRuntimeOwner, useSessionHistoryRuntimeOwners } from "@/react-app/domains/session/surface/session-history";
 import { sendSessionCommand, sessionWorkHeld } from "@/app/lib/opencode-interruption";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
-import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { getSessionDescendantIds } from "@/react-app/domains/session/sidebar/utils";
 import { buildOpenworkWorkspaceBaseUrl } from "@/app/lib/openwork-server";
 import {
@@ -48,7 +47,6 @@ import {
   revealDesktopItemInDir,
   pickDirectory,
   resolveWorkspaceListSelectedId,
-  workspaceBootstrap,
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
@@ -59,44 +57,33 @@ import {
 import type {
   ComposerAttachment,
   ComposerDraft,
-  ModelOption,
   ModelRef,
   SlashCommandOption,
   WorkspacePreset,
   WorkspaceConnectionState,
-  Client,
   ProviderListItem,
   PendingPermission,
-  WorkspaceDisplay,
-  WorkspaceSessionGroup,
-} from "@/app/types";
+  } from "@/app/types";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
 import { DEFAULT_MODEL } from "@/app/constants";
 import {
   isDesktopRuntime,
-  normalizeDirectoryPath,
   parseModelRef,
-  normalizeSessionStatus,
   resolveModelDisplayName,
   safeStringify,
 } from "@/app/utils";
 import { currentLocale, t } from "@/i18n";
 import {
-  type RouteWorkspace,
-  type RouteSession,
   describeRouteError,
   describeTaskCreateFailure,
   describeTaskCreateRetry,
   describeWorkspaceCreateError,
-  createRouteSession,
   createRouteSessionOnEngine,
   deleteRouteSession,
   folderNameFromPath,
   getSessionStatus,
   isActiveSessionStatus,
   isTransientStartupError,
-  mapDesktopWorkspace,
-  mergeRouteWorkspaces,
   orderRouteWorkspaces,
   TASK_CREATE_RETRY_DELAYS_MS,
   toSessionGroups,
@@ -135,7 +122,6 @@ import { useCheckDesktopRestriction, useOrgRestrictions } from "@/react-app/doma
 import { newChatDefaultModel, orgDefaultModelForEngine } from "@/react-app/domains/models/org-default-model";
 import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
-import { carryDraftBrowser } from "@/react-app/domains/session/panel/use-browser-presentation";
 import { createSessionChildIdsSelector, useSessionActivityStore, type SessionWaitingKind } from "@/react-app/domains/session/status/session-activity-store";
 import { createWorkspaceSessionAttentionSelector, sessionAttentionLabel, sessionAttentionSidebarStatus } from "@/react-app/domains/session/status/session-attention";
 import { buildOpenworkSessionSystemContext } from "@/react-app/domains/session/sync/env-context";
@@ -148,7 +134,7 @@ import {
 import { draftToParts } from "@/react-app/domains/session/sync/draft-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { getModelBehaviorSummary, nextModelBehaviorValue, previousModelBehaviorValue, sanitizeModelBehaviorValue } from "@/app/lib/model-behavior";
+import { getModelBehaviorSummary, nextModelBehaviorValue, previousModelBehaviorValue } from "@/app/lib/model-behavior";
 import { computeModelAvailability, createUnavailableConfirmationGate, type ModelAvailability } from "@/react-app/domains/session/surface/model-availability";
 import { useModelRemovalConfirmation } from "@/react-app/domains/session/surface/use-model-removal-confirmation";
 import { closestAvailableModel } from "@/react-app/domains/session/surface/model-removal";
@@ -231,21 +217,15 @@ import { buildSessionMenuActions } from "@/react-app/domains/session/sidebar/ses
 import { sessionMenuActionsToPalette } from "./command-palette-session-actions";
 import type { ThinkingModeShortcutDirection } from "./thinking-mode-shortcut";
 import { SessionSearchDialog } from "./session-search-dialog";
-import { useBootState } from "./boot-state";
 import {
   forgetWorkspaceMemory,
   readLastSessionFor,
   readWorkspaceProjectDimension,
-  readWorkspaceOrderIds,
   writeActiveWorkspaceId,
   writeLastSessionFor,
   writeWorkspaceProjectDimension,
   writeWorkspaceOrderIds,
 } from "./session-memory";
-import {
-  publishInspectorSlice,
-  recordInspectorEvent,
-} from "../../app/lib/app-inspector";
 import {
   resolveSessionDraftScope,
   saveSessionDraft,
@@ -313,7 +293,6 @@ import { useWorkspaceModelProfile } from "@/react-app/kernel/use-workspace-model
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
-  refreshProviderListQueries,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
@@ -898,7 +877,6 @@ export function SessionRoute() {
     // Only the pending route may adopt its completion. Background completion
     // never navigates away from a conversation the person chose meanwhile.
     if (!pendingConversation?.sessionId) return;
-    carryDraftBrowser(pendingConversation.sessionId);
     writeLastSessionFor(pendingConversation.destination.workspaceId, pendingConversation.sessionId);
     navigateToWorkspaceSession(pendingConversation.destination.workspaceId, pendingConversation.sessionId);
   }, [pendingConversation?.sessionId, pendingConversation?.destination.workspaceId, navigateToWorkspaceSession]);

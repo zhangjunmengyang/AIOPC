@@ -103,19 +103,19 @@ function validRecoveryArtifactIdentity(artifact) {
   } catch {
     return false;
   }
-  const prefix = `/different-ai/openwork/releases/download/v${version}/`;
+  const prefix = `/zhangjunmengyang/AIOPC/releases/download/v${version}/`;
   if (url.protocol !== "https:" || url.hostname !== "github.com" || !url.pathname.startsWith(prefix)) return false;
-  const assetArch = artifact.platform === "linux" && artifact.arch === "x64" ? "x86_64" : artifact.arch;
+  const assetArch = artifact.arch;
   const platformSlug = artifact.platform === "darwin" ? "mac" : artifact.platform === "win32" ? "win" : "linux";
   const fileName = path.basename(url.pathname);
   const distributionSlug = artifact.distribution === "public" ? "" : `${artifact.distribution}-`;
-  return fileName === `openwork-${distributionSlug}${platformSlug}-${assetArch}-${version}${installerExtension(artifact.platform)}`;
+  return fileName === `aiopc-${distributionSlug}${platformSlug}-${assetArch}-${version}${installerExtension(artifact.platform)}`;
 }
 
 export function selectRecoveryArtifact(files, { version, platform, arch, distribution }) {
   const normalizedVersion = stableVersion(version);
   if (!normalizedVersion || !["public", "cloud", "enterprise"].includes(distribution)) return null;
-  const assetArch = platform === "linux" && arch === "x64" ? "x86_64" : arch;
+  const assetArch = arch;
   const extension = installerExtension(platform);
   const matching = files.filter((file) =>
     typeof file?.url === "string"
@@ -124,10 +124,10 @@ export function selectRecoveryArtifact(files, { version, platform, arch, distrib
     && typeof file.sha512 === "string"
     && file.sha512.trim(),
   );
-  const baseUrl = `https://github.com/different-ai/openwork/releases/download/v${normalizedVersion}/`;
+  const baseUrl = `https://github.com/zhangjunmengyang/AIOPC/releases/download/v${normalizedVersion}/`;
   for (const selected of matching) {
     const url = new URL(selected.url, baseUrl);
-    if (url.origin !== "https://github.com" || !url.pathname.startsWith(`/different-ai/openwork/releases/download/v${normalizedVersion}/`)) {
+    if (url.origin !== "https://github.com" || !url.pathname.startsWith(`/zhangjunmengyang/AIOPC/releases/download/v${normalizedVersion}/`)) {
       continue;
     }
     const artifact = {

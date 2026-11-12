@@ -1,12 +1,6 @@
 export const LOCAL_PREFERENCES_KEY = "openwork.preferences";
 export const DEFAULT_SHOW_THINKING = false;
 
-export type LinkOpenDestination = "openwork" | "external";
-
-export function isLinkOpenDestination(value: unknown): value is LinkOpenDestination {
-  return value === "openwork" || value === "external";
-}
-
 /** What Enter does with a message typed while the agent is working. */
 export type FollowUpDefault = "queue" | "steer";
 

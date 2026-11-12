@@ -11,14 +11,13 @@ import {
 } from "react";
 
 import { MODEL_PREF_KEY, THINKING_PREF_KEY } from "../../app/constants";
-import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import {
   DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE,
   isDesktopNotificationPreference,
   type DesktopNotificationPreference,
 } from "./desktop-notification-preferences";
-import { DEFAULT_SHOW_THINKING, isFollowUpDefault, isLinkOpenDestination, LOCAL_PREFERENCES_KEY, needsShowThinkingReset, type FollowUpDefault, type LinkOpenDestination } from "./local-preferences-storage";
+import { DEFAULT_SHOW_THINKING, isFollowUpDefault, LOCAL_PREFERENCES_KEY, needsShowThinkingReset, type FollowUpDefault } from "./local-preferences-storage";
 import {
   readStoredDefaultModel,
   storedDefaultModelChangedEvent,
@@ -67,8 +66,6 @@ export type LocalPreferences = {
    * users are not surprised by system popups.
    */
   desktopNotifications: DesktopNotificationPreference;
-  linkOpenDestination: LinkOpenDestination;
-  askBeforeOpeningLinks: boolean;
   /**
    * Desktop only: stop the computer sleeping while an agent is working.
    * On by default so long tasks are not cut off when the computer sleeps.
@@ -107,8 +104,6 @@ const INITIAL_PREFS: LocalPreferences = {
   hasCompletedOnboarding: false,
   analyticsEnabled: true,
   desktopNotifications: DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE,
-  linkOpenDestination: "openwork",
-  askBeforeOpeningLinks: true,
   keepAwake: true,
   followUpDefault: "queue",
 };
@@ -159,10 +154,6 @@ export function LocalProvider({ children }: LocalProviderProps) {
     const persisted = readPersisted(LOCAL_PREFERENCES_KEY, INITIAL_PREFS);
     if (needsShowThinkingReset(readStored(LOCAL_PREFERENCES_KEY))) persisted.showThinking = false;
     persisted.showThinkingResetToOff = true;
-    persisted.askBeforeOpeningLinks = persisted.askBeforeOpeningLinks !== false;
-    persisted.linkOpenDestination = isLinkOpenDestination(persisted.linkOpenDestination)
-      ? persisted.linkOpenDestination
-      : "openwork";
     persisted.followUpDefault = isFollowUpDefault(persisted.followUpDefault) ? persisted.followUpDefault : "queue";
     persisted.desktopNotifications = isDesktopNotificationPreference(persisted.desktopNotifications)
       ? persisted.desktopNotifications

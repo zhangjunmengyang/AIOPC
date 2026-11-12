@@ -9,9 +9,8 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { DesktopUpdateButton } from "../../settings/state/desktop-updater-provider";
-import { Archive, ArchiveRestore, ArrowLeft, Cloud, FileText, Globe, Maximize2, MoreHorizontal, PanelRight, TextSearch, X, Zap } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, Cloud, Cpu, FileText, Maximize2, MoreHorizontal, PanelRight, TextSearch, X } from "lucide-react";
 
-import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
 import { useCloudSignIn } from "../../cloud/sign-in-return";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
@@ -92,11 +91,8 @@ import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTa
 import { fileOriginForRuntime, nativeFileAction, planFileOpen, resolveCollectibleOpenTarget, unavailableFileMessage } from "../artifacts/resolve-open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
-import { getSidePanelSessionKey, NO_SESSION_SIDE_PANEL_KEY } from "../panel/side-panel-session";
-import { useCreateTab, useOpenBrowserRailPane } from "../panel/use-side-panel-tabs";
-import { useBrowserPresentationController } from "../panel/use-browser-presentation";
-import { useBrowserAgentTurns } from "../panel/agent-viewport";
-import { BrowserPresentationSurfaces, BrowserRailButton } from "../panel/browser-presentation";
+import { getSidePanelSessionKey } from "../panel/side-panel-session";
+import { useOpenEnvironmentPane } from "../panel/use-side-panel-tabs";
 import { DebugRailProvider, DebugRailSlot } from "../panel/debug-rail-slot";
 import { SessionDebugPanel } from "../surface/debug-panel";
 import { FloatingSlotProvider, SessionFloatingLayer } from "../panel/floating-slot";
@@ -121,7 +117,6 @@ import {
   type ConversationHistoryDirection,
 } from "./conversation-tab-history";
 import { useRouteWorkbench, useWorkbenchStore, type WorkbenchSessionTab } from "./workbench-store";
-import { isSameWorkbenchSession } from "./workbench-store";
 import { ReactSessionRuntime } from "../sync/runtime-sync";
 import type { SessionWaitingKind } from "../status/session-activity-store";
 import { useSessionInteractions } from "../sync/use-session-interactions";
@@ -471,11 +466,6 @@ function controlObjectArg(args: unknown) {
   return args && typeof args === "object" && !Array.isArray(args) ? args : null;
 }
 
-function controlStringArg(args: unknown, key: string) {
-  const object = controlObjectArg(args);
-  const value = object ? Reflect.get(object, key) : null;
-  return typeof value === "string" ? value.trim() : "";
-}
 
 export function SessionPage(props: SessionPageProps) {
   const archivedInWorkspace = (workspaceId: string, sessionId: string | null) => {
@@ -517,8 +507,8 @@ export function SessionPage(props: SessionPageProps) {
   const activeSidePanel = sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
-  const browserRailActive = panelRailActive && activePanelTab?.type === "browser";
-  const filesRailActive = panelRailActive && activePanelTab?.type !== "browser";
+  const environmentRailActive = panelRailActive && activePanelTab?.type === "environment";
+  const filesRailActive = panelRailActive && activePanelTab?.type !== "environment";
   const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
   const cloudSignIn = useCloudSignIn();
   // The browser opens on Den's sign-up tab (label stays "Sign in").
@@ -657,21 +647,6 @@ export function SessionPage(props: SessionPageProps) {
 
   // Which conversation's browser tabs may take the screen. Every other
   // conversation's tabs keep loading silently in the background.
-  useEffect(() => {
-    if (!isElectronRuntime()) return;
-    void (window as Window).__OPENWORK_ELECTRON__?.browser?.setVisibleSession?.(props.selectedSessionId ?? null);
-  }, [props.selectedSessionId]);
-
-  // Floating / side / full-screen browser uses the native desktop host.
-  // Declared after setVisibleSession so the host hears the session first.
-  const browserPresentation = useBrowserPresentationController({
-    enabled: isElectronRuntime(),
-    sessionKey: sidePanelSessionKey,
-    visibleSessionId: props.selectedSessionId ?? null,
-    sidePanel: activeSidePanel,
-    setSidePanel: setCurrentSidePanel,
-  });
-  const { isPoppedOut: browserIsPoppedOut, placeOpenedBrowser, handlePanelClosed: handleBrowserPanelClosed } = browserPresentation;
   // Computer use on this Mac, behind its feature flag: the header Computer
   // button, its floating view, in-chat requests and the hand-back at turn end.
   const computerUseFeature = useDesktopFeature("computerUse");
@@ -687,53 +662,7 @@ export function SessionPage(props: SessionPageProps) {
   // The button hides itself when this computer can't run it and no VM is connected.
   const computerUse = computerUseFeature && isElectronRuntime();
   useComputerEndTurn(props.sidebar.sessionStatusById, computerUse);
-  useBrowserAgentTurns(props.sidebar.sessionStatusById);
 
-  // Open the side panel of the conversation that owns a browser event. For the
-  // conversation on screen that is the visible panel; for a background
-  // conversation only its own panel state is marked open, so its tabs are
-  // waiting when the user switches to it and nothing on screen moves.
-  const openOwnerSidePanel = useCallback((ownerSessionId: string | null | undefined) => {
-    const ownerKey = getSidePanelSessionKey(ownerSessionId ?? null);
-    if (ownerSessionId == null || ownerKey === sidePanelSessionKey) {
-      setCurrentSidePanel("panel");
-      return;
-    }
-    setSidePanelState(ownerKey, "panel");
-  }, [setCurrentSidePanel, setSidePanelState, sidePanelSessionKey]);
-
-  // When the agent calls a built-in browser tool, the main process opens
-  // the WebContentsView and sends panel-opened; when the panel is dismissed
-  // it sends panel-closed. Without this listener the React UI never knows
-  // the panel opened and doesn't render the unified panel chrome.
-  useEffect(() => {
-    if (!isElectronRuntime()) return;
-    const browser = (window as Window).__OPENWORK_ELECTRON__?.browser;
-    if (!browser) return;
-    const unsubOpen = browser.onPanelOpened?.((payload) => {
-      // The page arrives as a tab in the browser's own window; nothing moves here.
-      if (browserIsPoppedOut(payload?.ownerSessionId)) return;
-      const ownerSessionId = payload?.ownerSessionId ?? props.selectedSessionId;
-      if (ownerSessionId && payload?.tab) {
-        // A requested navigation selects its page, even when an artifact was
-        // active. Passive title/loading updates still preserve that artifact.
-        openTab(ownerSessionId, payload.tab);
-      }
-      if (placeOpenedBrowser(payload?.ownerSessionId)) return;
-      openOwnerSidePanel(payload?.ownerSessionId);
-    });
-    const unsubClose = browser.onPanelClosed?.((payload) => {
-      const ownerSessionId = payload?.ownerSessionId ?? null;
-      handleBrowserPanelClosed(ownerSessionId);
-      const ownerKey = getSidePanelSessionKey(ownerSessionId);
-      if (ownerSessionId === null || ownerKey === sidePanelSessionKey) {
-        setCurrentSidePanel(null);
-        return;
-      }
-      setSidePanelState(ownerKey, null);
-    });
-    return () => { unsubOpen?.(); unsubClose?.(); };
-  }, [browserIsPoppedOut, handleBrowserPanelClosed, openOwnerSidePanel, openTab, placeOpenedBrowser, props.selectedSessionId, setCurrentSidePanel, setSidePanelState, sidePanelSessionKey]);
   const {
     leftSidebarResizing,
     leftSidebarWidth,
@@ -764,7 +693,6 @@ export function SessionPage(props: SessionPageProps) {
     if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
     return target.value;
   }, []);
-  const createBrowserTab = useCreateTab();
   const openTargetForRuntime = useCallback((runtime: {
     client: OpenworkServerClient | null;
     runtimeWorkspaceId: string | null;
@@ -773,22 +701,12 @@ export function SessionPage(props: SessionPageProps) {
     sandboxBackend?: string | null;
   }, target: OpenTarget, options?: OpenTargetOptions, sourceSessionId?: string) => {
     if (target.kind === "url" || target.preview === "browser") {
+      // A link is the person's to read: it opens in their own browser. The AI browses in the project environment.
       const url = browserUrlForTarget(target);
       if (isElectronRuntime()) {
-        if (options?.external) {
-          void openDesktopUrl(url).catch((error: unknown) => {
-            toast.error(error instanceof Error ? error.message : "Could not open this link.");
-          });
-          return;
-        }
-        const ownerSessionId = sourceSessionId ?? props.selectedSessionId ?? null;
-        const openLink = window.__OPENWORK_ELECTRON__?.browser?.openLink;
-        if (openLink) {
-          openLink(url, ownerSessionId);
-          return;
-        }
-        openOwnerSidePanel(ownerSessionId);
-        void createBrowserTab(url, ownerSessionId);
+        void openDesktopUrl(url).catch((error: unknown) => {
+          toast.error(error instanceof Error ? error.message : t("aiopc.links.open_failed"));
+        });
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
       }
@@ -872,7 +790,7 @@ export function SessionPage(props: SessionPageProps) {
       }
       await openNative(plan.path, plan.action);
     })().catch(reportOpenError);
-  }, [browserUrlForTarget, createBrowserTab, openOwnerSidePanel, openTab, props.selectedSessionId, setCurrentSidePanel]);
+  }, [browserUrlForTarget, openTab, props.selectedSessionId, setCurrentSidePanel]);
   const openTarget = useCallback((target: OpenTarget, options?: OpenTargetOptions, sourceSessionId?: string) => {
     openTargetForRuntime({
       client: props.openworkServerClient,
@@ -895,112 +813,12 @@ export function SessionPage(props: SessionPageProps) {
   const openGeneralSidePanel = useCallback(() => {
     setCurrentSidePanel("panel");
   }, [setCurrentSidePanel]);
-  const openBrowserRailPane = useOpenBrowserRailPane(sidePanelSessionKey, browserRailActive, setCurrentSidePanel);
-  const openBrowserUrlControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "browser.open_url",
-    label: "Open URL in built-in browser",
-    description: "Open a built-in browser tab and return its tab_id and CDP handle. The tab is protected from suspension for its task lifetime until browser.release_tab declares all running and queued browser work complete.",
-    sideEffect: "navigation",
-    requiresArgs: true,
-    args: [
-      { name: "url", type: "string", required: true, description: "The website URL to open." },
-      { name: "provider", type: "string", description: "Browser provider. Use builtin or auto." },
-    ],
-    previewArgs: { url: "https://example.com", provider: "builtin" },
-    disabled: !isElectronRuntime(),
-    execute: async (args, helpers) => {
-      const url = controlStringArg(args, "url");
-      if (!url) return { ok: false, error: "Missing URL." };
-      const provider = controlStringArg(args, "provider") || "builtin";
-      if (provider !== "auto" && provider !== "builtin") {
-        return { ok: false, error: `Browser provider is not available yet: ${provider}` };
-      }
-      // The tab belongs to the conversation whose agent asked for it. When that
-      // is a background conversation the page loads silently there; the
-      // conversation on screen is never interrupted. AIOPC's own pages (Accounts)
-      // have no conversation: their tabs belong to the page's panel, like a draft's.
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
-      if (!placeOpenedBrowser(ownerSessionId)) openOwnerSidePanel(ownerSessionId);
-      return window.__OPENWORK_ELECTRON__?.browser?.openUrl?.(url, provider, { sessionId: ownerSessionId });
-    },
-  }), [openOwnerSidePanel, placeOpenedBrowser, props.selectedSessionId]);
-  useControlAction(openBrowserUrlControlAction);
-  const restoreBrowserTabControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "browser.restore_tab",
-    label: "Restore browser tab",
-    description: "Acquire a fresh protected CDP handle for a tab owned by this conversation. A suspended tab reloads its saved URL, not its previous document, retaining tab_id with a new target_id. A live tab keeps its document. Always use the returned handle. Protection lasts until browser.release_tab.",
-    sideEffect: "mutation",
-    requiresArgs: true,
-    args: [{ name: "tabId", type: "string", required: true, description: "The logical tab_id returned by browser.open_url or browser.restore_tab." }],
-    disabled: !isElectronRuntime(),
-    execute: async (args, helpers) => {
-      const tabId = controlStringArg(args, "tabId");
-      if (!tabId) return { ok: false, error: "Missing tabId." };
-      const restoreTab = window.__OPENWORK_ELECTRON__?.browser?.restoreTab;
-      if (!restoreTab) return { ok: false, error: "Built-in browser is not available." };
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
-      return restoreTab(tabId, ownerSessionId);
-    },
-  }), [props.selectedSessionId]);
-  useControlAction(restoreBrowserTabControlAction);
-  const releaseBrowserTabControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "browser.release_tab",
-    label: "Release browser tab",
-    description: "Declare all running and queued browser work on this conversation's tab complete and remove its suspension protection. Release does not close, suspend, or invalidate the current target. The user may then manually suspend it. Before starting later browser work, call browser.restore_tab and use its returned protected handle.",
-    sideEffect: "mutation",
-    requiresArgs: true,
-    args: [{ name: "tabId", type: "string", required: true, description: "The logical tab_id whose browser work is complete." }],
-    disabled: !isElectronRuntime(),
-    execute: async (args, helpers) => {
-      const tabId = controlStringArg(args, "tabId");
-      if (!tabId) return { ok: false, error: "Missing tabId." };
-      const releaseTab = window.__OPENWORK_ELECTRON__?.browser?.releaseTab;
-      if (!releaseTab) return { ok: false, error: "Built-in browser is not available." };
-      const ownerSessionId = helpers.origin?.sessionId ?? props.selectedSessionId ?? NO_SESSION_SIDE_PANEL_KEY;
-      return releaseTab(tabId, ownerSessionId);
-    },
-  }), [props.selectedSessionId]);
-  useControlAction(releaseBrowserTabControlAction);
-  // AIOPC's own checks (who is logged in, reading a page) open a tab only for that work and close it after.
-  const closeBrowserTabControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "browser.close_tab",
-    label: "Close browser tab",
-    description: "Close a built-in browser tab that was opened only for a short check.",
-    sideEffect: "mutation",
-    requiresArgs: true,
-    args: [{ name: "tabId", type: "string", required: true, description: "The tab_id returned by browser.open_url." }],
-    disabled: !isElectronRuntime(),
-    execute: async (args) => {
-      const tabId = controlStringArg(args, "tabId");
-      if (!tabId) return { ok: false, error: "Missing tabId." };
-      await window.__OPENWORK_ELECTRON__?.browser?.closeTab?.(tabId);
-      return { ok: true };
-    },
-  }), []);
-  useControlAction(closeBrowserTabControlAction);
-  const setBrowserProxyControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "browser.set_proxy",
-    label: "Set built-in browser proxy",
-    description: "Route all built-in browser traffic through an HTTP/SOCKS proxy (e.g. to browse from another location). Applies to every built-in browser tab until cleared. Pass an empty proxy to restore system network settings.",
-    sideEffect: "mutation",
-    args: [
-      { name: "proxy", type: "string", description: "Proxy URL like http://user:pass@host:8080 or socks5://host:1080, env:NAME to use the OPENWORK_BROWSER_PROXY_NAME environment variable, or empty to clear." },
-    ],
-    previewArgs: { proxy: "env:DE" },
-    disabled: !isElectronRuntime(),
-    execute: async (args) => {
-      const proxy = controlStringArg(args, "proxy") || "";
-      const setProxy = window.__OPENWORK_ELECTRON__?.browser?.setProxy;
-      if (!setProxy) return { ok: false, error: "Built-in browser is not available." };
-      return setProxy(proxy);
-    },
-  }), []);
-  useControlAction(setBrowserProxyControlAction);
+  const openEnvironmentPane = useOpenEnvironmentPane(sidePanelSessionKey, props.selectedWorkspaceRoot, environmentRailActive, setCurrentSidePanel);
   const openArtifactRailPane = useCallback(() => {
     if (!hasArtifactTargets) {
-      const documentTab = activePanelTab?.type !== "browser" && activePanelTab
+      const documentTab = activePanelTab?.type !== "environment" && activePanelTab
         ? activePanelTab
-        : sessionPanelState.tabs.find((tab) => tab.type !== "browser");
+        : sessionPanelState.tabs.find((tab) => tab.type !== "environment");
       selectTab(sidePanelSessionKey, documentTab?.id ?? null);
       setCurrentSidePanel("panel");
       return;
@@ -1118,7 +936,6 @@ export function SessionPage(props: SessionPageProps) {
   }, [sessionTabs, props.onSessionTabsChange]);
   const sessionActionTitle = sessionActionTarget?.title ?? "";
   const providerCount = props.hasUsableModel ? 1 : props.providerConnectedIds.length;
-  const messageCountVisible = props.selectedSessionId ? 1 : 0;
   const hasMainContentTakeover = Boolean(props.mainContentTakeover);
   const sidebarOnlyChrome = isMobile && !isElectronRuntime() && shellConfig.sidebar && (!props.primarySlot || props.primarySlotIsConversation) && !hasMainContentTakeover && !props.mainContentHeaderActionsRef && !props.primaryTitle && !props.mainContentTitle;
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
@@ -1493,8 +1310,6 @@ export function SessionPage(props: SessionPageProps) {
       isLocalWorkspace={fileOriginForRuntime({ desktop: isElectronRuntime(), serverUrl: props.openworkServerClient?.baseUrl, sandboxBackend: props.selectedWorkspaceDisplay.sandboxBackend }) === "local"}
       onClose={closeRightPane}
       onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
-      browserPresentation={browserPresentation.enabled ? { onPresent: browserPresentation.present } : undefined}
-      browserShownElsewhere={browserPresentation.mode === "fullscreen"}
     />
   ) : null;
 
@@ -2164,21 +1979,21 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           <aside className={cn("w-10 shrink-0 flex-col items-center gap-1 px-1 py-2 text-muted-foreground mac:titlebar-no-drag", props.developerMode ? "flex" : "hidden", props.primarySurface !== "flat" && "lg:flex")}>
-            {/* With the floating browser on, the same button also brings back a floating page. */}
-            {isElectronRuntime() && browserPresentation.enabled ? <BrowserRailButton controller={browserPresentation} /> : isElectronRuntime() ? (
+            {/* The project's own computer: watch the AI work, or take over. */}
+            {isElectronRuntime() ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn(
                   "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  browserRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  environmentRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                 )}
-                onClick={openBrowserRailPane}
-                title="Browser"
-                aria-label="Browser"
-                aria-pressed={browserRailActive}
+                onClick={openEnvironmentPane}
+                title={t("aiopc.browser.live_view")}
+                aria-label={t("aiopc.browser.live_view")}
+                aria-pressed={environmentRailActive}
               >
-                <Globe size={15} />
+                <Cpu size={15} />
               </Button>
             ) : null}
             <Button
@@ -2203,7 +2018,6 @@ export function SessionPage(props: SessionPageProps) {
             <DebugRailSlot />
           </aside>
           </div>
-          <BrowserPresentationSurfaces sessionId={sidePanelSessionKey} controller={browserPresentation} />
           {/* With a thread open, the session surface owns the debug panel. */}
           {props.developerMode && !canRenderReactSurface ? <SessionDebugPanel
             client={props.openworkServerClient} workspaceId={props.runtimeWorkspaceId ?? ""} workspaceRoot={props.selectedWorkspaceRoot}
