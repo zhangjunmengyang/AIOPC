@@ -641,7 +641,7 @@ export type OpenworkSessionGroupDefinition = {
 export type OpenworkSessionGroupState = {
   groups: OpenworkSessionGroupDefinition[];
   assignments: Record<string, string>;
-  sessionMeta: Record<string, { agentName?: string; projectId?: string | null }>;
+  sessionMeta: Record<string, { agentName?: string; projectId?: string | null; taskId?: string }>;
 };
 
 export type OpenworkSessionGroupEvent = {
@@ -1303,6 +1303,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/meta/${encodeURIComponent(sessionId)}`,
         { token, hostToken, method: "PATCH", body: { agentName }, timeoutMs: timeouts.config },
+      ),
+    setSessionTask: (workspaceId: string, sessionId: string, taskId: string | null, expectedTaskId?: string | null) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/task/${encodeURIComponent(sessionId)}`,
+        { token, hostToken, method: "PATCH", body: { taskId, expectedTaskId }, timeoutMs: timeouts.config },
       ),
     renameSessionGroup: (workspaceId: string, groupId: string, label: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(

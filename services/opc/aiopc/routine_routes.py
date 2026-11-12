@@ -5,7 +5,10 @@ from starlette.requests import Request
 from aiopc.routines import LocalRoutines
 
 
-def routine_routes(service: LocalRoutines, workspace, body, respond):
+def routine_routes(service: LocalRoutines, workspace_context, body, respond):
+    def workspace(request: Request):
+        return workspace_context(request)[0]
+
     async def collection(request: Request):
         root = workspace(request)
         if request.method == "POST":
@@ -26,7 +29,8 @@ def routine_routes(service: LocalRoutines, workspace, body, respond):
         return respond({"items": service.runs(root, routine_id)})
 
     async def results(request: Request):
-        return respond({"items": service.results(workspace(request))})
+        root, company = workspace_context(request)
+        return respond({"items": service.results(root, is_project=root != company.root)})
 
     return [
         ("/api/routines", collection, ["GET", "POST"]),

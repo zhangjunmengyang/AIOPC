@@ -247,8 +247,9 @@ class LocalRoutines:
                               (routine_id,)).fetchall()
         return [_receipt(row) for row in rows]
 
-    def results(self, workspace: Path) -> list[dict]:
-        is_project = workspace.parent.name == "projects"
+    def results(self, workspace: Path, *, is_project: bool | None = None) -> list[dict]:
+        if is_project is None:
+            is_project = workspace.parent.name == "projects"
         if is_project:
             self._project(workspace)
         scope = "routines.project" if is_project else "routines.company"

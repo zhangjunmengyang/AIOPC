@@ -1,10 +1,15 @@
 import { requestSessionGroupMove } from "@/react-app/domains/session/sidebar/session-project-move";
 import { ProjectsPage } from "@/react-app/domains/aiopc/projects-page";
+import { ProjectWorkNavigation, readProjectWorkSection } from "@/react-app/domains/aiopc/project-work-navigation";
+import { TaskBoardPage } from "@/react-app/domains/aiopc/tasks/task-board-page";
+import type { ProjectTask } from "@/react-app/domains/aiopc/tasks/task-client";
+import { RoutinesPage } from "@/react-app/domains/automations/routines-page";
+import { useQuery } from "@tanstack/react-query";
 import { executionDirectoryForGroup, projectNameFromGroupId, sessionProjectContext } from "@/react-app/domains/aiopc/company-project";
 import { submitSessionDraft,type SessionSubmissionResult } from "@/react-app/domains/session/surface/session-submission";
 /** @jsxImportSource react */
 import { toast } from "@/components/ui/sonner";
-import { newSessionDraftOwnerKey,newSessionDraftSlot,openNewSessionDraft } from "@/react-app/domains/session/chat/new-session-destination";
+import { newSessionDestinationFromSearch,newSessionDraftOwnerKey,newSessionDraftSlot,openNewSessionDraft } from "@/react-app/domains/session/chat/new-session-destination";
 import { PendingConversationView } from "@/react-app/domains/session/chat/pending-conversation";
 import { acknowledgePendingSession,beginPendingConversation,bindPendingConversationWorkspace,createPendingConversation,ensurePendingConversationContext,pendingConversationAutoSendPayload,pendingConversationForRoute,publishPendingSideChat,usePendingConversationStore,withPendingSessionPublication,type PendingConversation } from "@/react-app/domains/session/chat/pending-conversation-store";
 import { assignNewSessionGroup, createProjectSessionGroup, refreshSessionGroupState } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -338,6 +343,7 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
   const spaceRouteActive = location.pathname === "/space";
   const accountsRouteActive = location.pathname === "/accounts";
   const projectsRouteActive = /^\/workspace\/[^/]+\/projects(?:\/|$)/.test(location.pathname);
+  const projectWorkSection = readProjectWorkSection(location.search);
   const pageRouteActive = spaceRouteActive || accountsRouteActive || projectsRouteActive || Boolean(companyPage);
   const local = useLocal();
   const sessionDraftScope = "local";
@@ -989,6 +995,14 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
     return list.filter(isLibraryAgent);
   }, [engineReloadVersion, executionOpencodeClient, selectedExecutionDirectory]);
 
+  const taskRoles = useQuery({
+    queryKey: ["aiopc", selectedExecutionDirectory, "task-roles", opencodeBaseUrl, engineReloadVersion],
+    queryFn: listAgents,
+    enabled: projectsRouteActive && projectWorkSection === "tasks" && Boolean(executionOpencodeClient),
+    select: (agents) => agents.map(({ name }) => ({ name })),
+    retry: false,
+  });
+
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
     const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
     const tab = route.replace(/^\/settings\/?/, "").replace(/^\/+|\/+$/g, "") || "general";
@@ -1094,7 +1108,8 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
         }
         return reloadCoordinator.withEngineReady(selectedWorkspaceId, async () => {
           assertCurrent();
-          const initialRole = await ensurePendingConversationContext(sessionDraftScope, selectedWorkspaceId, targetSessionId, assignNewSessionGroup, sessionManagementStore.getState().setSessionAgent);
+          const initialRole = await ensurePendingConversationContext(sessionDraftScope, selectedWorkspaceId, targetSessionId, assignNewSessionGroup,
+            sessionManagementStore.getState().setSessionAgent, sessionManagementStore.getState().setSessionTask);
           assertCurrent();
           // Per-conversation model memory: a session that picked its own model
           // sends with it (and its variant) instead of the global default.
@@ -1479,7 +1494,8 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
         }
         return reloadCoordinator.withEngineReady(workspace.id, async () => {
           assertCurrent();
-          const initialRole = await ensurePendingConversationContext(sessionDraftScope, workspace.id, targetSessionId, assignNewSessionGroup, sessionManagementStore.getState().setSessionAgent);
+          const initialRole = await ensurePendingConversationContext(sessionDraftScope, workspace.id, targetSessionId, assignNewSessionGroup,
+            sessionManagementStore.getState().setSessionAgent, sessionManagementStore.getState().setSessionTask);
           assertCurrent();
           const sessionModelSelection = getSessionModelSelection(targetSessionId);
           const sendModel = sessionModelSelection?.model ?? local.prefs.defaultModel;
@@ -1696,13 +1712,14 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
   // the same skills/commands/agent/model controls before the session is
   // created. The route seeds these choices into the created session.
   const newTaskComposerContext = useMemo<NewTaskComposerContext | null>(() => {
+    const destination = newSessionDestinationFromSearch(selectedWorkspaceId, location.search);
     return {
       client,
       workspaceId: selectedWorkspaceId || null,
       executionDirectory: selectedExecutionDirectory,
-      destination: { workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined },
-      draftSessionId: newSessionDraftSlot({ workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined }),
-      draftOwnerKey: newSessionDraftOwnerKey(sessionDraftScope, { workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined }),
+      destination,
+      draftSessionId: newSessionDraftSlot(destination),
+      draftOwnerKey: newSessionDraftOwnerKey(sessionDraftScope, destination),
       workspaceOptions: workspaces.map((workspace) => ({ id: workspace.id, label: workspace.displayNameResolved })),
       onChangeDestination: (source, destination, state) => {
         const targetKey = newSessionDraftOwnerKey(sessionDraftScope, destination);
@@ -2626,9 +2643,8 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
   ));
   const paletteDraftGroupMove = useMemo(() => {
     if (!selectedWorkspaceId) return null;
-    const draftGroup = new URLSearchParams(location.search).get("draftGroup") || undefined;
     const destination = paletteDraftDestination
-      ?? (selectedSessionId ? null : { workspaceId: selectedWorkspaceId, groupId: draftGroup });
+      ?? (selectedSessionId ? null : newSessionDestinationFromSearch(selectedWorkspaceId, location.search));
     // Groups are listed for the selected workspace only.
     if (!destination || destination.workspaceId !== selectedWorkspaceId) return null;
     const draftOwnerKey = newSessionDraftOwnerKey(sessionDraftScope, destination);
@@ -3077,6 +3093,50 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
     navigate(name ? `${path}?${new URLSearchParams({ project: name })}` : path);
   };
 
+  const projectGroupId = overviewProjectName ? `proj:${overviewProjectName}` : null;
+  const workProjectName = projectNameFromGroupId(projectGroupId);
+  const projectOverview = <ProjectsPage companyRoot={selectedWorkspaceRoot} projectName={overviewProjectName}
+    onOpenProject={(name) => navigate(workspaceProjectsRoute(selectedWorkspaceId, name))}
+    onCreated={(project) => createProjectSessionGroup(selectedWorkspaceId, project.name)}
+    onStartConversation={(project) => { openNewSessionDraft({ workspaceId: selectedWorkspaceId, groupId: project.id }, navigate); focusPromptSoon(); }}
+    onOpenKnowledge={(project) => navigate(`${spaceRoute()}?${new URLSearchParams({ project: project.name })}`)} />;
+  let projectPage = projectOverview;
+  if (projectsRouteActive && workProjectName && projectGroupId && selectedWorkspaceRoot) {
+    const projectPath = executionDirectoryForGroup(selectedWorkspaceRoot, projectGroupId);
+    const projectHref = workspaceProjectsRoute(selectedWorkspaceId, workProjectName);
+    const startTaskSession = (task: ProjectTask) => {
+      const destination = { workspaceId: selectedWorkspaceId, groupId: projectGroupId, taskId: task.id };
+      const slot = newSessionDraftSlot(destination);
+      const owner = newSessionDraftOwnerKey(sessionDraftScope, destination);
+      if (owner && !getSessionDraft(sessionDraftScope, selectedWorkspaceId, slot)?.text
+          && !useComposerStateStore.getState().sessions[owner]?.draft) {
+        const prompt = currentLocale() === "zh"
+          ? `继续推进任务「${task.title}」（${task.id}）。先用 task_get 查看任务说明和交付物。`
+          : `Continue the task “${task.title}” (${task.id}). Use task_get to read its details and deliverables first.`;
+        const saved = saveSessionDraft(sessionDraftScope, selectedWorkspaceId, slot, { text: prompt, mode: "prompt" });
+        if (saved.status !== "conflict") useComposerStateStore.getState().setDraft(owner, prompt);
+      }
+      openNewSessionDraft(destination, navigate);
+      focusPromptSoon();
+    };
+    const sessions = projectWorkSection === "tasks" ? (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).flatMap((session) => {
+      const meta = selectedWorkspaceGroupState?.sessionMeta?.[session.id];
+      return meta?.projectId === projectGroupId ? [{ id: session.id, title: session.title, taskId: meta.taskId }] : [];
+    }) : [];
+    projectPage = <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <ProjectWorkNavigation projectHref={projectHref} current={projectWorkSection} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {projectWorkSection === "tasks" ? (
+          <TaskBoardPage projectPath={projectPath} projectName={workProjectName} roles={taskRoles.data ?? []} sessions={sessions}
+            onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
+            onStartSession={startTaskSession}
+            onBindSession={(taskId, sessionId) => sessionManagementStore.getState().setSessionTask(selectedWorkspaceId, sessionId, taskId, null)}
+            onUnbindSession={(taskId, sessionId) => sessionManagementStore.getState().setSessionTask(selectedWorkspaceId, sessionId, null, taskId)} />
+        ) : projectWorkSection === "routines" ? <RoutinesPage projectRoot={projectPath} /> : projectOverview}
+      </div>
+    </div>;
+  }
+
   return (
     <WorkspaceProvider
       client={opencodeClient}
@@ -3204,13 +3264,7 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
           loading={effectiveLoading}
           onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
         />
-      ) : projectsRouteActive ? (
-        <ProjectsPage companyRoot={selectedWorkspaceRoot} projectName={overviewProjectName}
-          onOpenProject={(name) => navigate(workspaceProjectsRoute(selectedWorkspaceId, name))}
-          onCreated={(project) => createProjectSessionGroup(selectedWorkspaceId, project.name)}
-          onStartConversation={(project) => { openNewSessionDraft({ workspaceId: selectedWorkspaceId, groupId: project.id }, navigate); focusPromptSoon(); }}
-          onOpenKnowledge={(project) => navigate(`${spaceRoute()}?${new URLSearchParams({ project: project.name })}`)} />
-      ) : spaceRouteActive ? (
+      ) : projectsRouteActive ? projectPage : spaceRouteActive ? (
         <SpacePage workspaceRoot={selectedExecutionDirectory} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
       ) : accountsRouteActive ? (
         <AccountsPage workspaceRoot={selectedExecutionDirectory} />
@@ -3307,6 +3361,7 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
           } else {
             const query = new URLSearchParams({ pendingConversation: pending.id });
             if (destination.groupId) query.set("draftGroup", destination.groupId);
+            if (destination.taskId) query.set("draftTask", destination.taskId);
             navigate(`${workspaceSessionRoute(workspaceId)}?${query}`);
           }
           const workspace = workspaces.find((item) => item.id === workspaceId);

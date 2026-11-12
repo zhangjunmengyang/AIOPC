@@ -14,7 +14,7 @@ import { sessionManagementStorage } from "./session-management-storage";
 import { t } from "@/i18n";
 import { canAssignSessionGroup, sessionProjectId, isProjectSessionGroup, deriveProjectAssignments } from "@/react-app/domains/aiopc/company-project";
 
-export type SessionMeta = Record<string, { agentName?: string; projectId?: string | null }>;
+export type SessionMeta = Record<string, { agentName?: string; projectId?: string | null; taskId?: string }>;
 
 export type SessionGroupDefinition = {
   id: string;
@@ -37,6 +37,7 @@ export type SessionGroupServerState = {
 type SessionGroupSyncHandler = {
   getGroups: (workspaceId: string) => Promise<SessionGroupServerState | null>;
   setSessionAgent: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<SessionGroupServerState | null>;
+  setSessionTask?: (workspaceId: string, sessionId: string, taskId: string | null, expectedTaskId?: string | null) => Promise<SessionGroupServerState | null>;
   createGroup: (workspaceId: string, group: SessionGroupDefinition) => Promise<SessionGroupServerState | null>;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => Promise<SessionGroupServerState | null>;
   reorderGroups: (workspaceId: string, groupIds: string[]) => Promise<SessionGroupServerState | null>;
@@ -108,6 +109,7 @@ type SessionManagementState = {
 
 type SessionManagementActions = {
   setSessionAgent: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<void>;
+  setSessionTask: (workspaceId: string, sessionId: string, taskId: string | null, expectedTaskId?: string | null) => Promise<void>;
   togglePin: (sessionId: string) => void;
   reorderPins: (sessionIds: string[]) => void;
   markUnread: (sessionId: string) => void;
@@ -159,6 +161,7 @@ function sameSessionMeta(left: SessionMeta = {}, right: SessionMeta = {}): boole
   const entries = Object.entries(left);
   return entries.length === Object.keys(right).length
     && entries.every(([id, meta]) => Object.hasOwn(right, id) && meta.agentName === right[id]?.agentName
+      && meta.taskId === right[id]?.taskId
       && meta.projectId === right[id]?.projectId && Object.hasOwn(meta, "projectId") === Object.hasOwn(right[id]!, "projectId"));
 }
 
@@ -273,6 +276,18 @@ export async function refreshSessionGroupState(workspaceId: string): Promise<voi
   const state = await sessionGroupSyncHandler?.getGroups(workspaceId);
   if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
   applySessionGroupServerState(workspaceId, state, version);
+}
+
+async function runSessionGroupMutation(workspaceId: string, request: () => Promise<SessionGroupServerState | null> | undefined) {
+  const version = beginSessionGroupMutation(workspaceId);
+  try {
+    const state = await request();
+    if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
+    completeSessionGroupMutation(workspaceId, version, state);
+  } catch (error) {
+    completeSessionGroupMutation(workspaceId, version, null);
+    throw error;
+  }
 }
 
 function syncServerState(request: Promise<SessionGroupServerState | null> | undefined, workspaceId: string): void {
@@ -512,17 +527,11 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         );
       },
 
-      setSessionAgent: async (workspaceId, sessionId, agentName) => {
-        const version = beginSessionGroupMutation(workspaceId);
-        try {
-          const state = await sessionGroupSyncHandler?.setSessionAgent(workspaceId, sessionId, agentName);
-          if (!state) throw new Error("Workspace is disconnected. Reconnect and try again.");
-          completeSessionGroupMutation(workspaceId, version, state);
-        } catch (error) {
-          completeSessionGroupMutation(workspaceId, version, null);
-          throw error;
-        }
-      },
+      setSessionAgent: (workspaceId, sessionId, agentName) => runSessionGroupMutation(workspaceId,
+        () => sessionGroupSyncHandler?.setSessionAgent(workspaceId, sessionId, agentName)),
+
+      setSessionTask: (workspaceId, sessionId, taskId, expectedTaskId) => runSessionGroupMutation(workspaceId,
+        () => sessionGroupSyncHandler?.setSessionTask?.(workspaceId, sessionId, taskId, expectedTaskId)),
 
       forgetWorkspace: (workspaceId) =>
         set((state) => {
