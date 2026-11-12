@@ -23,3 +23,10 @@ export async function assertCompanyRoleSkillInput(
     if (!roleAllowsSkill(policy, { id, path })) throw new ApiError(403, "role_skill_denied", `当前角色没有使用技能 ${id} 的权限`);
   }
 }
+
+export function companyRoleV1Prompt(policy: RoleSkillPolicy, payload: Record<string, unknown>): string {
+  // V1's deprecated per-turn tool toggles are persisted on the session and can
+  // replace the agent's native permission. Preserve unrelated tool choices.
+  const tools = isRecord(payload.tools) ? Object.fromEntries(Object.entries(payload.tools).filter(([name]) => name !== "skill" && name !== "*")) : undefined;
+  return JSON.stringify({ ...payload, agent: policy.role.id, ...(tools ? { tools } : {}) });
+}

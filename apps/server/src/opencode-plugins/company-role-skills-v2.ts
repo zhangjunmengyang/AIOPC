@@ -1,3 +1,4 @@
+import { skillPermissionMatches } from "./company-role-permission-pattern.js";
 import { companyRoleSkillCandidates, listCompanyRoles, readAdoptedProjectSkillNames, roleAllowsSkill, type RoleSkillPolicy } from "../company-roles.js";
 
 type Registration = { dispose(): Promise<void> };
@@ -18,14 +19,9 @@ export type CompanyRoleSkillContext = {
   }) => Promise<void>): Promise<Registration> };
 };
 
-function matches(value: string, pattern: string): boolean {
-  const expression = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*").replaceAll("?", ".");
-  return new RegExp(`^${expression}$`).test(value);
-}
-
 function previousSkillEffect(rules: Rule[], id: string): Rule["effect"] {
   for (const rule of [...rules].reverse()) {
-    if (matches("skill", rule.action) && matches(id, rule.resource)) return rule.effect;
+    if (skillPermissionMatches("skill", rule.action) && skillPermissionMatches(id, rule.resource)) return rule.effect;
   }
   return "allow";
 }

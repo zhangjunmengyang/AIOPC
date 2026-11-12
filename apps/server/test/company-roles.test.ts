@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { applyCompanyRoleSkillsV1 } from "../src/opencode-plugins/company-role-skills-v1.js";
 import {
   ensureCompanyRolePacks,
   listCompanyRoles,
@@ -82,4 +83,17 @@ test("role allowlist takes only its resident package and complete adoptions in i
   expect(roleAllowsSkill(policy, { id: "other-role", path: skillPath(company, "other-role") })).toBe(false);
   expect(roleAllowsSkill(policy, { id: "linked", path: skillPath(project, "linked") })).toBe(false);
   expect(roleAllowsSkill({ ...policy, project: null }, { id: "adopted", path: skillPath(project, "adopted") })).toBe(false);
+}));
+
+
+test("v1 role permission materializes named rules without removing an existing global skill restriction", () => temporaryCompany(async company => {
+  await ensureCompanyRolePacks(company);
+  const project = join(company, "projects", "A");
+  await skill(project, "adopted");
+  await put(join(project, ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: { adopted: locked("adopted") } }));
+  const agent = { permission: { edit: "ask" as const } };
+  await applyCompanyRoleSkillsV1({ permission: { skill: { "brand-logo": "deny" } }, agent: { "brand-designer": agent } }, project);
+  expect(agent.permission).toMatchObject({ edit: "ask", skill: {
+    "*": "deny", "brand-naming": "allow", "brand-logo": "deny", adopted: "allow",
+  } });
 }));

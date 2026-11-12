@@ -113,7 +113,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
-import { assertCompanyRoleSkillInput } from "./company-role-admission.js";
+import { assertCompanyRoleSkillInput, companyRoleV1Prompt } from "./company-role-admission.js";
 import { listCompanyRoles, readAdoptedProjectSkillNames, readRoleSkillPolicy } from "./company-roles.js";
 import { readSessionGroupState, registerCreatedSessionGroup, resolveSessionProject } from "./session-groups.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
@@ -2109,9 +2109,23 @@ async function forwardOpencodeRequest(input: {
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
-  const body = method === "GET" || method === "HEAD"
+  let body = method === "GET" || method === "HEAD"
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
+  if (method === "POST" && workspace && companyDirectory && directory && sessionId && body instanceof ArrayBuffer
+    && /^\/session\/[^/]+\/(?:message|prompt_async|command|shell)$/.test(normalizedPath)) {
+    const binding = (await readSessionGroupState(input.config, workspace.id)).state.sessionMeta[sessionId]?.agentName;
+    const company = await homes!.canonical(companyDirectory);
+    const policy = binding ? await readRoleSkillPolicy(company, directory === company ? null : directory, binding) : null;
+    if (policy) {
+      const payload: unknown = await new Response(body).json().catch(() => null);
+      if (isRecord(payload)) {
+        body = new TextEncoder().encode(companyRoleV1Prompt(policy, payload)).buffer;
+        headers.delete("content-length");
+        headers.set("content-type", "application/json");
+      }
+    }
+  }
   if (pool && method === "GET" && isEngineEventPath(proxyPath)) {
     // An open engine event stream means this workspace is visible somewhere in
     // the UI; hold its instance so the idle reaper leaves it alone until the

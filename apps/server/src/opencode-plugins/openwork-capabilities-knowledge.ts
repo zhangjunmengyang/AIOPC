@@ -1,3 +1,4 @@
+import { applyCompanyRoleSkillsV1 } from "./company-role-skills-v1.js";
 import { companyDirectoryForExecution, companyProjectInstructions } from "../company-projects.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -165,6 +166,9 @@ function excerpt(content: string, query: string): string {
 
 export const OpenWorkCapabilitiesKnowledge = async (context?: Parameters<typeof workspaceFileHooks>[0]) => ({
   ...workspaceFileHooks(context),
+  config: async (config: Parameters<typeof applyCompanyRoleSkillsV1>[0]) => {
+    if (context?.directory) await applyCompanyRoleSkillsV1(config, context.directory);
+  },
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     if (context?.directory) correctWorkspaceRoot(output.system, context.directory);
     appendAgentInstructions(output.system,
