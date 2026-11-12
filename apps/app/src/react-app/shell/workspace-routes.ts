@@ -55,6 +55,11 @@ export function spaceRoute() {
   return "/space";
 }
 
+export function workspaceProjectsRoute(workspaceId: string, projectName?: string) {
+  const base = `/workspace/${encodeURIComponent(workspaceId)}/projects`;
+  return projectName ? `${base}/${encodeURIComponent(projectName)}` : base;
+}
+
 export function accountsRoute() {
   return "/accounts";
 }

@@ -45,6 +45,7 @@ export type NewTaskComposerContext = {
   onChangeDestination?: (source: NewSessionDestination, destination: NewSessionDestination, state: ComposerSessionState) => void;
   client: OpenworkServerClient | null;
   workspaceId: string | null;
+  executionDirectory?: string;
   /** Stable identity for draft ownership across workspace, group, pane, and account changes. */
   draftOwnerKey?: string;
   /** Account/organization scope the persisted new-task draft is stored under; null while unverified. */
@@ -249,7 +250,7 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   };
 
   const listSkills = workspaceClient && workspaceId ? async (): Promise<SkillCard[]> => {
-    const response = await workspaceClient.listSkills(workspaceId, { includeGlobal: true });
+    const response = await workspaceClient.listSkills(workspaceId, { includeGlobal: true, directory: context?.executionDirectory });
     const values = (response.items ?? []).map(skill => ({ name: skill.name, path: skill.path, description: skill.description, trigger: skill.trigger, scope: skill.scope, origin: "local" } satisfies SkillCard));
     setSkills(values);
     return values;

@@ -68,6 +68,7 @@ class VideoJob(TypedDict):
     id: str
     status: str
     model: str
+    workspace: NotRequired[str]
     created_at: float
     updated_at: NotRequired[float]
     prompt: NotRequired[str]
@@ -121,6 +122,10 @@ class VideoConfig:
             api_key=os.environ.get("MAAS_VIDEO_API_KEY", ""),
             model=os.environ.get("MAAS_VIDEO_MODEL", ""),
         )
+
+
+class MediaScopeError(MediaError):
+    """A job exists, but it belongs to another project."""
 
 
 class VideoService:
@@ -187,6 +192,10 @@ class VideoService:
             raise MediaError("Video job not found.") from exc
         if not isinstance(record, dict) or record.get("id") != job_id or not isinstance(record.get("status"), str) or not isinstance(record.get("model"), str) or not isinstance(record.get("created_at"), (float, int)):
             raise MediaError("Video job record is invalid; it has not been overwritten.")
+        owner = record.get("workspace")
+        legacy_default = (self.instance / "workspace").resolve()
+        if owner != str(self.workspace) and not (owner is None and self.workspace == legacy_default):
+            raise MediaScopeError("Video job does not belong to this project.")
         for key in ("task_id", "video_url", "path", "mime", "error", "last_error", "fingerprint"):
             if key in record and not isinstance(record[key], str):
                 raise MediaError("Video job metadata is invalid; it has not been overwritten.")
@@ -195,6 +204,7 @@ class VideoService:
     def _save(self, record: VideoJob, *, exclusive: bool = False) -> bool:
         path = self._path(record["id"])
         record["updated_at"] = time.time()
+        record.setdefault("workspace", str(self.workspace))
         data = json.dumps(record, ensure_ascii=False, indent=2).encode()
         # Every write is under the per-job cross-process lock. Initial records
         # also use atomic rename, so read-only list/get never see a partial JSON.
@@ -237,7 +247,11 @@ class VideoService:
         return self._public(self._read(job_id))
 
     def has_job(self, job_id: str) -> bool:
-        return self._path(job_id).is_file()
+        try:
+            self._read(job_id)
+            return True
+        except MediaError:
+            return False
 
     def safe_error(self, error: object) -> str:
         return self._safe(error)
@@ -245,7 +259,12 @@ class VideoService:
     def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100.")
-        records = [self._read(path.stem) for path in self.jobs.glob("vid_*.json")]
+        records = []
+        for path in self.jobs.glob("vid_*.json"):
+            try:
+                records.append(self._read(path.stem))
+            except MediaScopeError:
+                continue
         records.sort(key=lambda record: record["created_at"], reverse=True)
         return [self._public(record) for record in records[:limit]]
 
@@ -311,7 +330,7 @@ class VideoService:
         if request_id is not None and (not request_id.strip() or len(request_id) > 200):
             raise ValueError("request_id must contain 1–200 characters.")
         fingerprint = hashlib.sha256(json.dumps([prompt, first_frame, options, self.config.model], sort_keys=True).encode()).hexdigest()
-        identifier = hashlib.sha256(request_id.encode()).hexdigest()[:24] if request_id else uuid.uuid4().hex[:24]
+        identifier = hashlib.sha256(f"{self.workspace}\x00{request_id}".encode()).hexdigest()[:24] if request_id else uuid.uuid4().hex[:24]
         job_id = "vid_" + identifier
         async with self._job_lock(job_id):
             if self._path(job_id).exists():

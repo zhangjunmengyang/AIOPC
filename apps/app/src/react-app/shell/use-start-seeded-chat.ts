@@ -11,9 +11,10 @@ import { workspaceSessionRoute } from "./workspace-routes";
  */
 export function useStartSeededChat() {
   const navigate = useNavigate();
-  return useCallback((draft: string) => {
+  return useCallback((draft: string, destination?: { groupId?: string }) => {
     setPendingChatSeed(draft);
     const workspaceId = readActiveWorkspaceId();
-    navigate(workspaceId ? workspaceSessionRoute(workspaceId) : "/session");
+    const route = workspaceId ? workspaceSessionRoute(workspaceId) : "/session";
+    navigate(destination?.groupId ? `${route}?${new URLSearchParams({ draftGroup: destination.groupId })}` : route);
   }, [navigate]);
 }

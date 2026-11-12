@@ -1950,6 +1950,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "environment":
         return (
           <EnvironmentView
+            companyRoot={selectedWorkspaceRoot}
             client={openworkServerSnapshot.openworkServerClient}
             onApplyChanges={isDesktopRuntime() ? handleApplyEnvironmentChanges : undefined}
             applyBlocked={activeReloadBlockingSessions.length > 0}

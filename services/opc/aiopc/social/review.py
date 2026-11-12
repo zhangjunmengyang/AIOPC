@@ -42,6 +42,7 @@ class PublishReview:
         account, info, post = checked["account"], checked["info"], checked["post"]
         if str(account.get("project") or "") != str(self.social.workspace):
             raise SocialError("这个账号不属于当前项目环境，请先在当前项目登录")
+        binding = self.social.binding(account=account)
         payload = {"account_id": account_id, "text": post.text, "title": post.title,
                    "media": [str(path) for path in post.media], "form": post.form, "tags": post.tags}
         review_id = secrets.token_hex(16)
@@ -55,7 +56,8 @@ class PublishReview:
             hashes[str(path)] = file_digest(frozen)
         preview = {"payload": payload, "identity_id": str((account.get("identity") or {}).get("id") or ""),
                    "platform_id": account["platform"], "account": info["name"], "platform": info["platform_name"],
-                   "media_hashes": hashes}
+                   "media_hashes": hashes, "environment": binding["id"] if binding else account.get("environment"),
+                   "bindingRevision": binding["bindingRevision"] if binding else None}
         review = {"id": review_id, "digest": digest(preview), "created_at": time.time(),
                   "status": "awaiting_approval", **preview}
         self._save(review)
@@ -104,7 +106,7 @@ class PublishReview:
             if not path.is_file():
                 raise SocialError("稿件不存在，请重新生成审批卡片")
             review = json.loads(path.read_text(encoding="utf-8"))
-            frozen = {key: review[key] for key in ("payload", "account", "platform", "platform_id", "identity_id", "media_hashes")}
+            frozen = {key: review.get(key) for key in ("payload", "account", "platform", "platform_id", "identity_id", "media_hashes", "environment", "bindingRevision")}
             if revision != review["digest"] or revision != digest(frozen):
                 raise SocialError("稿件已变更，请重新确认")
             if review["status"] == "composer_filled":
@@ -131,16 +133,25 @@ class PublishReview:
             account = self.social._account(review["payload"]["account_id"])
             if str(account.get("project") or "") != str(self.social.workspace):
                 raise SocialError("账号已更换项目环境，请重新确认")
+            binding = self.social.binding(account=account)
+            if binding and (binding["id"] != review.get("environment") or binding["bindingRevision"] != review.get("bindingRevision")):
+                raise SocialError("账号环境或绑定已经变更，请重新生成审批卡片")
             review["status"] = "filling"
             self._save(review)
         try:
             if account["platform"] != review["platform_id"] or str((account.get("identity") or {}).get("id") or "") != review["identity_id"]:
                 raise SocialError("目标账号已变更，请重新确认")
-            if account["platform"] in DETECTED:
-                identity = await (await self.social.browser()).account(account["platform"])
-                if not identity or str(identity.get("id") or "") != review["identity_id"]:
-                    raise SocialError("项目环境当前登录的账号与审批稿件不一致，请重新登录并确认")
-            result = await self.social.publish(**{**review["payload"], "media": frozen_media})
+            browser = await self.social.browser_for(account)
+            async with self.social._browser_operation(browser):
+                current = self.social.binding(account=account)
+                if current and (current["id"] != review.get("environment") or current["bindingRevision"] != review.get("bindingRevision")):
+                    raise SocialError("账号环境或绑定已经变更，请重新生成审批卡片")
+                if account["platform"] in DETECTED:
+                    identity = await browser.account(account["platform"])
+                    if not identity or str(identity.get("id") or "") != review["identity_id"]:
+                        self.social.store.mark_checked(account["id"], False)
+                        raise SocialError("项目环境当前登录的账号与审批稿件不一致，请重新登录并确认")
+                result = await self.social.publish(**{**review["payload"], "media": frozen_media})
         except Exception:
             review["status"] = "failed"
             self._save(review)

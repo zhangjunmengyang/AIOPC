@@ -66,13 +66,20 @@ class AccountStore:
         return account
 
     def upsert(self, platform: str, identity: dict[str, Any], *, alias: str = "", route: str = "browser",
-               project: str | None = None) -> dict[str, Any]:
+               project: str | None = None, environment: str | None = None) -> dict[str, Any]:
         """Save the account found logged in; the same platform identity updates in place."""
         platform = normalize_platform(platform)
         with self._lock:
             accounts = self._read()
             existing = next((item for item in accounts if item["platform"] == platform
-                             and item.get("identity", {}).get("id") == identity["id"]), None)
+                             and item.get("identity", {}).get("id") == identity["id"]
+                             and (item.get("project") or None) == (project or None)
+                             and (item.get("environment") or None) == (environment or None)), None)
+            if existing is None and environment:
+                existing = next((item for item in accounts if item["platform"] == platform
+                                 and item.get("identity", {}).get("id") == identity["id"]
+                                 and item.get("project") == project and not item.get("environment")
+                                 and item.get("logged_in") is False), None)
             now = time.time()
             if existing is None:
                 existing = {"id": "acc_" + uuid.uuid4().hex[:12], "platform": platform, "route": route,
@@ -80,13 +87,44 @@ class AccountStore:
                 accounts.append(existing)
             elif alias:
                 existing["alias"] = alias.strip()[:80]
+            if environment and route == "browser":
+                # One browser profile has one active identity per platform.
+                # Retain the previous account's history and API credentials,
+                # but stop advertising its browser login immediately.
+                for account in accounts:
+                    if (account["platform"] == platform and account.get("environment") == environment
+                            and str(account.get("identity", {}).get("id") or "") != str(identity["id"])):
+                        account.update(logged_in=False, checked_at=now, updated_at=now)
             existing.update(identity={key: str(identity.get(key) or "")[:500] for key in ("id", "name", "handle", "url")},
                             verified_at=now, updated_at=now, logged_in=True, checked_at=now)
             if project is not None:
                 # The login lives in this project's environment, and belongs to that project alone.
                 existing["project"] = str(project)
+            if environment:
+                existing["environment"] = environment
             self._write(accounts)
             return dict(existing)
+
+    def assign_legacy_environment(self, project: str, environment: str) -> None:
+        with self._lock:
+            accounts = self._read()
+            changed = False
+            for account in accounts:
+                if account.get("project") == project and not account.get("environment"):
+                    account["environment"] = environment
+                    changed = True
+            if changed:
+                self._write(accounts)
+
+    def detach_environment(self, environment: str) -> None:
+        """Keep identities/history with their project after a browser profile reset."""
+        with self._lock:
+            accounts = self._read()
+            for account in accounts:
+                if account.get("environment") == environment:
+                    account.pop("environment", None)
+                    account.update(logged_in=False, checked_at=time.time(), updated_at=time.time())
+            self._write(accounts)
 
     def mark_checked(self, account_id: str, logged_in: bool) -> None:
         """Record whether the login was still there when AIOPC last looked."""

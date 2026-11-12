@@ -113,7 +113,7 @@ let probeMounts = 0;
 let probeUnmounts = 0;
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-const input = { developerMode: false, preservePendingConversationRoute: false, onServerSettingsChanged: () => undefined, onHostInfo: () => undefined };
+const input = { developerMode: false, workspaceRoute: "session" as "session" | "projects", preservePendingConversationRoute: false, onServerSettingsChanged: () => undefined, onHostInfo: () => undefined };
 
 function Probe() {
   handle.current = useWorkspaceRouteState(input);
@@ -158,6 +158,7 @@ async function mount(workspaceId = "ws_1", sessionId?: string, initialPath?: str
           <Route path="/session" element={<Probe />} />
           <Route path="/workspace/:workspaceId/session" element={<Probe />} />
           <Route path="/workspace/:workspaceId/session/:sessionId" element={<Probe />} />
+          <Route path="/workspace/:workspaceId/projects/:projectName?" element={<Probe />} />
           <Route path="/workspace/:workspaceId/settings/*" element={<div>Settings</div>} />
         </Routes>
       </MemoryRouter>,
@@ -174,6 +175,7 @@ async function publishRouting(v2: boolean) {
 }
 
 beforeEach(() => {
+  input.workspaceRoute = "session";
   input.preservePendingConversationRoute = false;
   window.localStorage.clear();
   workspaces = defaultWorkspaces;
@@ -200,6 +202,18 @@ afterEach(async () => {
 });
 
 afterAll(async () => { if (ownedDom) await GlobalRegistrator.unregister(); });
+
+test("a project page keeps its company route and an unavailable company falls back to its project list", async () => {
+  input.workspaceRoute = "projects";
+  await mount("missing", undefined, "/workspace/missing/projects/Alpha");
+  await publishRouting(false);
+  expect(router.pathname).toBe("/workspace/ws_1/projects");
+  expect(route().selectedSessionId).toBeNull();
+  await navigate("/workspace/ws_2/projects/Beta");
+  expect(route().selectedWorkspaceId).toBe("ws_2");
+  expect(router.pathname).toBe("/workspace/ws_2/projects/Beta");
+  expect(hydrationRequests).toEqual([]);
+});
 
 test("workspace initialization preserves an owned pending route and never hydrates its local identity", async () => {
   input.preservePendingConversationRoute = true;

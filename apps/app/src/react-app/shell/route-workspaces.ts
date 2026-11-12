@@ -28,6 +28,8 @@ export type RouteWorkspace = OpenworkWorkspaceInfo & {
  * fields that the sidebar probes defensively via getSessionStatus.
  */
 export type RouteSession = Session & {
+  executionDirectory?: string;
+  projectId?: string | null;
   status?: unknown;
   state?: unknown;
   runStatus?: unknown;
