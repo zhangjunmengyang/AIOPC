@@ -7,10 +7,11 @@ import { companyPageRoute, type CompanyPage } from "@/react-app/shell/company-pa
 
 import { CompanyCostsPage } from "./company-costs-page";
 import { CompanyOrgPage } from "./company-org-page";
+import type { TaskHref } from "./goals/goal-detail";
 import { CompanyGoalsPage } from "./goals/goals-page";
 
 export function CompanyPageOutlet({
-  page, goalId, workspaceId, endpoint, loading, onOpenSession,
+  page, goalId, workspaceId, endpoint, loading, onOpenSession, taskHref,
 }: {
   page: CompanyPage;
   goalId?: string;
@@ -18,6 +19,7 @@ export function CompanyPageOutlet({
   endpoint: ResolvedWorkspaceEndpoint | null;
   loading: boolean;
   onOpenSession: (sessionId: string) => void;
+  taskHref?: TaskHref;
 }) {
   const navigate = useNavigate();
   const company = useMemo(() => {
@@ -44,6 +46,6 @@ export function CompanyPageOutlet({
   if (page === "costs") {
     return <CompanyCostsPage key={companyScope} companyId={companyScope} readCosts={company.readCosts} onOpenSession={onOpenSession} />;
   }
-  return <CompanyGoalsPage key={companyScope} client={company.client} workspaceId={company.id} goalId={goalId}
+  return <CompanyGoalsPage key={companyScope} client={company.client} workspaceId={company.id} goalId={goalId} taskHref={taskHref}
     onOpenGoal={(id) => navigate(companyPageRoute(workspaceId, "goals", id))} />;
 }

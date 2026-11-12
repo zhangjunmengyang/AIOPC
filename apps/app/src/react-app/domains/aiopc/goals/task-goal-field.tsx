@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Link } from "react-router";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { CompanyGoal, CompanyGoalsClient } from "./goal-client";
 import { goalSelectClass, goalText } from "./goal-copy";
 import { useCompanyGoals } from "./goal-query";
@@ -9,25 +11,25 @@ export type TaskGoalFieldProps = {
   workspaceId: string;
   projectId: string;
   taskId: string;
-  onOpenGoal?: (goalId: string) => void;
+  goalHref?: (goalId: string) => string;
 };
 
-function GoalLinkForm({ current, choices, saving, error, onSave, onOpenGoal }: {
+function GoalLinkForm({ current, choices, saving, error, onSave, goalHref }: {
   current: CompanyGoal | undefined;
   choices: CompanyGoal[];
   saving: boolean;
   error: Error | null;
   onSave: (goalId: string | null) => void;
-  onOpenGoal?: (goalId: string) => void;
+  goalHref?: (goalId: string) => string;
 }) {
   const [selected, setSelected] = useState(current?.id ?? "");
   return (
     <section className="space-y-2">
       <p className="text-xs text-muted-foreground">{goalText("projectGoal")}</p>
-      {current && onOpenGoal ? (
-        <Button size="sm" variant="ghost" className="max-w-full justify-start px-0" onClick={() => onOpenGoal(current.id)}>
+      {current && goalHref ? (
+        <Link to={goalHref(current.id)} className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "max-w-full justify-start px-0")}>
           <span className="truncate">{current.title}</span>
-        </Button>
+        </Link>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <select
@@ -48,7 +50,7 @@ function GoalLinkForm({ current, choices, saving, error, onSave, onOpenGoal }: {
   );
 }
 
-export function TaskGoalField({ client, workspaceId, projectId, taskId, onOpenGoal }: TaskGoalFieldProps) {
+export function TaskGoalField({ client, workspaceId, projectId, taskId, goalHref }: TaskGoalFieldProps) {
   const { goals, link } = useCompanyGoals(client, workspaceId);
   if (!client || !workspaceId) return null;
   if (goals.isPending) return <p role="status" className="text-sm text-muted-foreground">{goalText("loading")}</p>;
@@ -65,7 +67,7 @@ export function TaskGoalField({ client, workspaceId, projectId, taskId, onOpenGo
       saving={link.isPending}
       error={link.error}
       onSave={(goalId) => link.mutate({ projectId, taskId, goalId })}
-      onOpenGoal={onOpenGoal}
+      goalHref={goalHref}
     />
   );
 }

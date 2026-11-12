@@ -3,8 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { currentLocale, setLocale, type Language } from "../src/i18n";
 import type { CompanyGoalSnapshot, CompanyGoalsClient } from "../src/react-app/domains/aiopc/goals/goal-client";
+import { projectTaskHref } from "../src/react-app/domains/aiopc/project-work-navigation";
+import { companyPageRoute } from "../src/react-app/shell/company-page-routes";
+import { workspaceProjectsRoute } from "../src/react-app/shell/workspace-routes";
 
 const ownsDom = !GlobalRegistrator.isRegistered;
 if (ownsDom) GlobalRegistrator.register({ url: "http://localhost/" });
@@ -54,20 +58,22 @@ async function mountGoals() {
   queryClient.setQueryData(["aiopc", project.directory, "tasks"], { items: [{ id: "task-1", title: "整理首版材料", description: "核对截图和文案", status: "in_progress" }] });
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
-  const opened: string[] = [];
-  const onOpenTask = (projectId: string, taskId: string) => opened.push(`${projectId}/${taskId}`);
   const render = (goalId?: string) => act(async () => root.render(
     <QueryClientProvider client={queryClient}>
-      <div id="goal-page-test">
-        <CompanyGoalsPage client={client} workspaceId="company" goalId={goalId} onOpenTask={onOpenTask} />
-      </div>
-      <div id="task-field-test">
-        <TaskGoalField client={client} workspaceId="company" projectId={project.id} taskId="task-1" />
-      </div>
+      <MemoryRouter>
+        <div id="goal-page-test">
+          <CompanyGoalsPage client={client} workspaceId="company" goalId={goalId}
+            taskHref={(project, taskId) => projectTaskHref(workspaceProjectsRoute("company", project.name), taskId)} />
+        </div>
+        <div id="task-field-test">
+          <TaskGoalField client={client} workspaceId="company" projectId={project.id} taskId="task-1"
+            goalHref={(goalId) => companyPageRoute("company", "goals", goalId)} />
+        </div>
+      </MemoryRouter>
     </QueryClientProvider>,
   ));
   await render("project-goal");
-  return { host, opened, render, close: async () => {
+  return { host, render, close: async () => {
     await act(async () => root.unmount());
     queryClient.clear();
     host.remove();
@@ -101,8 +107,8 @@ test("task field and goal details share saves, show task titles, and open the li
       button(task, "保存关联").click();
     });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-    await act(async () => button(page, "整理首版材料").click());
-    expect(view.opened).toEqual(["proj:甲/task-1"]);
+    expect(page.querySelector("article a")?.getAttribute("href")).toBe("/workspace/company/projects/%E7%94%B2?view=tasks&task=task-1");
+    expect(task.querySelector("a")?.getAttribute("href")).toBe("/workspace/company/goals/project-goal");
     await act(async () => button(page, "解除关联").click());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
     expect(task.querySelector<HTMLSelectElement>("select")?.value).toBe("");

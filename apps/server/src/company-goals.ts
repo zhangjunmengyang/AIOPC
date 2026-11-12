@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
 import { listCompanyProjects, type CompanyProject } from "./company-projects.js";
 import { ApiError } from "./errors.js";
+import { isProjectTaskId, requireProjectTaskFile } from "./project-task-files.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { createWorkspaceKvStore } from "./workspace-kv-store.js";
@@ -114,22 +113,15 @@ export function saveCompanyGoal(
   });
 }
 
-async function requireTask(project: CompanyProject, taskId: string): Promise<void> {
-  const directory = join(project.directory, "tasks");
-  if ((await lstat(directory).catch(() => null))?.isDirectory()
-      && (await lstat(join(directory, `${taskId}.md`)).catch(() => null))?.isFile()) return;
-  throw new ApiError(404, "task_not_found", "当前项目中没有此任务");
-}
-
 export async function setCompanyGoalTaskLink(
   config: ServerConfig, company: Company, projectId: string, taskId: string, value: unknown,
 ): Promise<CompanyGoalSnapshot> {
   // Match the Markdown task store's filename contract. Task files stay read-only here.
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(taskId)) {
+  if (!isProjectTaskId(taskId)) {
     throw new ApiError(400, "invalid_task_id", "任务 ID 无效");
   }
   const goalId = nullableId(value, "项目目标");
-  if (goalId !== null) await requireTask(requireProject(await listCompanyProjects(company.path), projectId), taskId);
+  if (goalId !== null) await requireProjectTaskFile(requireProject(await listCompanyProjects(company.path), projectId).directory, taskId);
   return updateCompanyGoals(config, company, ({ items, links, projects }) => {
     requireProject(projects, projectId);
     if (goalId !== null && requireGoal(items, goalId).projectId !== projectId) {

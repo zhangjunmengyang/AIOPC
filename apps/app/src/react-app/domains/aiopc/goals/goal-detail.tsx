@@ -1,33 +1,27 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { ArrowUpRight, ListChecks, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useAiopc } from "../aiopc-client";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useProjectTasks } from "../tasks/task-client";
 import type { CompanyGoal, CompanyGoalProject, CompanyGoalSnapshot } from "./goal-client";
 import { goalSelectClass, goalText } from "./goal-copy";
 
-type GoalTaskStatus = "todo" | "in_progress" | "in_review" | "done" | "blocked";
-type GoalTask = { id: string; title: string; description: string; status: GoalTaskStatus };
-type OpenTask = (projectId: string, taskId: string) => void;
+export type TaskHref = (project: CompanyGoalProject, taskId: string) => string;
 type ChangeLink = (projectId: string, taskId: string, goalId: string | null) => void;
 
-function LinkedProjectTasks({ goal, project, links, onOpenTask, onLink, saving, error }: {
+function LinkedProjectTasks({ goal, project, links, taskHref, onLink, saving, error }: {
   goal: CompanyGoal;
   project: CompanyGoalProject;
   links: CompanyGoalSnapshot["links"];
-  onOpenTask?: OpenTask;
+  taskHref?: TaskHref;
   onLink: ChangeLink;
   saving: boolean;
   error: Error | null;
 }) {
   const [taskId, setTaskId] = useState("");
-  const { ready, request, connection } = useAiopc(project.directory);
-  const tasks = useQuery({
-    queryKey: ["aiopc", project.directory, "tasks"],
-    queryFn: () => request<{ items: GoalTask[] }>("GET", "/api/tasks"),
-    enabled: ready,
-    retry: false,
-  });
+  const { connection, tasks } = useProjectTasks(project.directory);
+  const ready = connection?.status === "ready";
   const items = tasks.data?.items ?? [];
   const byId = new Map(items.map((item) => [item.id, item]));
   const projectLinks = links.filter((link) => link.projectId === project.id);
@@ -58,11 +52,11 @@ function LinkedProjectTasks({ goal, project, links, onOpenTask, onLink, saving, 
             return (
               <li key={link.taskId} className="flex items-start gap-2 px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  {onOpenTask && (!tasks.isSuccess || item) ? (
-                    <Button type="button" variant="ghost" size="sm" className="h-auto min-h-7 w-full justify-start whitespace-normal px-0 text-left"
-                      onClick={() => onOpenTask(project.id, link.taskId)}>
+                  {taskHref && (!tasks.isSuccess || item) ? (
+                    <Link to={taskHref(project, link.taskId)} className={cn(buttonVariants({ variant: "ghost", size: "sm" }),
+                      "h-auto min-h-7 w-full justify-start whitespace-normal px-0 text-left")}>
                       <span className="wrap-anywhere">{title}</span><ArrowUpRight className="size-3 text-muted-foreground" aria-hidden />
-                    </Button>
+                    </Link>
                   ) : item ? (
                     <details className="text-sm">
                       <summary className="cursor-pointer py-1 font-medium wrap-anywhere">{title}</summary>
@@ -94,11 +88,11 @@ function LinkedProjectTasks({ goal, project, links, onOpenTask, onLink, saving, 
   );
 }
 
-export function CompanyGoalDetail({ goal, snapshot, onOpenGoal, onOpenTask, onEdit, onCreateChild, onLink, savingLink, linkError }: {
+export function CompanyGoalDetail({ goal, snapshot, onOpenGoal, taskHref, onEdit, onCreateChild, onLink, savingLink, linkError }: {
   goal: CompanyGoal;
   snapshot: CompanyGoalSnapshot;
   onOpenGoal: (id: string) => void;
-  onOpenTask?: OpenTask;
+  taskHref?: TaskHref;
   onEdit: () => void;
   onCreateChild: () => void;
   onLink: ChangeLink;
@@ -146,7 +140,7 @@ export function CompanyGoalDetail({ goal, snapshot, onOpenGoal, onOpenTask, onEd
           ) : <p className="text-sm text-muted-foreground">{goalText("noProjectGoals")}</p>}
         </section>
       ) : project ? (
-        <LinkedProjectTasks key={goal.id} goal={goal} project={project} links={snapshot.links} onOpenTask={onOpenTask}
+        <LinkedProjectTasks key={goal.id} goal={goal} project={project} links={snapshot.links} taskHref={taskHref}
           onLink={onLink} saving={savingLink} error={linkError} />
       ) : null}
     </article>

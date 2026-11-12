@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { GOAL_STATUSES, type CompanyGoal, type CompanyGoalsClient, type CompanyGoalSnapshot, type GoalFields, type GoalStatus } from "./goal-client";
 import { goalSelectClass, goalText } from "./goal-copy";
-import { CompanyGoalDetail } from "./goal-detail";
+import { CompanyGoalDetail, type TaskHref } from "./goal-detail";
 import { useCompanyGoals } from "./goal-query";
 
 export type CompanyGoalsPageProps = {
@@ -14,7 +14,7 @@ export type CompanyGoalsPageProps = {
   workspaceId: string;
   goalId?: string;
   onOpenGoal?: (goalId: string) => void;
-  onOpenTask?: (projectId: string, taskId: string) => void;
+  taskHref?: TaskHref;
 };
 type Editor = { parentId: string | null; goal?: CompanyGoal };
 
@@ -151,7 +151,7 @@ export function CompanyGoalsPage(props: CompanyGoalsPageProps) {
   return <CompanyGoalsWorkspace key={`${props.client?.baseUrl ?? ""}/${props.workspaceId}`} {...props} />;
 }
 
-function CompanyGoalsWorkspace({ client, workspaceId, goalId, onOpenGoal, onOpenTask }: CompanyGoalsPageProps) {
+function CompanyGoalsWorkspace({ client, workspaceId, goalId, onOpenGoal, taskHref }: CompanyGoalsPageProps) {
   const heading = useId();
   const [localGoalId, setLocalGoalId] = useState<string>();
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -204,7 +204,7 @@ function CompanyGoalsWorkspace({ client, workspaceId, goalId, onOpenGoal, onOpen
                 goal={goal}
                 snapshot={snapshot}
                 onOpenGoal={openGoal}
-                onOpenTask={onOpenTask}
+                taskHref={taskHref}
                 onEdit={() => openEditor({ parentId: goal.parentId, goal })}
                 onCreateChild={() => openEditor({ parentId: goal.id })}
                 onLink={(projectId, taskId, goalId) => link.mutate({ projectId, taskId, goalId })}

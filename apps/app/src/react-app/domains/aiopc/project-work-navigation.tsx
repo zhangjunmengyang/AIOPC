@@ -24,6 +24,18 @@ export function projectWorkHref(projectHref: string, section: ProjectWorkSection
   return section === "overview" ? projectHref : `${projectHref}?view=${section}`;
 }
 
+export function readProjectTaskId(search: string): string | undefined {
+  const params = new URLSearchParams(search);
+  const taskId = params.get("task");
+  return params.get("view") === "tasks" && taskId && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(taskId)
+    ? taskId : undefined;
+}
+
+export function projectTaskHref(projectHref: string, taskId?: string | null): string {
+  const board = projectWorkHref(projectHref, "tasks");
+  return taskId ? `${board}&task=${encodeURIComponent(taskId)}` : board;
+}
+
 export function ProjectWorkNavigation({ projectHref, current }: { projectHref: string; current: ProjectWorkSection }) {
   const text = copy();
   return (
