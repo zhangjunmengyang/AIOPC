@@ -154,6 +154,7 @@ test("saves only changed fields and keeps the requested status of a dependency-b
     await act(async () => button("Edit task").click());
     const form = document.querySelector("form")!;
     const assignee = form.elements.namedItem("assignee") as HTMLSelectElement;
+    expect(document.getElementById(assignee.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("Assignee");
     expect((form.elements.namedItem("status") as HTMLSelectElement).value).toBe("in_progress");
     await act(async () => {
       assignee.value = "";

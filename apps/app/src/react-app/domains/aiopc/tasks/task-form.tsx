@@ -82,14 +82,16 @@ export function TaskForm(props: {
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block space-y-1.5 font-medium">
-            <span>{taskText("status")}</span>
-            <select name="status" className={taskSelectClass} value={fields.status} onChange={(event) => edit("status", event.target.value as TaskStatus)}>
+            <span id={`${id}-status`}>{taskText("status")}</span>
+            <select name="status" aria-labelledby={`${id}-status`} className={taskSelectClass} value={fields.status}
+              onChange={(event) => edit("status", event.target.value as TaskStatus)}>
               {TASK_STATUSES.map((status) => <option key={status} value={status}>{taskText(status)}</option>)}
             </select>
           </label>
           <label className="block space-y-1.5 font-medium">
-            <span>{taskText("assignee")}</span>
-            <select name="assignee" className={taskSelectClass} value={fields.assignee ?? ""} onChange={(event) => edit("assignee", event.target.value || null)}>
+            <span id={`${id}-assignee`}>{taskText("assignee")}</span>
+            <select name="assignee" aria-labelledby={`${id}-assignee`} className={taskSelectClass} value={fields.assignee ?? ""}
+              onChange={(event) => edit("assignee", event.target.value || null)}>
               <option value="">{taskText("unassigned")}</option>
               {props.roles.map((role) => <option key={role.name} value={role.name}>{role.label ?? role.name}</option>)}
               {fields.assignee && !props.roles.some((role) => role.name === fields.assignee)
@@ -99,8 +101,9 @@ export function TaskForm(props: {
         </div>
         {otherTasks.length || fields.parent ? (
           <label className="block space-y-1.5 font-medium">
-            <span>{taskText("parent")}</span>
-            <select name="parent" className={taskSelectClass} value={fields.parent ?? ""} onChange={(event) => edit("parent", event.target.value || null)}>
+            <span id={`${id}-parent`}>{taskText("parent")}</span>
+            <select name="parent" aria-labelledby={`${id}-parent`} className={taskSelectClass} value={fields.parent ?? ""}
+              onChange={(event) => edit("parent", event.target.value || null)}>
               <option value="">{taskText("noParent")}</option>
               {otherTasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
               {fields.parent && !byId.has(fields.parent) ? <option value={fields.parent}>{fields.parent}</option> : null}
@@ -141,8 +144,9 @@ export function TaskForm(props: {
                 <Input required value={item.path} placeholder="content/launch.md" onChange={(event) => setDeliverable(index, { path: event.target.value })} />
               </label>
               <label className="block space-y-1.5">
-                <span>{taskText("deliverableKind")}</span>
-                <select value={item.kind} className={taskSelectClass} onChange={(event) => setDeliverable(index, { kind: event.target.value as TaskDeliverable["kind"] })}>
+                <span id={`${id}-deliverable-kind-${index}`}>{taskText("deliverableKind")}</span>
+                <select value={item.kind} aria-labelledby={`${id}-deliverable-kind-${index}`} className={taskSelectClass}
+                  onChange={(event) => setDeliverable(index, { kind: event.target.value as TaskDeliverable["kind"] })}>
                   <option value="file">{taskText("file")}</option>
                   <option value="publish">{taskText("publish")}</option>
                 </select>
