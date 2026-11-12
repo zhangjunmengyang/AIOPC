@@ -24,8 +24,8 @@ from pathlib import Path
 from typing import Any, get_type_hints
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP, Image
-from mcp.types import ToolAnnotations
+from mcp.server.fastmcp import Context, FastMCP, Image
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
@@ -36,6 +36,7 @@ from aiopc.media.video import VideoConfig, VideoService
 from aiopc.platforms import catalog
 from aiopc.project import Project, ProjectError
 from aiopc.sandbox import Sandboxes
+from aiopc.social.review import RESOURCE, PublishReview
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
 from aiopc.xdata import XDataService
@@ -45,7 +46,7 @@ WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHin
 EXTERNAL = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 INSTRUCTIONS = (
     "The current workspace folder is the project (one product). Before writing for it, read get_project_brief; "
-    "keep its memory in its files. Publishing always fills the platform's composer in the built-in browser and the user "
+    "keep its memory in its files. Publishing first shows an approval card. Only a user-approved card fills the composer in the project environment; the user "
     "presses publish; never claim something is published until the user confirms. Generated images and videos are "
     "saved into the project's assets; show their paths."
 )
@@ -166,8 +167,8 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     async def social_connect(platform: str, alias: str = "", check: bool = False, method: str = "auto") -> Any:
         """Connect an account: the first call opens the platform's login page where this project's browser runs and
         shows it here (scan the QR code); after the user logs in, call again with check=true to detect and save it.
-        method: auto (this project's own environment), sandbox or embedded (AIOPC's built-in browser). An account
-        belongs to the environment it logged in to."""
+        method: auto (this project's own environment), or browser for GitHub without CLI authorization.
+        An account belongs to the environment it logged in to."""
         result = await social.connect(platform, alias, check, method=method)
         return _with_image(result, result.pop("screenshot", ""))
 
@@ -175,7 +176,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     for name, method, description, annotation in [
         ("get_project_brief", get_project_brief, get_project_brief.__doc__, READ),
         ("init_project", init_project, init_project.__doc__, WRITE),
-        ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海. All connect by logging in once in the built-in browser; fills_composer platforms can also get a post filled in via social_publish, the others you operate in the browser directly.", READ),
+        ("social_platforms", catalog, "Every platform AIOPC knows, grouped 国内 / 出海. All connect by logging in once in the project environment; fills_composer platforms can also get a post filled in via social_publish, the others you operate in the browser directly.", READ),
         ("social_accounts", social.accounts, "Connected accounts this project can use: status (ready / needs_login), forms (post / article / video) and readable data.", READ),
         ("project_environment", social.environment, "This project's environment: the computer its browser runs on (local sandbox or a cloud browser), whether it is running, and which providers are set up.", READ),
         ("start_project_environment", social.start_environment, "Start this project's environment if it is not running. Do this before connecting accounts or publishing when the environment is not up.", WRITE),
@@ -186,7 +187,6 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         ("login_click", social.login_click, "Press a login button or tab by its visible text (e.g. 获取验证码, 登录, 密码登录).", WRITE),
         ("login_screenshot", login_screenshot, login_screenshot.__doc__, READ),
         ("login_finish", social.login_finish, "Check whether the login worked and save the account. Call after the user scanned or after pressing the login button.", WRITE),
-        ("social_publish", social.publish, "Fill a platform's composer for one account, where that account is logged in; the user reviews and presses publish. Show the final copy and images to the user first.", EXTERNAL),
         ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
         ("social_history", social.history, "Recent publishing activity of this project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
@@ -205,6 +205,32 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         ("x_data_usage", xdata.usage, "Estimated third-party X data requests and cost over recent days.", READ),
     ]:
         _tool(server, name, method, description, annotation)
+
+    reviews = PublishReview(social)
+
+    @server.tool(name="social_publish", annotations=WRITE,
+                 meta={"ui": {"resourceUri": RESOURCE}})
+    def social_publish(account_id: str, text: str, title: str = "", media: list[str] | None = None,
+                       form: str = "post", tags: list[str] | None = None) -> CallToolResult:
+        """Prepare a frozen draft and show its approval card. Does not fill or publish anything.
+        The user confirms on the card; only then is the project's website composer filled.
+        After rejection or edits, call again with the revised copy. Never approve on the user's behalf."""
+        review = reviews.prepare(account_id, text, title, media, form, tags)
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(review, ensure_ascii=False))],
+                              structuredContent=review, _meta={"media": reviews.preview_media(review)})
+
+    @server.tool(name="social_confirm_publish", annotations=EXTERNAL,
+                 meta={"ui": {"resourceUri": RESOURCE, "visibility": ["app"]}})
+    async def social_confirm_publish(review_id: str, revision: str, decision: str, ctx: Context) -> dict:
+        """User action from the approval card: approve fills the page; reject returns the draft. Never publishes."""
+        meta = ctx.request_context.meta
+        action = meta.model_dump().get("io.aiopc/app-action") if meta else None
+        return await reviews.decide(review_id, revision, decision, app_action=action)
+
+    @server.resource(RESOURCE, mime_type="text/html;profile=mcp-app",
+                     meta={"ui": {"prefersBorder": True}})
+    def publish_review_ui() -> str:
+        return (Path(__file__).parent / "ui" / "publish-review.html").read_text(encoding="utf-8")
 
     if library is not None and library.is_dir():
         from aiopc.library import Library

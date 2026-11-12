@@ -6,9 +6,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../components/
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../../components/ui/alert-dialog";
 import { t } from "../../../../i18n";
 import { useLocal } from "../../../kernel/local-provider";
-import { useDesktopConfig } from "../../cloud/desktop-config-provider";
-import { useEnterpriseActivationRequired } from "../../cloud/enterprise-activation-gate";
-import { useBrandAppName } from "../../cloud/brand-theme";
 import { notifyAlert } from "../../../shell/notifications";
 import { useElectronUpdaterState } from "./electron-updater-state";
 
@@ -28,13 +25,6 @@ function useUpdatePreference(key: string) {
 
 function useUpdater() {
   const local = useLocal();
-  const desktopConfig = useDesktopConfig();
-  // This provider mounts above the enterprise activation gate. Before activation
-  // no Den is known, and until the desktop config has resolved once (or failed
-  // and fallen back to the last known one) the organization's allowed desktop
-  // versions cannot be honoured, so no update check (and therefore no
-  // download) may run yet.
-  const allowedVersionsKnown = !useEnterpriseActivationRequired() && !desktopConfig.loading;
   const [updateAutoCheck, setUpdateAutoCheck] = useUpdatePreference("openwork.react.settings.update-auto-check");
   // Older Settings wrote "0" even when the user never touched the old opt-in.
   // Start the automatic-download default once, then retain future opt-outs.
@@ -52,9 +42,6 @@ function useUpdater() {
     onReleaseChannelChange,
     updateAutoCheck,
     updateAutoDownload,
-    allowedVersionsKnown,
-    desktopConfig: desktopConfig.config,
-    refreshDesktopConfig: desktopConfig.refreshFresh,
     setError,
   });
   return { ...updater, updateAutoCheck, setUpdateAutoCheck, updateAutoDownload, setUpdateAutoDownload };
@@ -75,7 +62,7 @@ export function DesktopUpdaterProvider({ children }: { children: ReactNode }) {
 
 export function DesktopUpdateButton() {
   const updater = useContext(DesktopUpdaterContext);
-  const appName = useBrandAppName();
+  const appName = "AIOPC";
   const [confirmRestart, setConfirmRestart] = useState(false);
   if (updater?.updateStatus?.state !== "ready") return null;
   return (

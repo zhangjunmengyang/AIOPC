@@ -1,9 +1,8 @@
 import { processBlankSlateProfile, resolveBlankSlateLaunch } from "./blank-slate-profile.mjs";
-import { DESKTOP_POLICY_ENFORCEMENT_ENABLED } from "@openwork/types/den/desktop-policies-runtime";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import {
   cp,
   lstat,
@@ -31,7 +30,6 @@ import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createNativeContextMenus } from "./context-menu.mjs";
 import { createNativeDictation, createSpeechDictation } from "./native-dictation.mjs";
-import { applyBrandAppName } from "./brand-app-name.mjs";
 import { isExternalWebUrl, isMainWindowAllowedNavigation } from "./main-window-navigation.mjs";
 import { deferBrowserStop } from "@openwork/computer-use/browser-navigation";
 import { createComputerControl } from "@openwork/computer-use/computer-control";
@@ -48,17 +46,6 @@ import {
   executeNukeFreshStart,
   runPendingNukeCleanup,
 } from "./nuke.mjs";
-import {
-  createConnectLinkReplayGuard,
-  extractConnectExchange,
-  resolveConnectExchangeUrl,
-  verifyConnectLinkUrl,
-} from "./connect-link.mjs";
-import {
-  applyDesktopBootstrapBrandIcon,
-  persistConnectLinkBranding,
-} from "./connect-link-branding.mjs";
-import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
 import { chatOutputFolder, listChatOutputFiles, openChatWorkspaceFile, opensFromChatOutput, readChatOutputImage, resolveChatFilePath, resolveWorkspaceFileLaunch } from "./workspace-file-access.mjs";
 import { createOpenWithApplications, installedApplicationCommand } from "./open-with-applications.mjs";
@@ -70,17 +57,9 @@ import { createDesktopTransferRegistry } from "./binary-transfer.mjs";
 import {
   createLinuxDesktopIntegration,
 } from "./linux-desktop-integration.mjs";
-import { automationRunnerDisabledReason, createComputerDescriber, createDesktopAutomationRunner, normalizeRunnerBaseUrl } from "./automation-runner.mjs";
-import { createComputerRequestAnswers } from "./session-runner-computer-requests.mjs";
-import { applyDesktopEngineForcePolicy } from "./engine-force-policy.mjs";
-import {
-  desktopActivationRequired,
-  enterprisePreactivationCommandAllowed,
-  resolveDesktopDistribution,
-} from "./desktop-distribution.mjs";
+import { resolveDesktopDistribution } from "./desktop-distribution.mjs";
 import {
   applyWindowsTaskbarIcon,
-  windowsBrandAppUserModelId,
   windowsBrandShortcutDetails,
   windowsBrandShortcutFileName,
   windowsInstalledShortcutFileName,
@@ -90,13 +69,6 @@ import {
 import { createWindowsShortcutScheduler, readWindowsShortcutMarker } from "./windows-shortcut.mjs";
 import { resetMacDockIcon } from "./brand-icon-darwin.mjs";
 import { createDesktopVaultKeyProvider } from "./secure-vault-key.mjs";
-import { desktopFreeBootstrapEligible } from "./desktop-free-eligibility.mjs";
-import {
-  captureStartupException,
-  clearOpenworkSentrySession,
-  initOpenworkSentry,
-  setOpenworkSentrySession,
-} from "./sentry.mjs";
 import { installStdioErrorHandlers } from "./stdio-errors.mjs";
 import {
   createRendererCrashRecovery,
@@ -112,7 +84,7 @@ import { createStartupLog, startupPhase, withStartupPhase } from "./startup-log.
 import { createWindowStateStore } from "./window-state.mjs";
 
 // Startup milestones (epoch ms) for the renderer's one-per-launch startup
-// report to Den. The OS process creation time includes module loading; the
+// diagnostics. The OS process creation time includes module loading; the
 // time this module started evaluating is the fallback.
 const MAIN_MODULE_STARTED_AT = Date.now();
 function resolveProcessStartedAt() {
@@ -147,7 +119,6 @@ const {
   nativeImage,
   nativeTheme,
   net: electronNet,
-  powerMonitor,
   powerSaveBlocker,
   Notification: ElectronNotification,
   screen,
@@ -167,13 +138,8 @@ const speechDictation = createSpeechDictation({
 });
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
-const AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT = "openwork:automation-runner:credential-rejected";
 const isDevMode = process.env.OPENWORK_DEV_MODE === "1";
-const DESKTOP_DISTRIBUTION = resolveDesktopDistribution({
-  isPackaged: app.isPackaged,
-  packageFlavor: Reflect.get(desktopPackageMetadata, "openworkDistribution"),
-  environmentFlavor: process.env.OPENWORK_DESKTOP_DISTRIBUTION,
-});
+const DESKTOP_DISTRIBUTION = resolveDesktopDistribution();
 const TAURI_APP_IDENTIFIER = DESKTOP_DISTRIBUTION.appIdentifier;
 const DEV_APP_IDENTIFIER = `${DESKTOP_DISTRIBUTION.appIdentifier}.dev`;
 const DESKTOP_PROTOCOL_SCHEME = DESKTOP_DISTRIBUTION.protocolScheme;
@@ -185,14 +151,9 @@ const BLANK_SLATE_LAUNCH = resolveBlankSlateLaunch({
   profile: processBlankSlateProfile,
 });
 const APP_NAME = BLANK_SLATE_LAUNCH.appName;
-let currentDisplayAppName = APP_NAME;
+const currentDisplayAppName = APP_NAME;
 installStdioErrorHandlers();
 installSocketTypeOfServiceGuard();
-await initOpenworkSentry({
-  app,
-  distribution: DESKTOP_DISTRIBUTION,
-  packageMetadata: desktopPackageMetadata,
-});
 const BASE_APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const APP_IDENTIFIER = resolveAppIdentifier({
   appIdentifierOverride: process.env.OPENWORK_ELECTRON_APP_IDENTIFIER,
@@ -255,16 +216,7 @@ const computerControl = createComputerControl({
   onTiming: (_sessionId, step) => console.info(`[computer] ${step.name} computer ${Math.round(step.computerMs)} ms${step.modelMs === undefined ? "" : ` · model ${Math.round(step.modelMs)} ms`}${step.followed === undefined ? "" : step.followed ? " · in view" : " · background"}`),
   runProgram: async (request, host, signal, options) => (await import("@openwork/computer-use/runtime")).runComputerProgram(request, host, signal, options),
   browserTask: (request, options) => sandboxBrowser.browserTask(request, options),
-  readRemoteFeatureEnabled: async () => {
-    const server = await runtimeManager.openworkServerInfo();
-    if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) return false;
-    // loopback-fetch: the local policy service verifies the signed-in Den identity.
-    const response = await fetch(`${server.baseUrl}/managed-policy/remote-computers`, {
-      headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}` }, signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) return false;
-    return (await response.json())?.enabled === true;
-  },
+  readRemoteFeatureEnabled: async () => true,
   // This computer first, then any configured VM (see computer-targets.mjs).
   adapters: [process.platform === "win32" ? createWindowsComputerAdapter({
     resourcesPath: process.resourcesPath,
@@ -322,27 +274,14 @@ function assertComputerSender(event) {
   }
 }
 
-/** Rules come from the local server, which verifies the member's policy with Den. */
-async function readComputerRules() {
-  const server = await runtimeManager.openworkServerInfo();
-  if (!server.baseUrl || !(server.clientToken ?? server.ownerToken)) throw new Error("OpenWork server unavailable");
-  // loopback-fetch: the policy service is the locally managed OpenWork server.
-  const response = await fetch(`${server.baseUrl}/managed-policy/computer-rules`, {
-    headers: { Authorization: `Bearer ${server.clientToken ?? server.ownerToken}` }, signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error("Computer rules unavailable");
-  const payload = await response.json();
-  return Array.isArray(payload?.rules) ? payload.rules : [];
-}
-
 const computerAgentPermissions = createComputerAgentPermissions({
-  readRules: readComputerRules,
+  readRules: async () => [],
   confirm: async (rule) => {
     if (!mainWindow || mainWindow.isDestroyed()) return false;
     const answer = await dialog.showMessageBox(mainWindow, {
       type: "question", buttons: ["Allow in this chat", "Cancel"], defaultId: 1, cancelId: 1,
       message: "Let the agent use your computer in this chat?",
-      detail: `Your organization's agent permissions ask before agents use apps on this computer (set for ${rule.source}).`,
+      detail: `Allow computer access for ${rule.source} in this chat.`,
     });
     return answer.response === 0;
   },
@@ -465,7 +404,7 @@ const linuxDesktopIntegration = createLinuxDesktopIntegration({
   app,
   dialog,
   appName: APP_NAME,
-  distribution: DESKTOP_DISTRIBUTION.flavor,
+  distribution: "public",
 });
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
@@ -611,11 +550,8 @@ async function resolveArchitectureInfo() {
   const systemArch = resolveSystemArch();
   const version = app.getVersion();
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const assetName = `openwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
-  // The public release manifest only matters when the installed build does not
-  // match the machine; a matching install never shows a download, so it must
-  // not contact the release host (an unactivated enterprise install in
-  // particular has no business reaching anything before its Den is known).
+  const assetName = `aiopc-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
+  // Only check release metadata when this installation needs another architecture.
   const latestDownloadUrl = appArch === systemArch ? null : await resolveCorrectArchitectureDownloadUrl(targetArch);
   const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
@@ -631,36 +567,8 @@ async function resolveArchitectureInfo() {
   };
 }
 
-// On Windows and Linux Chromium's spellchecker downloads its Hunspell
-// dictionary from Google (redirector.gvt1.com). Electron starts that load the
-// moment the default session object is first created, so an unactivated
-// install clears the dictionary list in the same synchronous step (the
-// download itself waits on a file-thread hop) and restores it once activation
-// completes. macOS uses the native spellchecker; these calls are no-ops there.
-// An empty persisted list is re-defaulted by Electron on the next boot, so a
-// quit before activation cannot leave the spellchecker off for good.
-let spellcheckerLanguagesHeldForActivation = null;
-function holdSpellcheckerUntilActivation(bootstrapConfig) {
-  if (!desktopActivationRequired(DESKTOP_DISTRIBUTION, bootstrapConfig)) return;
-  const defaultSession = session.defaultSession;
-  spellcheckerLanguagesHeldForActivation = defaultSession.getSpellCheckerLanguages();
-  defaultSession.setSpellCheckerLanguages([]);
-}
-function releaseSpellcheckerAfterActivation() {
-  const languages = spellcheckerLanguagesHeldForActivation;
-  spellcheckerLanguagesHeldForActivation = null;
-  if (!languages || languages.length === 0) return;
-  session.defaultSession.setSpellCheckerLanguages(languages);
-}
-
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
-const BRAND_ICON_MAX_BYTES = 2 * 1024 * 1024;
-const BRAND_ICON_FETCH_TIMEOUT_MS = 10_000;
-// Keep in sync with ee/apps/den-api/src/brand-icon-validation.ts so logo CDNs
-// that expect a browser request behave the same at save time and apply time.
-const BRAND_ICON_FETCH_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-
 function scheduleBlankSlateProfileCleanup() {
   if (!BLANK_SLATE_LAUNCH.rootPath) return;
   try {
@@ -681,24 +589,6 @@ function scheduleBlankSlateProfileCleanup() {
   } catch (error) {
     console.warn("[blank-slate] failed to schedule temporary profile cleanup", error);
   }
-}
-let brandIconApplySequence = 0;
-let brandIconRuntimeState = { applied: false, sourceUrl: null, reason: null };
-
-function websiteRulesInForcePath() {
-  return path.join(app.getPath("userData"), "agent-permissions-website-rules-in-force");
-}
-
-function brandIconCachePath() {
-  return path.join(app.getPath("userData"), "brand-icon.png");
-}
-
-function brandIconSidecarPath() {
-  return path.join(app.getPath("userData"), "brand-icon.json");
-}
-
-function brandIconWindowsPath() {
-  return path.join(app.getPath("userData"), "brand-icon.ico");
 }
 
 function defaultAppWindowsIconPath() {
@@ -769,34 +659,10 @@ async function removeWindowsBrandShortcut() {
   await rm(windowsBrandShortcutMarkerPath(), { force: true });
 }
 
-function resolveBrandIconImage() {
-  try {
-    const cachePath = brandIconCachePath();
-    if (!existsSync(cachePath)) return null;
-    const image = nativeImage.createFromPath(cachePath);
-    return image && !image.isEmpty() ? image : null;
-  } catch {
-    return null;
-  }
-}
-
 function brandIconFailure(reason, error) {
   const detail = error instanceof Error ? error.message : String(error ?? "");
   console.warn(`[brand-icon] ${reason}${detail ? `: ${detail}` : ""}`);
   return { ok: false, reason };
-}
-
-function recordBrandIconResult(result, sourceUrl) {
-  if (result.ok) {
-    brandIconRuntimeState = {
-      applied: typeof sourceUrl === "string",
-      sourceUrl: typeof sourceUrl === "string" ? sourceUrl : null,
-      reason: null,
-    };
-  } else {
-    brandIconRuntimeState = { ...brandIconRuntimeState, reason: result.reason ?? "apply-failed" };
-  }
-  return result;
 }
 
 async function applyAppIconImage(image, { taskbarIconPath = null, taskbarAppId = APP_IDENTIFIER } = {}) {
@@ -830,16 +696,13 @@ async function applyAppIconImage(image, { taskbarIconPath = null, taskbarAppId =
   }
 }
 
-async function applyDefaultAppIconImage(expectedSequence = null) {
+async function applyDefaultAppIconImage() {
   let image = APP_ICON_IMAGE;
   let taskbarIconPath = null;
   if (process.platform === "darwin") {
     // Packaged macOS builds have no loose default icon file (APP_ICON_IMAGE
     // is null), so reset the dock via dock.setIcon(null) to restore the
     // bundle icon instead of silently leaving the branded icon in place.
-    if (expectedSequence !== null && expectedSequence !== brandIconApplySequence) {
-      return { ok: false, reason: "stale" };
-    }
     try {
       const result = resetMacDockIcon(app.dock, image);
       return result.ok ? result : brandIconFailure(result.reason);
@@ -884,9 +747,6 @@ async function applyDefaultAppIconImage(expectedSequence = null) {
       return brandIconFailure("shortcut-write-failed", error);
     }
   }
-  if (expectedSequence !== null && expectedSequence !== brandIconApplySequence) {
-    return { ok: false, reason: "stale" };
-  }
   return applyAppIconImage(image, {
     taskbarIconPath,
     taskbarAppId: APP_IDENTIFIER,
@@ -917,7 +777,7 @@ function showDesktopNotification(input) {
   }
 
   const body = String(Reflect.get(record, "body") ?? "").trim();
-  const icon = resolveBrandIconImage() ?? APP_ICON_IMAGE;
+  const icon = APP_ICON_IMAGE;
   const options = {
     title,
     ...(body ? { body } : {}),
@@ -938,118 +798,6 @@ function showDesktopNotification(input) {
   }
 }
 
-async function readBrandIconSidecar() {
-  try {
-    const parsed = JSON.parse(await readFile(brandIconSidecarPath(), "utf8"));
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function readBrandIconSidecarSourceUrlSync() {
-  try {
-    const parsed = JSON.parse(readFileSync(brandIconSidecarPath(), "utf8"));
-    return parsed && typeof parsed === "object" && typeof parsed.sourceUrl === "string"
-      ? parsed.sourceUrl
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function clearBrandIconCache() {
-  await Promise.all([
-    rm(brandIconCachePath(), { force: true }),
-    rm(brandIconSidecarPath(), { force: true }),
-    rm(brandIconWindowsPath(), { force: true }),
-  ]);
-}
-
-function normalizeBrandIconSourceUrl(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? trimmed : null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchBrandIconBuffer(sourceUrl) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), BRAND_ICON_FETCH_TIMEOUT_MS);
-  try {
-    const response = await electronNet.fetch(sourceUrl, {
-      signal: controller.signal,
-      credentials: "omit",
-      cache: "no-store",
-      headers: {
-        "user-agent": BRAND_ICON_FETCH_USER_AGENT,
-        accept: "image/*,*/*",
-      },
-    });
-    if (!response.ok) return { ok: false, reason: "http-status" };
-
-    const contentLength = Number(response.headers.get("content-length") ?? "0");
-    if (Number.isFinite(contentLength) && contentLength > BRAND_ICON_MAX_BYTES) {
-      return { ok: false, reason: "too-large" };
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength > BRAND_ICON_MAX_BYTES) {
-      return { ok: false, reason: "too-large" };
-    }
-    return { ok: true, buffer };
-  } catch (error) {
-    return { ok: false, reason: error?.name === "AbortError" ? "timeout" : "fetch-failed" };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function brandIconImageRejectionReason(image) {
-  if (!image || image.isEmpty()) return "invalid-image";
-  const size = image.getSize();
-  if (size.width < 64 || size.height < 64) return "too-small";
-  const aspectRatio = size.width / size.height;
-  if (aspectRatio < 1 / 1.5 || aspectRatio > 1.5) return "invalid-aspect";
-  return null;
-}
-
-async function writeBrandIconCache(image, sourceUrl) {
-  const cachePath = brandIconCachePath();
-  const sidecarPath = brandIconSidecarPath();
-  const windowsPath = brandIconWindowsPath();
-  const suffix = `${process.pid}-${Date.now()}`;
-  const cacheTempPath = `${cachePath}.${suffix}.tmp`;
-  const sidecarTempPath = `${sidecarPath}.${suffix}.tmp`;
-  const windowsTempPath = `${windowsPath}.${suffix}.tmp`;
-  const windowsIcon = process.platform === "win32" ? windowsIconFromNativeImage(image) : null;
-  try {
-    await mkdir(path.dirname(cachePath), { recursive: true });
-    await writeFile(cacheTempPath, image.toPNG());
-    if (windowsIcon) await writeFile(windowsTempPath, windowsIcon);
-    await writeFile(sidecarTempPath, JSON.stringify({
-      sourceUrl,
-      appliedAt: new Date().toISOString(),
-      appVersion: app.getVersion(),
-    }, null, 2), "utf8");
-    await rename(cacheTempPath, cachePath);
-    if (windowsIcon) await rename(windowsTempPath, windowsPath);
-    await rename(sidecarTempPath, sidecarPath);
-  } catch (error) {
-    await Promise.all([
-      rm(cacheTempPath, { force: true }),
-      rm(sidecarTempPath, { force: true }),
-      rm(windowsTempPath, { force: true }),
-    ]).catch(() => undefined);
-    throw error;
-  }
-}
-
 async function writeWindowsIconFile(image, destination) {
   const tempPath = `${destination}.${process.pid}-${Date.now()}.tmp`;
   try {
@@ -1062,13 +810,6 @@ async function writeWindowsIconFile(image, destination) {
   }
 }
 
-async function ensureWindowsBrandIcon(image) {
-  if (process.platform !== "win32") return null;
-  const windowsPath = brandIconWindowsPath();
-  if (!existsSync(windowsPath)) await writeWindowsIconFile(image, windowsPath);
-  return windowsPath;
-}
-
 function registerWindowsDisplayShortcut() {
   if (process.platform !== "win32") return;
   runDetachedTask("prepare Windows shortcut icon", async () => {
@@ -1078,109 +819,13 @@ function registerWindowsDisplayShortcut() {
 }
 
 async function prepareWindowsDisplayShortcut() {
-  const sidecar = await readBrandIconSidecar();
-  const sourceUrl = typeof sidecar?.sourceUrl === "string" ? sidecar.sourceUrl : null;
-  const brandedImage = sourceUrl ? resolveBrandIconImage() : null;
-  if (brandedImage && sourceUrl) {
-    const iconPath = await ensureWindowsBrandIcon(brandedImage);
-    registerWindowsBrandShortcut(windowsBrandAppUserModelId(APP_IDENTIFIER, sourceUrl), iconPath);
-    return;
-  }
   const stockImage = APP_ICON_IMAGE ?? await app.getFileIcon(windowsExecutablePath(), { size: "large" });
   const iconPath = defaultAppWindowsIconPath();
   await writeWindowsIconFile(stockImage, iconPath);
   registerWindowsBrandShortcut(APP_IDENTIFIER, iconPath);
 }
 
-async function applyCachedBrandIcon(image, sourceUrl, expectedSequence = null) {
-  let taskbarIconPath = null;
-  let taskbarAppId = APP_IDENTIFIER;
-  try {
-    taskbarIconPath = await ensureWindowsBrandIcon(image);
-    if (process.platform === "win32") {
-      taskbarAppId = windowsBrandAppUserModelId(APP_IDENTIFIER, sourceUrl);
-      registerWindowsBrandShortcut(taskbarAppId, taskbarIconPath);
-      app.setAppUserModelId(taskbarAppId);
-    }
-  } catch (error) {
-    if (expectedSequence !== null && expectedSequence !== brandIconApplySequence) {
-      return { ok: false, reason: "stale" };
-    }
-    return recordBrandIconResult(brandIconFailure("write-failed", error), sourceUrl);
-  }
-  if (expectedSequence !== null && expectedSequence !== brandIconApplySequence) {
-    return { ok: false, reason: "stale" };
-  }
-  return recordBrandIconResult(await applyAppIconImage(image, {
-    taskbarIconPath,
-    taskbarAppId,
-  }), sourceUrl);
-}
-
-async function applyBrandIconUrl(value) {
-  const sequence = ++brandIconApplySequence;
-  if (value === null) {
-    const result = await applyDefaultAppIconImage(sequence);
-    if (result.reason === "stale") return result;
-    const applied = recordBrandIconResult(result, null);
-    if (!applied.ok) return applied;
-    try {
-      await clearBrandIconCache();
-      return applied;
-    } catch (error) {
-      return recordBrandIconResult(brandIconFailure("clear-failed", error), null);
-    }
-  }
-
-  const sourceUrl = normalizeBrandIconSourceUrl(value);
-  if (!sourceUrl) return recordBrandIconResult(brandIconFailure("invalid-url"), null);
-
-  const sidecar = await readBrandIconSidecar();
-  const cachedImage = resolveBrandIconImage();
-  if (sidecar?.sourceUrl === sourceUrl && cachedImage) {
-    return applyCachedBrandIcon(cachedImage, sourceUrl, sequence);
-  }
-
-  const fetched = await fetchBrandIconBuffer(sourceUrl);
-  if (sequence !== brandIconApplySequence) return { ok: false, reason: "stale" };
-  if (!fetched.ok) return recordBrandIconResult(brandIconFailure(fetched.reason), sourceUrl);
-
-  const image = nativeImage.createFromBuffer(fetched.buffer);
-  const rejectionReason = brandIconImageRejectionReason(image);
-  if (rejectionReason) return recordBrandIconResult(brandIconFailure(rejectionReason), sourceUrl);
-
-  try {
-    await writeBrandIconCache(image, sourceUrl);
-  } catch (error) {
-    if (sequence !== brandIconApplySequence) return { ok: false, reason: "stale" };
-    return recordBrandIconResult(brandIconFailure("write-failed", error), sourceUrl);
-  }
-  if (sequence !== brandIconApplySequence) {
-    const latestSidecar = await readBrandIconSidecar();
-    if (latestSidecar?.sourceUrl === sourceUrl) {
-      await clearBrandIconCache().catch(() => undefined);
-    }
-    return { ok: false, reason: "stale" };
-  }
-  return applyCachedBrandIcon(image, sourceUrl, sequence);
-}
-
-async function getBrandIconState() {
-  return { ...brandIconRuntimeState };
-}
-
-const INITIAL_BRAND_ICON_IMAGE = resolveBrandIconImage();
-const INITIAL_APP_ICON_IMAGE = INITIAL_BRAND_ICON_IMAGE ?? APP_ICON_IMAGE;
-if (INITIAL_BRAND_ICON_IMAGE) {
-  // The renderer's level-based reconcile compares getBrandIconState() with
-  // the fresh org config. Record that a cached brand icon is restored at
-  // boot so a clear whose edge the renderer missed still resets the icon.
-  brandIconRuntimeState = {
-    applied: true,
-    sourceUrl: readBrandIconSidecarSourceUrlSync(),
-    reason: null,
-  };
-}
+const INITIAL_APP_ICON_IMAGE = APP_ICON_IMAGE;
 if (process.platform === "darwin" && INITIAL_APP_ICON_IMAGE && !INITIAL_APP_ICON_IMAGE.isEmpty() && app.dock) {
   app.dock.setIcon(INITIAL_APP_ICON_IMAGE);
 }
@@ -1244,12 +889,7 @@ if (extraLaunchArgs) {
   }
 }
 configureFakeMediaForTests(app, envFlagEnabled("OPENWORK_ELECTRON_FAKE_MEDIA"));
-const DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:4096";
-const FORCE_DESKTOP_REQUIRE_SIGNIN =
-  DESKTOP_DISTRIBUTION.requireSignin || envFlagEnabled("OPENWORK_FORCE_SIGNIN");
-const DEFAULT_DESKTOP_REQUIRE_SIGNIN = FORCE_DESKTOP_REQUIRE_SIGNIN;
-
 function envFlagEnabled(name) {
   const value = process.env[name]?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes" || value === "on";
@@ -1303,82 +943,10 @@ let mainWindow = null;
 const pendingDeepLinks = [];
 const nativeContextMenus = createNativeContextMenus({ Menu, clipboard, getWindow: () => mainWindow });
 
-const workspaceStore = createWorkspaceStore({
-  app,
-  defaultDenBaseUrl: DEFAULT_DEN_BASE_URL,
-  defaultRequireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
-  forceRequireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN,
-});
+const workspaceStore = createWorkspaceStore({ app });
 
 const desktopTransfers = createDesktopTransferRegistry();
 
-const connectLinkReplayGuard = createConnectLinkReplayGuard({
-  filePath: path.join(app.getPath("userData"), "connect-link-seen.json"),
-});
-
-/**
- * @param {string} rawUrl
- * @returns {import("@openwork/types/connect-link").ConnectLinkVerifyResult}
- */
-function verifyConnectLink(rawUrl) {
-  return verifyConnectLinkUrl(String(rawUrl ?? ""), {
-    publicKeys: resolveConnectLinkPublicKeys(),
-    // http is refused everywhere except loopback targets in dev runs.
-    allowInsecureLoopback: isDevMode,
-  });
-}
-
-async function previewConnectLink(rawUrl) {
-  if (extractConnectExchange(rawUrl)) {
-    return resolveConnectExchangeUrl(rawUrl, {
-      mode: "preview",
-      fetcher: electronNet.fetch,
-      allowInsecureLoopback: isDevMode,
-    });
-  }
-  return verifyConnectLink(rawUrl);
-}
-
-async function acceptConnectLink(rawUrl) {
-  if (extractConnectExchange(rawUrl)) {
-    return resolveConnectExchangeUrl(rawUrl, {
-      mode: "exchange",
-      fetcher: electronNet.fetch,
-      allowInsecureLoopback: isDevMode,
-    });
-  }
-  return verifyConnectLink(rawUrl);
-}
-
-async function persistConnectLinkClaims(claims) {
-  return withStartupPhase("org.activation", () => persistConnectLinkClaimsInner(claims));
-}
-
-async function persistConnectLinkClaimsInner(claims) {
-  const previous = workspaceStore.readDesktopBootstrapConfigSync();
-  const config = await persistConnectLinkBranding(claims, {
-    persistBootstrap: (config) => workspaceStore.setDesktopBootstrapConfig(config),
-    applyBrandIconUrl: (iconUrl) => applyBrandIconUrl(iconUrl).catch((error) =>
-      brandIconFailure("connect-apply-failed", error)),
-    enterpriseActivation: DESKTOP_DISTRIBUTION.flavor === "enterprise"
-      ? {
-          activatedAt: new Date().toISOString(),
-          denBaseUrl: claims.den.baseUrl,
-        }
-      : null,
-  });
-  if (
-    desktopActivationRequired(DESKTOP_DISTRIBUTION, previous)
-    && !desktopActivationRequired(DESKTOP_DISTRIBUTION, config)
-  ) {
-    releaseSpellcheckerAfterActivation();
-    await uiControlServer.start().catch((error) => {
-      console.warn("[ui-control] failed to start", error);
-    });
-    await runtimeManager.prepareFreshRuntime();
-  }
-  return config;
-}
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -1477,15 +1045,7 @@ const runtimeManager = createRuntimeManager({
     });
     return response === 1;
   },
-  anonymousInference: {
-    // Signed-out Auto has no device identity: like OpenCode Zen, the gateway limits it by IP.
-    desktop: {
-      // app.getVersion() is Electron's own version in development builds.
-      currentVersion: resolveAppVersion(app),
-      eligible: () => desktopFreeBootstrapEligible(DESKTOP_DISTRIBUTION, workspaceStore.readDesktopBootstrapConfigSync()),
-    },
-  },
-  // When OPENWORK_ENCRYPTION_KEY is set, skip the safeStorage provider so it does not shadow the documented env override used by CI/headless/enterprise.
+  // When OPENWORK_ENCRYPTION_KEY is set, skip the safeStorage provider so it does not shadow the documented env override used by CI or headless runs.
   localManagedMcpVaultKey: process.env.OPENWORK_ENCRYPTION_KEY?.trim()
     ? undefined
     : createDesktopVaultKeyProvider({
@@ -1493,68 +1053,6 @@ const runtimeManager = createRuntimeManager({
         loadSafeStorage: () => require("electron").safeStorage,
       }),
 });
-const initialRunnerBootstrap = workspaceStore.readDesktopBootstrapConfigSync();
-const legacyRunnerBaseUrls = [
-  initialRunnerBootstrap.apiBaseUrl,
-  initialRunnerBootstrap.baseUrl,
-  initialRunnerBootstrap.baseUrl
-    ? `${String(initialRunnerBootstrap.baseUrl).replace(/\/+$/, "")}/api/den`
-    : null,
-  `${DEFAULT_DEN_BASE_URL}/api/den`,
-].map((value) => normalizeRunnerBaseUrl(value)).filter(Boolean);
-const automationRunnerDisabledBy = automationRunnerDisabledReason(process.env);
-if (automationRunnerDisabledBy) {
-  console.info(`[automation-runner] disabled by ${automationRunnerDisabledBy}; renderer runner configuration will be ignored`);
-}
-const desktopAutomationRunner = createDesktopAutomationRunner({
-  disabledReason: automationRunnerDisabledBy,
-  // v1 credentials predate token audiences. Keep them usable during the Den
-  // rollout only for endpoints trusted before the renderer starts issuing IPC.
-  legacyBaseUrls: legacyRunnerBaseUrls,
-  getJournalRoot: () => path.join(app.getPath("userData"), "session-runner"),
-  // Start remote-session tasks as soon as Den announces them (Den's remoteSessionPush feature).
-  remoteSessionPush: true,
-  // A task started from another computer reports the computer-use approval it waits on,
-  // so the person can answer it where they are instead of coming to this computer.
-  computerRequests: createComputerRequestAnswers(computerControl),
-  getLocalRuntime: async () => {
-    const server = await runtimeManager.openworkServerInfo();
-    return { baseUrl: server.baseUrl, token: server.clientToken ?? server.ownerToken };
-  },
-  onEnginePolicy: (policy) => applyDesktopEngineForcePolicy(policy, {
-    getServerInfo: () => runtimeManager.openworkServerInfo(),
-  }),
-  // Remote-session callers choose a computer by this label, then a workspace and model.
-  describeComputer: createComputerDescriber({
-    platform: process.platform,
-    appVersion: resolveAppVersion(app),
-    hostname: () => os.hostname(),
-    readComputerName: () => new Promise((resolve, reject) => {
-      execFile("/usr/sbin/scutil", ["--get", "ComputerName"], { timeout: 2_000 }, (error, stdout) => {
-        if (error) reject(error);
-        else resolve(String(stdout));
-      });
-    }),
-  }),
-  log: (state) => console.info(`[automation-runner] ${state}`),
-  onCredentialRejected: () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send(AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT);
-  },
-});
-
-// Scheduled Automations are due at wall-clock times a laptop routinely sleeps
-// through. Waking the machine has to poll for work now, not up to a full poll
-// interval later, or a recovered occurrence sits queued while the desktop is
-// already back.
-const wakeAutomationRunner = (wakeEvent) => {
-  if (desktopAutomationRunner.wake().polled) {
-    console.info(`[automation-runner] polling for work after ${wakeEvent}`);
-  }
-};
-powerMonitor.on("resume", () => wakeAutomationRunner("resume"));
-powerMonitor.on("unlock-screen", () => wakeAutomationRunner("unlock-screen"));
-
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
 let runtimeBootstrapPromise = null;
@@ -1618,7 +1116,6 @@ const quitSequencer = createQuitSequencer({
   stop: async () => {
     keepAwake.releaseAll();
     showShutdownScreen();
-    desktopAutomationRunner.stop();
     await Promise.all([
       disposeRuntimeBeforeQuit(),
       uiControlServer.stop(),
@@ -1711,13 +1208,6 @@ async function bootRuntimeForSelectedWorkspace() {
 
 function startRuntimeBootstrap() {
   runtimeBootstrapPromise = withStartupPhase("runtime.start", bootRuntimeForSelectedWorkspace).catch(async (error) => {
-    // Startup diagnostics only carry "engine_failed"; Sentry gets the real
-    // error, with the member's workspace folders redacted.
-    const list = await workspaceStore.readWorkspaceState().catch(() => null);
-    const workspacePaths = (list?.workspaces ?? [])
-      .map((entry) => String(entry?.path ?? "").trim())
-      .filter(Boolean);
-    captureStartupException(error, { surface: "desktop-boot", route: "runtime.start" }, { workspacePaths });
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -2047,18 +1537,6 @@ const desktopCommandHandlers = {
   "desktopNotificationShow": async (event, ...args) => {
       return showDesktopNotification(args[0] ?? {});
   },
-  "desktopSentrySetSession": async (event, ...args) => {
-      const input = args[0] ?? {};
-      return {
-        enabled: setOpenworkSentrySession({
-          userId: input.userId,
-          orgId: input.orgId,
-        }),
-      };
-  },
-  "desktopSentryClearSession": async (event, ...args) => {
-      return { enabled: clearOpenworkSentrySession() };
-  },
   "desktopSetKeepAwake": async (event, ...args) => {
       const sender = event.sender;
       if (args[0] === true && !keepAwakeSenders.has(sender.id)) {
@@ -2223,76 +1701,11 @@ const desktopCommandHandlers = {
       assertComputerSender(event);
       return computerControl.endTurn({ sessionId: String(sessionId ?? "") });
   },
-  "getDesktopBootstrapConfig": async (event, ...args) => {
-      return workspaceStore.getDesktopBootstrapConfig();
-  },
-  "debugDesktopBootstrapConfig": async (event, ...args) => {
-      return workspaceStore.debugDesktopBootstrapConfig();
-  },
-  "clearDesktopBootstrapConfig": async (event, ...args) => {
-      return workspaceStore.clearDesktopBootstrapConfig();
-  },
-  "setDesktopBootstrapConfig": async (event, ...args) => {
-      const previous = workspaceStore.readDesktopBootstrapConfigSync();
-      // A locked installation must never be able to unlock itself by writing
-      // policy through the bridge. The activation requirement is cleared only
-      // by an administrator editing desktop-bootstrap.json on disk (which this
-      // process reads, never writes) or by a completed Den activation.
-      const requested = args[0] ?? {};
-      const guarded = desktopActivationRequired(DESKTOP_DISTRIBUTION, previous)
-          && requested?.requireActivation === false
-        ? { ...requested, requireActivation: true }
-        : requested;
-      const next = await workspaceStore.setDesktopBootstrapConfig(guarded);
-      if (
-        desktopActivationRequired(DESKTOP_DISTRIBUTION, previous)
-        && !desktopActivationRequired(DESKTOP_DISTRIBUTION, next)
-      ) {
-        releaseSpellcheckerAfterActivation();
-        await uiControlServer.start().catch((error) => {
-          console.warn("[ui-control] failed to start", error);
-        });
-        await runtimeManager.prepareFreshRuntime();
-      }
-      return next;
-  },
-  "connectLinkVerify": async (event, ...args) => {
-      // Read-only check — parses + verifies the deep link, writes nothing.
-      // Replay is surfaced here too so an already-used link gets its refusal
-      // before the user is ever shown a confirmation.
-      const verified = await previewConnectLink(String(args[0] ?? ""));
-      if (verified.ok === false) return verified;
-      if (verified.transport === "signed" && await connectLinkReplayGuard.has(verified.claims.jti)) {
-        return { ok: false, code: "replayed", message: "This connect link was already used on this machine." };
-      }
-      return verified;
-  },
-  "connectLinkAccept": async (event, ...args) => {
-      // The renderer passes the raw URL back after the user confirmed; claims
-      // shaped in the renderer are never trusted (desktop-ipc trust boundary).
-      const verified = await acceptConnectLink(String(args[0] ?? ""));
-      if (verified.ok === false) return verified;
-      if (verified.transport === "exchange") {
-        const config = await persistConnectLinkClaims(verified.claims);
-        return { ok: true, config };
-      }
-      if (await connectLinkReplayGuard.has(verified.claims.jti)) {
-        return { ok: false, code: "replayed", message: "This connect link was already used on this machine." };
-      }
-      // Consume before mutation. If the replay ledger cannot be persisted,
-      // fail closed and leave the existing bootstrap untouched.
-      if (!(await connectLinkReplayGuard.remember(verified.claims.jti))) {
-        return { ok: false, code: "replayed", message: "This connect link was already used on this machine." };
-      }
-      const config = await persistConnectLinkClaims(verified.claims);
-      return { ok: true, config };
-  },
   "nukeOpenworkAndOpencodeConfigPreview": async (event, ...args) => {
       return buildNukeManifest({
         env: process.env,
         homedir: os.homedir(),
         platform: process.platform,
-        preserveBootstrap: args[0]?.preserveBootstrap !== false,
         userDataPath: app.getPath("userData"),
         workspacePaths: await workspaceStore.listLocalWorkspacePaths(),
       });
@@ -2317,9 +1730,6 @@ const desktopCommandHandlers = {
   },
   "openworkServerInfo": async (event, ...args) => {
       return runtimeManager.openworkServerInfo();
-  },
-  "automationRunnerConfigure": async (event, ...args) => {
-      return desktopAutomationRunner.configure(args[0] ?? null);
   },
   "openworkServerRestart": async (event, ...args) => {
       return runtimeManager.openworkServerRestart(args[0] ?? {});
@@ -2480,32 +1890,6 @@ const desktopCommandHandlers = {
         return error && error.trim() ? error : undefined;
       }
       return `Could not find "${target}" on disk.`;
-  },
-  "__applyBrandAppName": async (event, ...args) => {
-    currentDisplayAppName = applyBrandAppName(
-      BLANK_SLATE_LAUNCH.enabled || DESKTOP_DISTRIBUTION.flavor === "enterprise" ? null : args[0],
-      {
-      fallbackName: APP_NAME,
-      platform: process.platform,
-      updateElectronAppName: process.platform === "darwin",
-      runtimeProcess: process,
-      app,
-      applicationMenu,
-      window: mainWindow,
-      },
-    );
-    if (process.platform === "win32" && !BLANK_SLATE_LAUNCH.enabled) {
-      registerWindowsDisplayShortcut();
-    }
-    return { ok: true, appName: currentDisplayAppName };
-  },
-  "__applyBrandIcon": async (event, ...args) => {
-      if (BLANK_SLATE_LAUNCH.enabled) return { ok: true };
-      const value = args[0] === null ? null : String(args[0] ?? "");
-      return applyBrandIconUrl(value);
-  },
-  "__getBrandIconState": async (event, ...args) => {
-      return getBrandIconState();
   },
   "__getApplicationsForFile": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
@@ -2739,19 +2123,7 @@ function desktopErrorMessageWithCauses(error) {
   }
 }
 
-function assertDesktopActivation() {
-  if (desktopActivationRequired(
-    DESKTOP_DISTRIBUTION,
-    workspaceStore.readDesktopBootstrapConfigSync(),
-  )) {
-    throw new Error("OpenWork must be activated from your Den portal before this command is available.");
-  }
-}
-
 async function handleDesktopInvoke(event, command, ...args) {
-  if (!enterprisePreactivationCommandAllowed(command)) {
-    assertDesktopActivation();
-  }
   const handler = desktopCommandHandlers[command];
   if (!handler) {
     throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
@@ -2788,20 +2160,7 @@ async function createMainWindowInner() {
     });
   }
 
-  const bootSidecar = await readBrandIconSidecar();
-  const bootSourceUrl = typeof bootSidecar?.sourceUrl === "string" ? bootSidecar.sourceUrl : null;
-  const cachedBrandImage = bootSourceUrl ? resolveBrandIconImage() : null;
-  const windowIconImage = cachedBrandImage ?? APP_ICON_IMAGE;
-  if (process.platform === "win32" && cachedBrandImage && bootSourceUrl) {
-    try {
-      const taskbarIconPath = await ensureWindowsBrandIcon(cachedBrandImage);
-      const taskbarAppId = windowsBrandAppUserModelId(APP_IDENTIFIER, bootSourceUrl);
-      registerWindowsBrandShortcut(taskbarAppId, taskbarIconPath);
-      app.setAppUserModelId(taskbarAppId);
-    } catch (error) {
-      console.warn("[brand-icon] failed to register cached Windows shortcut before window creation", error);
-    }
-  }
+  const windowIconImage = APP_ICON_IMAGE;
   if (process.platform === "darwin" && windowIconImage && !windowIconImage.isEmpty() && app.dock) {
     app.dock.setIcon(windowIconImage);
   }
@@ -2833,9 +2192,7 @@ async function createMainWindowInner() {
       plugins: true,
     },
   });
-  if (cachedBrandImage && bootSourceUrl) {
-    await applyCachedBrandIcon(cachedBrandImage, bootSourceUrl);
-  }
+  await applyDefaultAppIconImage();
   windowState.track(mainWindow);
   applicationMenu.applyVisibility(mainWindow);
 
@@ -3009,9 +2366,6 @@ registerSessionPins({
   isTrusted: event => Boolean(mainWindow && event.sender === mainWindow.webContents && event.senderFrame === event.sender.mainFrame),
 });
 
-ipcMain.on("openwork:desktop-bootstrap-sync", (event) => {
-  event.returnValue = workspaceStore.readDesktopBootstrapConfigSync();
-});
 ipcMain.on("openwork:desktop-distribution-sync", (event) => {
   event.returnValue = DESKTOP_DISTRIBUTION;
 });
@@ -3051,7 +2405,6 @@ ipcMain.handle("openwork:aiopc:connection", async () => aiopcService.connection(
 
 // ── Terminal IPC ────────────────────────────────────────────────────────
 ipcMain.handle("openwork:terminal:create", async (event, options = {}) => {
-  assertDesktopActivation();
   const cwd = await resolveTerminalCwd(options?.cwd);
   const cols = Number.isFinite(options?.cols) ? Math.max(20, Math.floor(options.cols)) : 80;
   const rows = Number.isFinite(options?.rows) ? Math.max(5, Math.floor(options.rows)) : 24;
@@ -3118,18 +2471,10 @@ const { ensureAutoUpdater, holdInstallForSessionEnd } = registerUpdaterIpc({
   app,
   ipcMain,
   getMainWindow: () => mainWindow,
-  // All distributions intentionally share one application identifier, so they also
-  // share Squirrel's ShipIt domain. Keep the shared default rather than
-  // implying an isolation the bundle identifier cannot provide.
-  manifestChannel: DESKTOP_DISTRIBUTION.flavor === "public"
-    ? "latest"
-    : DESKTOP_DISTRIBUTION.flavor,
   electronNet,
   shell,
-  distribution: DESKTOP_DISTRIBUTION.flavor,
   platform: process.platform,
   arch: process.arch,
-  assertActivation: assertDesktopActivation,
 });
 
 if (!app.requestSingleInstanceLock()) {
@@ -3172,7 +2517,6 @@ or use: pnpm dev:worktree`);
   app.whenReady().then(() => withStartupPhase("bootstrap.apply", async () => {
     endAppReady();
     void aiopcService.start();
-    holdSpellcheckerUntilActivation(workspaceStore.readDesktopBootstrapConfigSync());
     const systemCaCertificates = await runtimeManager.systemCaCertificates();
     session.defaultSession.setCertificateVerifyProc(createSystemCaCertificateVerifyProc(systemCaCertificates));
     installMediaPermissionHandlers(session, () => mainWindow);
@@ -3184,30 +2528,9 @@ or use: pnpm dev:worktree`);
     }).catch((error) => {
       console.warn("[nuke] pending cleanup failed", error);
     });
-    const bootstrapConfig = await workspaceStore.getDesktopBootstrapConfig();
-    currentDisplayAppName = applyBrandAppName(
-      BLANK_SLATE_LAUNCH.enabled || DESKTOP_DISTRIBUTION.flavor === "enterprise"
-        ? null
-        : bootstrapConfig.brandAppName,
-      {
-      fallbackName: APP_NAME,
-      platform: process.platform,
-      updateElectronAppName: true,
-      runtimeProcess: process,
-      app,
-      applicationMenu,
-      },
-    );
-    if (process.platform === "win32" && !BLANK_SLATE_LAUNCH.enabled) {
-      registerWindowsDisplayShortcut();
-    }
-    if (process.platform !== "linux" && !BLANK_SLATE_LAUNCH.enabled) {
-      await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
-    }
+    if (process.platform === "win32" && !BLANK_SLATE_LAUNCH.enabled) registerWindowsDisplayShortcut();
     applicationMenu.install();
-    if (!desktopActivationRequired(DESKTOP_DISTRIBUTION, bootstrapConfig)) {
-      await runtimeManager.prepareFreshRuntime().catch(() => undefined);
-    }
+    await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Use Tauri's existing workspace state file as canonical so rollback and
     // Electron see the same workspace list. Import the short-lived
@@ -3215,23 +2538,14 @@ or use: pnpm dev:worktree`);
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
     // Public first launch uses the same folder as the chat-first composer.
     // Provision it before the renderer and runtime read the workspace list.
-    const firstLaunchWorkspaceFailure = DESKTOP_DISTRIBUTION.flavor === "public" && !bootstrapConfig.fromFile && !bootstrapConfig.requireSignin
-      ? await workspaceStore.bootstrapFirstLaunchWorkspace()
-      : null;
+    const firstLaunchWorkspaceFailure = await workspaceStore.bootstrapFirstLaunchWorkspace();
     if (firstLaunchWorkspaceFailure) {
       console.warn("[workspace] default folder unavailable; continuing without a workspace", firstLaunchWorkspaceFailure);
     }
-    // The UI-control bridge evaluates arbitrary JavaScript in the renderer, so
-    // it stays down until the installation is activated. Otherwise it is a
-    // local bypass of the pre-activation restriction.
-    if (!desktopActivationRequired(DESKTOP_DISTRIBUTION, bootstrapConfig)) {
-      await uiControlServer.start().catch((error) => {
-        console.warn("[ui-control] failed to start", error);
-      });
-    }
-    if (!desktopActivationRequired(DESKTOP_DISTRIBUTION, bootstrapConfig)) {
-      startRuntimeBootstrap();
-    }
+    await uiControlServer.start().catch((error) => {
+      console.warn("[ui-control] failed to start", error);
+    });
+    startRuntimeBootstrap();
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();
@@ -3242,9 +2556,6 @@ or use: pnpm dev:worktree`);
         detail: `OpenWork is open without a workspace. Use Add workspace in the sidebar to choose another folder.\n\n${firstLaunchWorkspaceFailure.error}`,
         buttons: ["Continue"],
       }));
-    }
-    if (process.platform === "linux" && !BLANK_SLATE_LAUNCH.enabled) {
-      await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
     }
     win.webContents.on("did-finish-load", () => {
       flushPendingDeepLinks();

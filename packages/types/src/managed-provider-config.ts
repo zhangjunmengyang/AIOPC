@@ -1,4 +1,4 @@
-import { catalogModelVariants } from "./cloud-model-fast.js";
+import { catalogModelVariants } from "./model-fast.js";
 
 type JsonRecord = Record<string, unknown>;
 

@@ -1,9 +1,7 @@
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import type { PlatformCapabilities } from "@/app/lib/platform-capabilities";
-import { isSettingsTabAllowed, type DesktopAppRestrictionChecker } from "@/app/cloud/desktop-app-restrictions";
 import type { SettingsTab } from "@/app/types";
 import {
-  CLOUD_SETTINGS_TABS,
   getGlobalSettingsTabs,
   getSettingsTabDescription,
   getSettingsTabLabel,
@@ -25,8 +23,6 @@ const SETTINGS_KEYWORDS: Partial<Record<SettingsTab, string[]>> = {
   appearance: ["theme", "dark mode", "light mode", "color", "font", "look"],
   updates: ["version", "upgrade", "check for updates", "release"],
   debug: ["logs", "diagnostics", "developer mode"],
-  usage: ["usage", "limit", "spend", "budget", "quota", "increase"],
-  "cloud-account": ["sign in", "log in", "login", "account", "organization", "org", "den", "cloud", "openwork cloud"],
   general: ["settings", "preferences", "options", "configure"],
 };
 
@@ -42,18 +38,14 @@ const LIBRARY_SECTIONS = [
 export function buildCommandPaletteSettingsItems(input: {
   developerMode: boolean;
   capabilities: Pick<PlatformCapabilities, "autoUpdate">;
-  /** Desktop policy checker; when `allowControlSettings` is blocked only the Cloud tabs remain. */
-  checkRestriction?: DesktopAppRestrictionChecker;
   onOpenSettings: (route: string) => void;
   onOpenExtensions: (section?: string) => void;
 }): PaletteItem[] {
-  const checkRestriction = input.checkRestriction ?? (() => false);
   const tabs = ([
     "general",
     ...getWorkspaceSettingsTabs(),
     ...getGlobalSettingsTabs(input.developerMode, input.capabilities),
-    ...CLOUD_SETTINGS_TABS,
-  ] satisfies SettingsTab[]).filter((tab) => isSettingsTabAllowed({ tab, checkRestriction }));
+  ] satisfies SettingsTab[]);
 
   const tabItems = tabs.map((tab): PaletteItem => ({
     id: `settings:${tab}`,

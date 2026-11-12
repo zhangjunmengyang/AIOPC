@@ -1,0 +1,22 @@
+{
+  "scopeId": "aiopc-scheduler-acceptance-20261112-5ba6477f84c6",
+  "slug": "aiopc-acceptance-20261112",
+  "createdAt": "2026-11-12T03:28:51.548Z",
+  "lastRunAt": "2026-11-12T11:29:05+0800",
+  "lastRunSource": "scheduled",
+  "lastRunStatus": "success",
+  "lastRunExitCode": 0,
+  "invocation": {
+    "command": "/Users/zhangjunmengyang/.aiopc/bin/aiopc-scheduled",
+    "args": [
+      "run",
+      "--model",
+      "maas-gemini/gemini-4-argon",
+      "--format",
+      "json",
+      "--",
+      "This is a local scheduler acceptance test using simulated fixtures. Read metrics.json in the current project. Write report.md containing the total revenue, previous and current price, and the absolute price change. Clearly label it as a simulated local acceptance test, not real customer or competitor data. Write reminder.md containing the reminder text from the fixture. Do not execute shell commands or contact websites or publish or send messages. Save both files using the local edit/write tool, then finish."
+    ]
+  },
+  "workdir": "/private/tmp/aiopc-scheduler-acceptance-20261112"
+}

@@ -50,7 +50,6 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { resolveExtensionIconSrc } from "../../../design-system/extension-icon-src";
-import { useBrandAppName, useBrandLogoUrl } from "../../cloud/brand-theme";
 import { canCreateWorkspaces } from "../../../../app/lib/workspace-creation-policy";
 
 import {
@@ -108,9 +107,7 @@ import {
 } from "@/components/ui/select";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
-import { RemoteTaskSidebarRows } from "./remote-task-sidebar-rows";
 import { AccountStatusMenu, type AccountStatusMenuProps } from "./account-status-menu";
-import { ActivationCard } from "../../cloud/activation/activation-card";
 import { usePlatform } from "../../../kernel/platform";
 import {
   sessionNumberAriaKeyShortcut,
@@ -763,8 +760,8 @@ export function AppSidebar(props: AppSidebarProps) {
     sessionNumberShortcutByTarget,
   };
 
-  const brandLogoUrl = useBrandLogoUrl();
-  const brandAppName = useBrandAppName();
+  const brandLogoUrl = "/aiopc-mark.svg";
+  const brandAppName = "AIOPC";
   const pinnedIds = useSessionManagementStore((state) => state.pinnedIds);
   const pinnedSessions = React.useMemo(
     () => buildGlobalPinnedSessions(props.workspaceSessionGroups, pinnedIds),
@@ -958,7 +955,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </SidebarReorderScope>
 
         <SidebarFooter className="border-t border-sidebar-border/60 p-1.5 pe-0">
-          <ActivationCard onOpenExtensions={props.onOpenExtensions} />
+
           <AccountStatusMenu {...props.status} onOpenAccountSettings={props.onOpenAccountSettings} />
         </SidebarFooter>
 
@@ -2587,7 +2584,6 @@ export function SessionMenuItem({
   return (
     <>
       {item}
-      <RemoteTaskSidebarRows sessionId={session.id} sessionTitle={displayTitle} onOpen={(routeId) => ctx.onOpenSession(workspaceId, routeId)} />
     </>
   );
 }

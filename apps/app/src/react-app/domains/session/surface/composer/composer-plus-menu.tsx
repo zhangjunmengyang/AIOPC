@@ -336,7 +336,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
               }}
             >
               {connector.connecting ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : null}
-              {connector.signIn.reconnect ? t("mcp.org_connection_reconnect_action") : t("composer.plus_connect")}
+              {connector.signIn.reconnect ? t("mcp.reconnect_action") : t("composer.plus_connect")}
             </Button>
           );
         }

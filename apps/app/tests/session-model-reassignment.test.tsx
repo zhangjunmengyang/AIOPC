@@ -7,8 +7,8 @@ import { createOpenworkServerClient } from "../src/app/lib/openwork-server";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import type { ResolvedWorkspaceEndpoint } from "../src/app/lib/workspace-endpoint";
 
-mock.module("../src/react-app/domains/cloud/desktop-config-provider", () => ({ useCheckDesktopRestriction: () => () => false }));
-mock.module("../src/react-app/domains/cloud/den-auth-provider", () => ({ useDenAuth: () => ({ isSignedIn: false }) }));
+
+
 const nativeHttp = { fetch: globalThis.fetch, Request, Response, Headers, AbortController, AbortSignal };
 const NativeResponse = Response;
 GlobalRegistrator.register({ url: "http://localhost/" });

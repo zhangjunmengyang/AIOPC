@@ -12,7 +12,6 @@ import { DesktopUpdateButton } from "../../settings/state/desktop-updater-provid
 import { Archive, ArchiveRestore, ArrowLeft, Cloud, Cpu, FileText, Maximize2, MoreHorizontal, PanelRight, TextSearch, X } from "lucide-react";
 
 import { t } from "../../../../i18n";
-import { useCloudSignIn } from "../../cloud/sign-in-return";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
@@ -50,7 +49,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
-import { useDenAuth } from "../../cloud/den-auth-provider";
 import { WorkbenchPanelGroup, PRIMARY_PANEL_ID, SECONDARY_PANEL_ID } from "./workbench-panel-group";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
@@ -74,7 +72,6 @@ import {
 } from "@/components/ui/resizable";
 import { SessionEmptyHero } from "./session-empty-hero";
 import type { NewTaskComposerContext, NewTaskComposerHandoff } from "./new-task-composer";
-import type { SessionCloudMcpMaintenanceState } from "../../connections/use-session-mcp-maintenance";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
@@ -97,8 +94,6 @@ import { DebugRailProvider, DebugRailSlot } from "../panel/debug-rail-slot";
 import { SessionDebugPanel } from "../surface/debug-panel";
 import { FloatingSlotProvider, SessionFloatingLayer } from "../panel/floating-slot";
 import { useDesktopFeature } from "../status/use-desktop-feature";
-import { RetainedArtifactSurface } from "../../dashboard/retained-artifact-surface";
-import { CloudComputerControl } from "../computer/cloud-computer-control";
 import { ComputerControl } from "../computer/computer-control";
 import { useComputerSessionHistoryStore } from "@/components/chat/computer-session-history-store";
 import { useSteadyLiveTurnStore } from "@/components/chat/steady-live-turn-store";
@@ -153,7 +148,6 @@ type StatusBarOverrides = {
   showSettingsButton: boolean;
   reloadBusy: boolean;
   reloadError: string | null;
-  openWorkConnectState: SessionCloudMcpMaintenanceState;
 };
 
 export type SessionPageHistoryControls = {
@@ -320,7 +314,6 @@ export type SessionPageProps = {
   /** Workspace-scoped first-class surface rendered in place of the conversation. */
   primarySlot?: React.ReactNode;
   /** Scope-keyed artifacts remain mounted, hidden and inert, while another page is open. */
-  retainedArtifactSlot?: { scope: string; active: boolean; content: React.ReactNode };
   /** The primary slot is itself a conversation (a first send still being created), so it keeps chat chrome. */
   primarySlotIsConversation?: boolean;
   /** Standalone pages use the main canvas instead of the inset conversation pane. */
@@ -474,7 +467,6 @@ export function SessionPage(props: SessionPageProps) {
     return session ? Boolean(session.time?.archived) : undefined;
   };
   const { config: shellConfig } = useShellConfig();
-  const denAuth = useDenAuth();
   const isMobile = useIsMobile();
   const bootOverlayVisible = useBootOverlayVisible();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -509,14 +501,6 @@ export function SessionPage(props: SessionPageProps) {
   const panelRailActive = activeSidePanel === "panel";
   const environmentRailActive = panelRailActive && activePanelTab?.type === "environment";
   const filesRailActive = panelRailActive && activePanelTab?.type !== "environment";
-  const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
-  const cloudSignIn = useCloudSignIn();
-  // The browser opens on Den's sign-up tab (label stays "Sign in").
-  // This conversation stays on screen and sign-in returns to it.
-  const openCloudSignIn = useCallback(() => {
-    cloudSignIn({ workspaceId: props.selectedWorkspaceId, sessionId: props.selectedSessionId });
-  }, [cloudSignIn, props.selectedSessionId, props.selectedWorkspaceId]);
-
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
     selectedWorkspaceId: props.selectedWorkspaceId,
@@ -564,7 +548,7 @@ export function SessionPage(props: SessionPageProps) {
   const pendingSideConversation = splitSession?.pendingConversationId ? pendingConversations[splitSession.pendingConversationId] : undefined;
   const [narrowPane, setNarrowPane] = useState<NarrowSessionPane>("chat");
   const narrowPaneNavigationRef = useRef<HTMLElement>(null);
-  const artifactSurfaceVisible = Boolean(props.retainedArtifactSlot?.active)
+  const artifactSurfaceVisible = false
     && !(isMobile && narrowPane === "panel" && sidePanelOpen);
   const activeWorkbenchPane = isMobile
     ? narrowPane === "split" ? "secondary" : "primary"
@@ -658,7 +642,6 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     useSteadyLiveTurnStore.getState().setEnabled(steadyLiveTurnFeature);
   }, [steadyLiveTurnFeature]);
-  const remoteComputersFeature = useDesktopFeature("remoteComputers");
   // The button hides itself when this computer can't run it and no VM is connected.
   const computerUse = computerUseFeature && isElectronRuntime();
   useComputerEndTurn(props.sidebar.sessionStatusById, computerUse);
@@ -1388,7 +1371,6 @@ export function SessionPage(props: SessionPageProps) {
               onFind={findButtonSessionId ? () => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId }) : undefined}
               onFiles={openArtifactRailPane}
               fileCount={artifactTargetCount}
-              onSignIn={showCloudSignIn ? openCloudSignIn : undefined}
               onParent={parentSessionLink ? returnFromChild : undefined}
             />
           ) : undefined}
@@ -1403,7 +1385,6 @@ export function SessionPage(props: SessionPageProps) {
             showSettingsButton: props.statusBar?.showSettingsButton,
             reloadBusy: props.statusBar?.reloadBusy,
             reloadError: props.statusBar?.reloadError,
-            openWorkConnectState: props.statusBar?.openWorkConnectState,
             onSendFeedback: props.onSendFeedback,
           }}
         />
@@ -1523,19 +1504,7 @@ export function SessionPage(props: SessionPageProps) {
                   <TooltipContent>{archiveLabel} ({isMacPlatform() ? "⌘⇧E" : "Ctrl+Shift+E"})</TooltipContent>
                 </Tooltip>
               ) : null}
-              {showCloudSignIn ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="hidden lg:inline-flex"
-                  onClick={openCloudSignIn}
-                  title={t("den.signin_title")}
-                  aria-label={t("den.signin_title")}
-                >
-                  <Cloud className="size-3.5" />
-                  <span>{t("den.signin_button")}</span>
-                </Button>
-              ) : null}
+
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -1568,15 +1537,9 @@ export function SessionPage(props: SessionPageProps) {
                     <FileText className="size-4" />
                     Files{artifactTargetCount > 0 ? ` (${artifactTargetCount})` : ""}
                   </DropdownMenuItem>
-                  {showCloudSignIn ? (
-                    <DropdownMenuItem onClick={openCloudSignIn}>
-                      <Cloud className="size-4" />
-                      {t("den.signin_button")}
-                    </DropdownMenuItem>
-                  ) : null}
+
                 </DropdownMenuContent>
               </DropdownMenu>
-              {!isElectronRuntime() && computerUseFeature && remoteComputersFeature && props.openworkServerClient ? <CloudComputerControl client={props.openworkServerClient} /> : null}
               {computerUse && props.selectedSessionId ? <ComputerControl key={props.selectedSessionId} sessionId={props.selectedSessionId} /> : null}
               <Tooltip>
                 <TooltipTrigger
@@ -1637,11 +1600,7 @@ export function SessionPage(props: SessionPageProps) {
             )) : null}
 
           <div className="flex min-h-0 flex-1 flex-col">
-            {props.retainedArtifactSlot ? (
-              <RetainedArtifactSurface key={props.retainedArtifactSlot.scope} active={artifactSurfaceVisible}>
-                {props.retainedArtifactSlot.content}
-              </RetainedArtifactSurface>
-            ) : null}
+
             <div className={artifactSurfaceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"} hidden={artifactSurfaceVisible} inert={artifactSurfaceVisible}>
           {isMobile && narrowPane === "panel" && sidePanelOpen ? (
             <div
@@ -1663,7 +1622,7 @@ export function SessionPage(props: SessionPageProps) {
             <ResizablePanel minSize="180px" className="min-h-0">
             <div className="relative h-full min-w-0 overflow-hidden bg-dls-surface mac:bg-dls-surface/85">
               <SessionFloatingLayer />
-              {props.primarySlot && !props.retainedArtifactSlot?.active ? (
+              {props.primarySlot && true ? (
                 <div className="h-full overflow-y-auto" data-workspace-primary-slot>
                   {props.primarySlot}
                 </div>

@@ -2,14 +2,8 @@ import { startupPhase } from "./startup-phase.js";
 import { withEngineSwitchFence } from "./engine-switch-fence.js";
 import { engineAutoUpgradeRetry, waitForEngineIdle, type EngineAutoUpgradeRetry } from "./engine-auto-upgrade.js";
 import { createV2ContextBridge } from "./opencode-v2-context-bridge.js";
-import type { PrepareDriveUpload } from "./extensions/approved-drive-upload.js";
-import { createV2ProviderSessionBridge } from "./opencode-v2-provider-session.js";
-import type { CloudProviderDenSession } from "./cloud-provider-sync.js";
 import { ApiError } from "./errors.js";
 import { adoptOriginalHistory, opencodeV1DatabasePath, originalHistoryUsesV2, resolveOpencodeHistoryDatabase } from "./opencode-history.js";
-import { executionRules } from "./managed-policy-rules.js";
-import { agentPermissionEngineMcpDenial, agentPermissionRulesOf } from "./agent-permission-engine.js";
-import { CONNECT_MCP_APP_HOST_CAPABILITY_HEADER, registeredOrganizationMcpServers } from "./connect-mcp-server-catalog.js";
 import { waitForEngineSkillChanges } from "./opencode-v2-skill-settle.js";
 import { MCP_READINESS_RPC_ID } from "./opencode-v2-mcp-readiness.js";
 import { captureServerException } from "./telemetry.js";
@@ -32,7 +26,6 @@ import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import { runtimeStorageDir } from "./runtime-db.js";
 import {
   isEngineGlobalRuntimeConfigId,
-  listRuntimeOpencodeConfigRows,
   onRuntimeOpencodeConfigWrite,
   readGlobalRuntimeOpencodeConfig,
   readEffectiveRuntimeOpencodeConfig,
@@ -70,7 +63,6 @@ import {
   type EngineV2SkippedProvider,
   type EngineV2SkippedProviderReason,
 } from "./opencode-v2-local-auth.js";
-import { ORGANIZATION_PROVIDER_ID, organizationProviderGate } from "./organization-provider-gate.js";
 
 export type { EngineV2SkippedProvider, EngineV2SkippedProviderReason } from "./opencode-v2-local-auth.js";
 
@@ -550,7 +542,7 @@ export async function userConfigProviders(
 }> {
   const file = await read();
   const claimed = Object.fromEntries(Object.entries(file.providers)
-    .filter(([id]) => !(id in configured) && !ORGANIZATION_PROVIDER_ID.test(id)));
+    .filter(([id]) => !(id in configured) && !/^(?:lpr_|ipr_|openwork$|openwork-auto$)/i.test(id)));
   const skipped: EngineV2SkippedProvider[] = [];
   const allowed: Record<string, unknown> = {};
   for (const [id, provider] of Object.entries(claimed)) {
@@ -579,23 +571,12 @@ export async function userConfigProviders(
   return { claimed, definitions, native: nativeProviders, skipped, errors: templates.errors };
 }
 
-export function shouldSyncLiveProviderOwnerTransition(previous: boolean, next: boolean): boolean {
-  return previous !== next;
-}
-
-export function shouldWaitForMirroredProviders(liveProviderSync: boolean, specs: readonly OpencodeV2ProviderSpec[]): boolean {
-  return !liveProviderSync || specs.some(spec => !/^ipr_/i.test(spec.id));
-}
-
 export async function waitForEngineV2Catalog(
   active: Pick<ManagedOpencodeV2Server, "fetchJson">,
   directory: string,
   specs: readonly OpencodeV2ProviderSpec[],
   timeoutMs = CATALOG_MIRROR_TIMEOUT_MS,
-  ownsGateway: () => boolean = () => false,
 ): Promise<{ modelIds: string[]; lastError?: string }> {
-  if (!shouldWaitForMirroredProviders(ownsGateway(), specs)) return { modelIds: [] };
-  const shouldConfirm = (providerID: string) => !ownsGateway() || !/^ipr_/i.test(providerID);
   const mirrored = new Set(specs.map((spec) => spec.id));
   const expectedModels = specs.flatMap((spec) => spec.models
     .filter((model) => engineListsModel(spec, model))
@@ -610,8 +591,7 @@ export async function waitForEngineV2Catalog(
       (model): model is { providerID: string; id: string } =>
         isRecord(model) && typeof model.providerID === "string" && typeof model.id === "string",
     ) ? payload : undefined;
-    const missing = expectedModels.filter((expected) => shouldConfirm(expected.providerID)
-      && !models?.some((model) => model.providerID === expected.providerID && model.id === expected.id));
+    const missing = expectedModels.filter((expected) => !models?.some((model) => model.providerID === expected.providerID && model.id === expected.id));
     const message = isRecord(catalog.json) && typeof catalog.json.message === "string" ? ` ${catalog.json.message}` : "";
     return { models, missing, status: catalog.status, message,
       ready: catalog.status === 200 && models !== undefined && missing.length === 0 };
@@ -641,20 +621,6 @@ export async function waitForEngineV2Catalog(
   };
 }
 
-/**
- * The v2 engine lists organization skills as native skills
- * (openwork-cloud-skills-v2), so Den need not repeat them in Connect's server
- * instructions. Den only drops that list when it also serves native delivery.
- */
-const CONNECT_NATIVE_SKILLS_CAPABILITY = "native-skills-v1";
-
-function withClientCapability(headers: Record<string, string>, capability: string): Record<string, string> {
-  const key = Object.keys(headers).find((name) => name.toLowerCase() === CONNECT_MCP_APP_HOST_CAPABILITY_HEADER)
-    ?? CONNECT_MCP_APP_HOST_CAPABILITY_HEADER;
-  const existing = (headers[key] ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
-  return existing.includes(capability) ? headers : { ...headers, [key]: [...existing, capability].join(",") };
-}
-
 /** Translate only fields supported by the pinned v2 MCP API. */
 export function mapRuntimeMcpToV2(value: unknown, name?: string): Record<string, unknown> | undefined {
   if (!isRecord(value)) return undefined;
@@ -679,10 +645,7 @@ export function mapRuntimeMcpToV2(value: unknown, name?: string): Record<string,
   } : value.oauth === false ? false : undefined;
   const headers = strings(value.headers);
   return { type: "remote", url: value.url,
-    headers: name === "openwork-cloud" ? withClientCapability(headers, CONNECT_NATIVE_SKILLS_CAPABILITY) : headers,
-    // Only the managed Connect endpoint needs modern discovery and per-request
-    // clientInfo. Keep third-party servers on the engine's legacy default.
-    ...(name === "openwork-cloud" ? { protocol: "auto" } : {}),
+    headers,
     ...(oauth === undefined ? {} : { oauth }), ...shared };
 }
 
@@ -732,8 +695,6 @@ export function createEngineV2Preview(options: {
   env?: Pick<EnvService, "list" | "onChange">;
   deferStart?: boolean;
   hostReadRequest?: (path: string, init?: RequestInit) => Promise<unknown>;
-  prepareDriveUpload?: PrepareDriveUpload;
-  providerSession?: () => CloudProviderDenSession | null;
   waits?: Partial<typeof ENGINE_V2_UPKEEP_WAITS>;
   /** Running-task probe for leaving v1; unknown is not idle. */
   autoUpgradeIdle?: () => Promise<boolean>;
@@ -759,7 +720,6 @@ export function createEngineV2Preview(options: {
   let enabled = initialState.enabled;
   let chatRouting = initialState.chatRouting === true;
   // A managed v2 child owns Gateway inventory whenever its private identity bridge is installed.
-  const ownsGateway = () => options.providerSession !== undefined;
   // The organization rollout, applied by the server once Den answers. Never
   // persisted, so a revoked rollout or an offline start cannot keep it on.
   let v2Only = false;
@@ -803,7 +763,6 @@ export function createEngineV2Preview(options: {
   const warn = (message: string) => { lastWarning = `${new Date().toISOString()} ${message}`; };
   let sidecar: ManagedOpencodeV2Server | undefined;
   let contextBridge: Awaited<ReturnType<typeof createV2ContextBridge>> | undefined;
-  let providerSessionBridge: Awaited<ReturnType<typeof createV2ProviderSessionBridge>> | undefined;
   let unsubscribe: (() => void) | undefined;
   let startPromise: Promise<void> | undefined;
   let restartAttempts = 0;
@@ -814,7 +773,6 @@ export function createEngineV2Preview(options: {
   // catalog confirmation; readiness joins this, never the whole mirror.
   let providerPush: Promise<void> | undefined;
   // Resolves after local inventory is read, before any old push/confirmation.
-  let providerDiscovery: Promise<void> | undefined;
   let mirrorDirty = false;
   // The last mirror's push failure. A model the catalog has not listed is
   // reported in status but never fails a caller whose providers were pushed.
@@ -865,16 +823,7 @@ export function createEngineV2Preview(options: {
     if (!active) throw new Error("OpenCode v2 is not running");
     const effective = await readEffectiveRuntimeOpencodeConfig(config, location.workspaceId);
     const runtime = runtimeMcpMap(effective);
-    const agentPermissionRules = agentPermissionRulesOf(effective.managedPolicy);
-    // Local servers the member's agent permissions block are not registered,
-    // and an earlier registration is removed below like any other unwanted entry.
-    // The agent permissions plugin learns of new organization servers first,
-    // so it does not disable them as they are registered.
-    const mcpRules = agentPermissionRules.some((rule) => rule.action === "mcp");
-    if (mcpRules) await active.refreshConfig();
-    const organizationMcp = mcpRules ? await registeredOrganizationMcpServers(config, [location.workspaceId]) : {};
     const desired = new Map(Object.entries(runtime).flatMap(([name, value]) => {
-      if (agentPermissionEngineMcpDenial(agentPermissionRules, name, value, organizationMcp)) return [];
       const mapped = mapRuntimeMcpToV2(value, name);
       return mapped ? [[name, { config: mapped, fingerprint: JSON.stringify(mapped) }] as const] : [];
     }));
@@ -982,7 +931,7 @@ export function createEngineV2Preview(options: {
       v2Only,
       ...(v1UnavailableReason ? { v1UnavailableReason } : {}),
       chatRouting,
-      liveProviderSync: enabled && chatRouting && ownsGateway(),
+      liveProviderSync: false,
       running,
       ...(version === undefined ? {} : { version }),
       ...(pid === undefined ? {} : { pid }),
@@ -1003,20 +952,15 @@ export function createEngineV2Preview(options: {
     let pushed = () => {};
     const push = new Promise<void>((resolve) => { pushed = resolve; });
     providerPush = push;
-    let discovered = () => {};
-    const discovery = new Promise<void>((resolve) => { discovered = resolve; });
-    providerDiscovery = discovery;
     try {
-      await pushAndConfirmProviders(active, pushed, discovered);
+      await pushAndConfirmProviders(active, pushed);
     } finally {
-      discovered();
       pushed();
-      if (providerDiscovery === discovery) providerDiscovery = undefined;
       if (providerPush === push) providerPush = undefined;
     }
   }
 
-  async function pushAndConfirmProviders(active: ManagedOpencodeV2Server, pushed: () => void, discovered: () => void): Promise<void> {
+  async function pushAndConfirmProviders(active: ManagedOpencodeV2Server, pushed: () => void): Promise<void> {
     const globalRuntime = await readGlobalRuntimeOpencodeConfig(config);
     const configured = runtimeProviderMap(globalRuntime);
     // Same list v1 receives as `disabled_providers` (e.g. a disconnected
@@ -1025,11 +969,9 @@ export function createEngineV2Preview(options: {
     const disabled = new Set(disabledProviderIds);
     // "Only models you provide": the providers v1 omits from `enabled_providers`
     // never reach v2 either, whether configured or connected on this computer.
-    const allowsProvider = organizationProviderGate(globalRuntime.managedPolicy);
+    const allowsProvider: ((providerId: string) => boolean) | null = null;
     const localAuth = await readLocalProviderAuth();
-    const localKeys = allowsProvider
-      ? new Map([...localAuth.apiKeys].filter(([id]) => allowsProvider(id)))
-      : localAuth.apiKeys;
+    const localKeys = localAuth.apiKeys;
     const credentials = new Map((await options.env?.list() ?? []).map((entry) => [entry.key, entry.value]));
     // Providers the engine's own catalog knows need only a key from us.
     const native = await readEngineV2NativeProviders(active);
@@ -1039,25 +981,12 @@ export function createEngineV2Preview(options: {
     const local = await localProviderDefinitions(config, localAuth, { ...configured, ...userFile.claimed }, {
       allows: allowsProvider, native, environment,
     });
-    const blockedConfigured = Object.keys(configured).filter(id => allowsProvider && !allowsProvider(id));
-    const combinedProviders = { ...local.providers, ...Object.fromEntries(Object.entries(configured)
-      .filter(([id]) => !allowsProvider || allowsProvider(id))) };
-    // Native plugin is the sole Gateway owner. Local and legacy providers still
-    // use the old mirror, including their normal readiness/catalog checks.
-    const providerMap = Object.fromEntries(Object.entries(combinedProviders)
-      .filter(([id]) => !ownsGateway() || !/^ipr_/i.test(id)));
-    // Persisted cloud ownership is written before managed runtime rows. Do not
-    // treat a Den-pushed definition as local merely because it is in that map.
-    const ownership = await readOpenworkWorkspaceConfig(config, "__cloud_provider_ownership__");
-    const managedIds = new Set(Array.isArray(ownership.providerIds) ? ownership.providerIds : []);
+    const combinedProviders = { ...local.providers, ...configured };
+    const providerMap = combinedProviders;
     const localOwnership = await readOpenworkWorkspaceConfig(config, MACHINE_PROVIDER_TEMPLATE_OWNERSHIP);
     const localProviderIds = machineOwnedProviderIds(configured, localOwnership);
-    for (const id of localProviderIds) {
-      if (managedIds.has(id) || /^(?:lpr_|ipr_|openwork$)/i.test(id)) localProviderIds.delete(id);
-    }
     const templates = await resolveProviderConfigTemplates(providerMap, {
-      directory: runtimeStorageDir(config), environment: credentials, localProviderIds,
-      remoteEnvironmentNames: approvedProviderEnvironmentNames(ownership.providerEnvHashes, credentials),
+      directory: runtimeStorageDir(config), environment: credentials, localProviderIds, remoteEnvironmentNames: new Map(),
     });
     // Hand-written definitions are trusted like Settings ones: the person wrote their endpoints.
     const mapped = mapRuntimeProvidersToV2Specs({ ...templates.providers, ...userFile.definitions }, credentials, localKeys,
@@ -1065,8 +994,6 @@ export function createEngineV2Preview(options: {
     const specs = [...mapped.specs, ...[...local.native, ...userFile.native].map(nativeProviderSpec)]
       .filter((spec) => !disabled.has(spec.id))
       .sort((left, right) => left.id.localeCompare(right.id));
-    if (ownsGateway()) mirroredSpecs = specs;
-    discovered();
     const nextMirroredProviderIds = specs.map((spec) => spec.id);
     const providerFilters = Object.fromEntries(Object.entries({ ...userFile.definitions, ...combinedProviders }).flatMap(([id, value]) => {
       if (!isRecord(value)) return [];
@@ -1075,12 +1002,11 @@ export function createEngineV2Preview(options: {
       return whitelist || blacklist ? [[id, { whitelist, blacklist }]] : [];
     }));
     await active.setProviders(specs, disabledProviderIds, providerFilters);
-    mirroredSpecs = specs.filter(spec => !ownsGateway() || !/^ipr_/i.test(spec.id));
+    mirroredSpecs = specs;
     workspaceReadiness.clear();
-    mirroredProviderIds = nextMirroredProviderIds.filter(id => !ownsGateway() || !/^ipr_/i.test(id));
+    mirroredProviderIds = nextMirroredProviderIds;
     const skipped = mergeSkippedProviders(
       local.skipped,
-      blockedConfigured.map((id): EngineV2SkippedProvider => ({ id, reason: "policy" })),
       userFile.skipped,
       [...templates.errors, ...userFile.errors].map((error): EngineV2SkippedProvider => ({ id: error.providerId, reason: "metadata" })),
       mapped.skippedProviders,
@@ -1091,7 +1017,7 @@ export function createEngineV2Preview(options: {
     pushed();
     // Re-check folders already in use now, so their next prompt pays nothing.
     for (const directory of mcpLocations.keys()) void ensureWorkspaceReady(directory).catch(() => undefined);
-    const catalog = await waitForEngineV2Catalog(active, workspaceDir, specs, CATALOG_MIRROR_TIMEOUT_MS, ownsGateway);
+    const catalog = await waitForEngineV2Catalog(active, workspaceDir, specs, CATALOG_MIRROR_TIMEOUT_MS);
     currentCatalogModelIds = catalog.modelIds;
     lastError = [...templates.errors, ...userFile.errors].map(error => error.message)
       .concat(catalog.lastError ? [catalog.lastError] : []).join("\n") || undefined;
@@ -1140,10 +1066,8 @@ export function createEngineV2Preview(options: {
     pid = undefined;
     const bridge = contextBridge;
     contextBridge = undefined;
-    const sessionBridge = providerSessionBridge;
-    providerSessionBridge = undefined;
     try {
-      await Promise.all([bridge?.close(), sessionBridge?.close(), active?.close()]);
+      await Promise.all([bridge?.close(), active?.close()]);
     } catch (error) {
       lastError = errorMessage(error);
     }
@@ -1154,39 +1078,29 @@ export function createEngineV2Preview(options: {
     binSource = resolved.source;
     if (!enabled || !allowRunning) return;
     await mkdir(workspaceDir, { recursive: true });
-    // Remove copies left by the former v2-only Cloud materializer. Cloud
-    // skills now use the same metadata/on-demand Connect path as v1.
+    // Remove cached skills left by the retired upstream materializer.
     await rm(join(rootDir, "cloud-skills"), { recursive: true, force: true });
     const opencodeModelsUrl = await resolveOpencodeModelsUrl();
-    contextBridge = options.hostReadRequest ? await createV2ContextBridge(options.hostReadRequest, connection, options.prepareDriveUpload) : undefined;
-    providerSessionBridge = options.providerSession ? await createV2ProviderSessionBridge(() =>
-      options.providerSession?.() ?? null) : undefined;
+    contextBridge = options.hostReadRequest ? await createV2ContextBridge(options.hostReadRequest, connection) : undefined;
     const globalSkills = globalSkillDirectories();
     const historyDatabase = await selectHistoryDatabase();
     const managed = await createManagedOpencodeV2Server({
       historyDatabase,
       contextTools: contextBridge,
-      ...(providerSessionBridge ? { providerSession: providerSessionBridge } : {}),
       bin: resolved.bin,
       rootDir,
       instanceId: engineInstanceId(),
       env: { OPENCODE_MODELS_URL: opencodeModelsUrl },
       permissions: async () => {
-        const runtime = await readGlobalRuntimeOpencodeConfig(config);
-        // AIOPC's outward actions ask first; managed denials still come last and win.
+        // AIOPC's outward actions ask first.
         const asks = AIOPC_ASK_TOOLS.map((action) => ({ action, resource: "*", effect: "ask" as const }));
-        return [...asks, ...executionRules(runtime.managedPolicy?.execution)];
+        return asks;
       },
       // The engine reads ~/.claude/skills and ~/.agents/skills itself, but its
       // config folder is OpenWork's own, so it never sees these two global
       // folders the skill picker lists, and a picked skill there can't be sent.
       skills: [globalSkills.openwork, globalSkills.agentLegacy, ...aiopcSkillDirectories()],
-      agentPermissions: async () => {
-        const rules = agentPermissionRulesOf((await readGlobalRuntimeOpencodeConfig(config)).managedPolicy);
-        if (rules.length === 0) return { rules, organizationMcp: {} };
-        const workspaceIds = (await listRuntimeOpencodeConfigRows(config)).map((row) => row.workspaceId);
-        return { rules, organizationMcp: await registeredOrganizationMcpServers(config, workspaceIds) };
-      },
+      agentPermissions: async () => ({ rules: [], organizationMcp: {} }),
       onExit: (error) => engineExited(managed, error),
     });
     sidecar = managed;
@@ -1358,12 +1272,6 @@ export function createEngineV2Preview(options: {
   }
 
   async function ensureWorkspaceReady(directory: string): Promise<void> {
-    // Read local inventory first so mixed local/Gateway startup keeps local
-    // readiness. This is not the provider push or catalog confirmation join.
-    if (ownsGateway() && providerDiscovery) await providerDiscovery;
-    // Gateway discovery is native: no old push join or catalog/readiness poll
-    // is owed when the mirror has no local/legacy providers to prepare.
-    if (!shouldWaitForMirroredProviders(ownsGateway(), mirroredSpecs)) return;
     // Join a mirror only until its providers are pushed; its catalog
     // confirmation can take a minute and is status, not readiness.
     if (providerPush) await joinBounded(providerPush, waits.providerPushJoinMs);

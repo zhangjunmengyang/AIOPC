@@ -73,8 +73,10 @@ async function withSessionFetch(
     configurable: true,
     value: (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      requests.push(request);
       const url = new URL(request.url);
+      // Engine capability discovery is separate from the session operations under test.
+      if (url.pathname.endsWith("/api/info")) return Promise.resolve(Response.json({ data: { version: "2.0.26" } }));
+      requests.push(request);
       // The engine serves these fixtures' directories as given; no symlink resolution applies.
       if (request.method === "GET" && url.pathname.endsWith("/path")) {
         const directory = url.searchParams.get("directory") ?? "";

@@ -32,7 +32,6 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeftIcon } from "lucide-react";
 import type { ModelOption, ModelRef } from "@/app/types";
 import { useModelChoice } from "@/react-app/domains/models/use-model-catalog";
-import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-provider";
 import { usePlatform } from "../kernel/platform";
 import { formatChord, resolveShortcutOs } from "@/react-app/domains/shortcuts/shortcut-keys";
 import { ModelPickerList } from "@/react-app/domains/models/model-picker-list";
@@ -113,9 +112,6 @@ export type CommandPaletteProps = {
   /** Called when the first-class Extensions page is chosen. */
   onOpenExtensions: (section?: string) => void;
   onToggleSidebar?: () => void;
-  onOpenAutomations?: () => void;
-  onOpenDashboard?: () => void;
-  dashboardLabel?: string;
   onCreateWorkspace?: () => void;
   /** Optional: open the full default-model picker. */
   onOpenModelPicker?: () => void;
@@ -125,7 +121,6 @@ export type CommandPaletteProps = {
   selectedModelBehavior?: string | null;
   onSelectModel?: (model: ModelRef, behavior?: string | null) => void;
   onNextPinnedModel?: () => void;
-  onCycleModelSource?: () => void;
   /** Optional — open a URL in the user's browser. Falls back to window.open. */
   onOpenUrl?: (url: string) => void;
   /** Optional: current session servers/artifacts exposed through Cmd/Ctrl+K. */
@@ -220,7 +215,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   const currentModelTitle = currentModelOption ? publicModelTitle(currentModelOption) : undefined;
   // Organization policy (`allowControlSettings`) can hide desktop settings;
   // the settings palette entries follow the same allow-list as the settings nav.
-  const checkDesktopRestriction = useCheckDesktopRestriction();
 
   const rootItems = useMemo<PaletteItem[]>(() => [
     {
@@ -270,9 +264,6 @@ export function CommandPalette(props: CommandPaletteProps) {
       detail: modelControls.nextPinnedOption ? [currentModelTitle, modelTitle(modelControls.nextPinnedOption)].filter(Boolean).join(" → ") : "No alternative pinned model",
       disabled: !modelControls.nextPinnedOption,
       action: () => { (props.onNextPinnedModel ?? modelControls.onNextPinnedModel)(); props.onClose(); } }] : []),
-    ...(hasNestedModelPicker || props.onCycleModelSource ? [{ id: "models.next-source", title: "Cycle model source", shortcut: formatChord(shortcutOs === "macos" ? "Ctrl+Alt+M" : "Mod+Alt+M", shortcutOs), group: ACTIONS_GROUP,
-      detail: modelControls.sourceCycleDetail || "No accessible model sources", disabled: !modelControls.nextSourceOption,
-      action: () => { (props.onCycleModelSource ?? modelControls.onCycleModelSource)(); props.onClose(); } }] : []),
     ...(hasNestedModelPicker || props.onOpenModelPicker
       ? [{
           id: "models",
@@ -361,7 +352,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     () => buildCommandPaletteSettingsItems({
       developerMode: props.developerMode,
       capabilities: platform.capabilities,
-      checkRestriction: checkDesktopRestriction,
       onOpenSettings: (route) => {
         props.onClose();
         props.onOpenSettings(route);
@@ -372,7 +362,6 @@ export function CommandPalette(props: CommandPaletteProps) {
       },
     }),
     [
-      checkDesktopRestriction,
       platform.capabilities,
       props.developerMode,
       props.onClose,
@@ -391,30 +380,6 @@ export function CommandPalette(props: CommandPaletteProps) {
           action: () => {
             props.onClose();
             props.onToggleSidebar?.();
-          },
-        }]
-      : []),
-    ...(props.onOpenAutomations
-      ? [{
-          id: "automations.open",
-          title: "Automations",
-          keywords: ["schedule", "scheduled", "recurring", "cron", "daily", "weekly"],
-          group: ACTIONS_GROUP,
-          action: () => {
-            props.onClose();
-            props.onOpenAutomations?.();
-          },
-        }]
-      : []),
-    ...(props.onOpenDashboard
-      ? [{
-          id: "dashboard.open",
-          title: props.dashboardLabel ?? "Dashboard",
-          keywords: ["home", "overview", "apps", "artifacts", "dashboard"],
-          group: ACTIONS_GROUP,
-          action: () => {
-            props.onClose();
-            props.onOpenDashboard?.();
           },
         }]
       : []),
@@ -529,7 +494,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   };
 
   const handleEscape = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (choice.loginOpen) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

@@ -1,7 +1,4 @@
-import {
-  getOpenworkGatewayOrigin,
-  readOpenworkGatewayDenToken,
-} from "../../app/lib/gateway-runtime";
+
 import {
   isLoopbackOpenworkServerUrl,
   normalizeOpenworkServerUrl,
@@ -11,7 +8,7 @@ import { isWebDeployment } from "../../app/lib/openwork-deployment";
 import { openworkServerInfo, type OpenworkServerInfo } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 
-export type OpenworkConnectionSource = "desktop-runtime" | "stored-settings" | "same-origin" | "gateway" | "empty";
+export type OpenworkConnectionSource = "desktop-runtime" | "stored-settings" | "same-origin" | "empty";
 
 export type ResolvedOpenworkConnection = {
   normalizedBaseUrl: string;
@@ -59,16 +56,6 @@ export function isStaleStoredDesktopConnection(input: {
  * connections and for desktop cases where the runtime bridge is unavailable.
  */
 export async function resolveOpenworkConnection(): Promise<ResolvedOpenworkConnection> {
-  const gatewayOrigin = getOpenworkGatewayOrigin();
-  if (gatewayOrigin) {
-    return {
-      normalizedBaseUrl: normalizeOpenworkServerUrl(gatewayOrigin) ?? "",
-      resolvedToken: readOpenworkGatewayDenToken(),
-      resolvedHostToken: "",
-      hostInfo: null,
-      source: "gateway",
-    };
-  }
 
   let staleDesktopRuntimeBaseUrl = "";
   let desktopServerReportedNotReady = false;

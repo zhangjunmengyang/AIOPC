@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import type { Session } from "@opencode-ai/sdk/v2/client";
-import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import {
   isSessionReferenceInventoryCurrent,
   type SessionMetadataCallbacks,
@@ -42,7 +41,6 @@ import {
   useWorkspaceServerClient,
 } from "@/react-app/infra/workspace-server-client";
 import { useLocal } from "@/react-app/kernel/local-provider";
-import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import { useBootState } from "./boot-state";
 import {
   ensureDesktopLocalOpenworkConnection,
@@ -78,7 +76,6 @@ import {
   writeActiveWorkspaceId,
   writeWorkspaceOrderIds,
 } from "./session-memory";
-import { remoteThreadKeyFromRouteId } from "@/lib/remote-session-route";
 import {
   legacySessionRoute,
   mergeWorkspaceRouteSession,
@@ -95,7 +92,7 @@ export type UseWorkspaceRouteStateInput = {
   /** A local first-send owner must survive workspace preparation until it has a real session. */
   preservePendingConversationRoute?: boolean;
   developerMode: boolean;
-  workspaceRoute?: "session" | "automations" | "dashboard" | "apps" | "activity" | "space" | "accounts";
+  workspaceRoute?: "session" | "activity" | "space" | "accounts";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -158,14 +155,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const navigate = useNavigate();
   const location = useLocation();
   const local = useLocal();
-  const denAuth = useDenAuth();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
   // A task on another computer has its own route (`remote:<threadKey>`); it is
   // not a local session, so nothing below loads or validates it as one.
   const routeSessionId = params.sessionId?.trim() || null;
-  const remoteThreadKey = remoteThreadKeyFromRouteId(routeSessionId);
-  const selectedSessionId = remoteThreadKey ? null : routeSessionId;
+  const selectedSessionId = routeSessionId;
   const extensionsRouteActive = /^\/(?:workspace\/[^/]+\/)?extensions(?:\/|$)/.test(location.pathname);
   const extensionsRoutePath = extensionsRouteActive
     ? location.pathname
@@ -196,21 +191,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       const pagePath = `/${workspaceRoute}`;
       if (location.pathname === pagePath) return;
       navigate(pagePath, options);
-      return;
-    }
-    if (workspaceRoute === "automations") {
-      if (/^\/automations(?:\/|$)/.test(location.pathname)) return;
-      navigate(automationsRoute(), options);
-      return;
-    }
-    if (workspaceRoute === "apps") {
-      if (/^(?:\/apps|\/dashboard\/apps)(?:\/|$)/.test(location.pathname)) return;
-      navigate("/apps", options);
-      return;
-    }
-    if (workspaceRoute === "dashboard") {
-      if (/^\/dashboard(?:\/|$)/.test(location.pathname)) return;
-      navigate(dashboardRoute(), options);
       return;
     }
     navigateToWorkspaceSession(workspaceId, sessionId, options);
@@ -820,19 +800,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [errorsByWorkspaceId, invalidateSessionInventory]);
 
-  useEffect(() => {
-    const handleAuthorizationChange = () => {
-      invalidateSessionInventories();
-      void refreshRouteState({ supersede: true });
-    };
-    window.addEventListener(denSessionUpdatedEvent, handleAuthorizationChange);
-    window.addEventListener(denSettingsChangedEvent, handleAuthorizationChange);
-    return () => {
-      window.removeEventListener(denSessionUpdatedEvent, handleAuthorizationChange);
-      window.removeEventListener(denSettingsChangedEvent, handleAuthorizationChange);
-    };
-  }, [invalidateSessionInventories, refreshRouteState]);
-
   const routeWorkspaceKnown = Boolean(
     routeWorkspaceId && workspaces.some((workspace) => workspace.id === routeWorkspaceId),
   );
@@ -1130,10 +1097,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     if (loading) return;
     if (workspaces.length > 0) return;
     if (input.preservePendingConversationRoute || local.prefs.hasCompletedOnboarding) return;
-    if (denAuth.status === "checking") return;
-    if (denAuth.isSignedIn) return;
     navigate("/welcome", { replace: true });
-  }, [denAuth.isSignedIn, denAuth.status, input.preservePendingConversationRoute, loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [input.preservePendingConversationRoute, loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every
@@ -1431,7 +1396,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     navigateToWorkspaceSession,
     routeWorkspaceId,
     selectedSessionId,
-    remoteThreadKey,
     loading,
     effectiveLoading,
     connectionPending,

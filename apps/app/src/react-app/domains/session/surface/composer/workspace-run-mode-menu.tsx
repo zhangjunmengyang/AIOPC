@@ -6,7 +6,6 @@ import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { toast } from "@/components/ui/sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useFeatureFlagsPreferences } from "@/react-app/domains/settings/state/feature-flags-preferences";
 
 type Props = { client: OpenworkServerClient | null; workspaceId: string | null; busy: boolean };
@@ -19,8 +18,7 @@ const modes = [
 
 export function WorkspaceRunModeMenu(props: Props) {
   const { workspaceRunModeEnabled } = useFeatureFlagsPreferences();
-  const restricted = useDesktopRestriction("allowControlSettings");
-  if (!workspaceRunModeEnabled || restricted || !isDesktopRuntime() || !props.client || !props.workspaceId) return null;
+  if (!workspaceRunModeEnabled || !isDesktopRuntime() || !props.client || !props.workspaceId) return null;
   // Remount on endpoint/workspace changes so a pending confirmation cannot
   // apply the previous pane's choice to a newly selected workspace.
   return <WorkspaceRunModePicker key={`${props.client.baseUrl}:${props.workspaceId}`} client={props.client} workspaceId={props.workspaceId} busy={props.busy} />;

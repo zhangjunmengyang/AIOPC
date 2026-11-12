@@ -22,7 +22,6 @@ import {
   writeOpenworkServerSettings,
 } from "../../app/lib/openwork-server";
 import { isDesktopRuntime, isElectronRuntime, safeStringify } from "../../app/utils";
-import { useEnterpriseActivationRequired } from "../domains/cloud/enterprise-activation-gate";
 import { useServer } from "../kernel/server-provider";
 import { useBootState } from "./boot-state";
 
@@ -332,6 +331,5 @@ function ActivatedDesktopRuntimeBoot(): null {
  * until Den activation completes.
  */
 export function DesktopRuntimeBoot() {
-  if (useEnterpriseActivationRequired()) return null;
   return createElement(ActivatedDesktopRuntimeBoot);
 }

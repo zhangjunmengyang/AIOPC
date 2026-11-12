@@ -7,19 +7,7 @@ import { t } from "@/i18n";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DescriptiveButton, DescriptiveButtonTitle } from "@/components/descriptive-button";
 import type { ComposerAttachment } from "@/app/types";
-import { resolveOrganizationPromptCardContent } from "@/components/chat/task-suggestions";
-import { useCheckDesktopRestriction, useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider";
-import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import {
-  getOpenWorkModelsActionUrl,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
-  openWorkModelsPromoChangedEvent,
-  useOpenWorkModelsPromoEligibility,
-} from "@/react-app/domains/cloud/openwork-models-promo";
 import { usePlatform } from "@/react-app/kernel/platform";
-import { SignInHandoffNotice } from "@/react-app/domains/cloud/sign-in-handoff-notice";
-import { useCloudSignIn } from "@/react-app/domains/cloud/sign-in-return";
 import { persistableComposerDraftText, useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { useNewTaskDraftState } from "@/react-app/domains/session/sync/draft-store";
 import {
@@ -111,21 +99,6 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
     // Attachment chips only exist in memory (File objects); the stored text drops their tokens.
     persistPrompt({ text: persistableComposerDraftText(value), mode: "prompt" });
   }, [persistPrompt]);
-  const orgRestrictions = useOrgRestrictions();
-  const checkDesktopRestriction = useCheckDesktopRestriction();
-  const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
-  const platform = usePlatform();
-  const denAuth = useDenAuth();
-  const signIn = useCloudSignIn();
-  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
-  const [modelsPromoHidden, setModelsPromoHidden] = useState(isOpenWorkModelsPromoHidden);
-
-  useEffect(() => {
-    const handlePromoChanged = () => setModelsPromoHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-  }, []);
-
   // A chat deep link (Den's connector "Chat" action) seeds the composer with
   // the connector chip and its starter prompt; the person reviews and sends.
   useEffect(() => {
@@ -140,27 +113,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
     return () => window.removeEventListener(pendingChatSeedEvent, seed);
   }, []);
 
-  // Quiet inline lead to OpenWork Models: replaces the old startup dialog
-  // interrupt. Shown only while the session runs on the free starter model
-  // (the built-in `opencode` provider) and the hosted offering applies.
-  const onFreeStarterModel = props.composer?.selectedModel.providerID === DEFAULT_MODEL.providerID;
-  const showModelsHint =
-    openWorkModelsPromoEligible &&
-    !modelsPromoHidden &&
-    !props.composer?.openWorkModelsEntitled &&
-    onFreeStarterModel;
-
-  const organizationPrompts = orgRestrictions.onboardingPrompts;
-  const suggestions: HeroSuggestion[] = organizationPrompts !== undefined
-    ? organizationPrompts.map((orgPrompt, index) => {
-      const card = resolveOrganizationPromptCardContent({
-        prompt: orgPrompt,
-        description: orgRestrictions.onboardingPromptDescriptions?.[index],
-        index,
-      });
-      return { title: card.title, description: card.description, prompt: card.selectionPrompt };
-    })
-    : defaultSuggestions();
+  const suggestions = defaultSuggestions();
 
   const submit = async (
     resolvedPrompt: string,
@@ -201,7 +154,6 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
       </div>
 
       <div ref={composerDockRef} onFocusCapture={() => setComposing(true)} data-empty-composer-dock className="max-lg:sticky max-lg:bottom-0 max-lg:order-last max-lg:mt-auto max-lg:shrink-0 max-lg:bg-dls-surface">
-      <SignInHandoffNotice workspaceId={props.composer?.workspaceId} sessionId={null} hasDraft={Boolean(persistableComposerDraftText(prompt).trim())} />
       <NewTaskComposer
         draft={prompt}
         onDraftChange={setPrompt}
@@ -211,36 +163,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
       />
       </div>
 
-      {showModelsHint ? (
-        <div
-          className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground"
-          data-testid="openwork-models-hint"
-        >
-          <span>Using the free starter model.</span>
-          <button
-            type="button"
-            className="flex items-center gap-1 font-medium text-blue-10 transition-colors hover:text-blue-11"
-            onClick={() => {
-              const url = getOpenWorkModelsActionUrl(denAuth.isSignedIn, "sign-up");
-              if (denAuth.isSignedIn) platform.openLink(url);
-              else signIn({ url, workspaceId: props.composer?.workspaceId, fallback: () => platform.openLink(url) });
-            }}
-          >
-            Get frontier models with no API keys
-            <ArrowRight className="size-3" />
-          </button>
-          <button
-            type="button"
-            className="flex size-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground"
-            onClick={hideOpenWorkModelsPromo}
-            aria-label="Hide OpenWork Models hint"
-          >
-            <X className="size-3" />
-          </button>
-        </div>
-      ) : null}
-
-      {!showModelsHint && canAddProviders && props.providerCount === 0 && props.onOpenProviderAuth ? (
+      {props.providerCount === 0 && props.onOpenProviderAuth ? (
         <button
           type="button"
           className="flex w-full items-start gap-3 rounded-xl border border-blue-7/50 bg-blue-2/40 p-3.5 text-left transition-colors hover:bg-blue-3/50"

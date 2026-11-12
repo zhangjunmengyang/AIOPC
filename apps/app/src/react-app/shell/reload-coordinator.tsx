@@ -151,8 +151,6 @@ type ReloadCoordinatorContextValue = {
   registerWorkspaceReloadControls: (controls: WorkspaceReloadControls | null) => () => void;
 };
 
-export const orgOnboardingVisibilityEvent = "openwork-org-onboarding-visibility";
-
 const ReloadCoordinatorContext = createContext<ReloadCoordinatorContextValue | null>(null);
 
 export function ReloadCoordinatorProvider({ children }: { children: ReactNode }) {
@@ -162,7 +160,6 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   const [pendingAdmissions, setPendingAdmissions] = useState(0);
   const [activeSessions, setActiveSessions] = useState<ReloadSession[]>([]);
   const [allowsBusyReload, setAllowsBusyReload] = useState(false);
-  const [orgOnboardingVisible, setOrgOnboardingVisible] = useState(false);
   const pendingReloadTriggerRef = useRef<ReloadTrigger | null>(null);
   const hadPendingReloadRef = useRef(false);
   const lastAutoReloadAtRef = useRef(0);
@@ -255,18 +252,6 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   }, [systemState.markReloadRequired]);
 
   useEffect(() => {
-    const update = (event: Event) => {
-      setOrgOnboardingVisible(Boolean((event as CustomEvent<{ visible?: boolean }>).detail?.visible));
-    };
-
-    window.addEventListener(orgOnboardingVisibilityEvent, update);
-
-    return () => {
-      window.removeEventListener(orgOnboardingVisibilityEvent, update);
-    };
-  }, []);
-
-  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ reason?: ReloadReason; trigger?: ReloadTrigger }>).detail;
       markReloadRequired(detail?.reason ?? "config", detail?.trigger);
@@ -291,8 +276,7 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
 
   const reloadIdle =
     systemState.reload.reloadPending &&
-    activeSessions.length === 0 && !activityBlocked && pendingAdmissions === 0 &&
-    !orgOnboardingVisible;
+    activeSessions.length === 0 && !activityBlocked && pendingAdmissions === 0;
 
   // Auto-reload when idle. Reloading is a cheap in-process engine rebuild
   // (no window reload, drafts survive), so instead of nagging with a

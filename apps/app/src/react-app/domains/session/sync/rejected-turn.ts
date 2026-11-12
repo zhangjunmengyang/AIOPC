@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import type { ComposerDraft } from "@/app/types";
-import type { AutoAccessWall } from "@/app/lib/inference-access";
+import type { SubmissionFailure } from "@/react-app/domains/session/sync/submission-failure";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { toast } from "@/components/ui/sonner";
 import { getComposerSessionDraftScope, releaseComposerSessionDraftScope, useComposerStateStore } from "../surface/composer-state-store";
@@ -26,14 +26,14 @@ export function rejectedRecoveryFromMessage(message: UIMessage) {
     ? { owner: parsed.data, id: message.id } : undefined;
 }
 
-export function rejectedTurnFromDraft(draft: ComposerDraft & { messageId: string }, wall: AutoAccessWall, afterMessageId: string | null, created = Date.now()): RejectedTurn {
+export function rejectedTurnFromDraft(draft: ComposerDraft & { messageId: string }, wall: SubmissionFailure, afterMessageId: string | null, created = Date.now()): RejectedTurn {
   return { id: draft.messageId, text: draft.resolvedText ?? draft.text, created, afterMessageId, wall,
     attachments: draft.attachments.map((file) => ({ name: file.name, mime: file.mimeType })) };
 }
 
 export async function retainRejectedTurn(input: {
   owner: RejectedTurnOwner; opencodeBaseUrl: string; draft: ComposerDraft & { messageId: string };
-  wall: AutoAccessWall; afterMessageId?: string | null; remainingQueued?: string[]; queuedItemId?: string;
+  wall: SubmissionFailure; afterMessageId?: string | null; remainingQueued?: string[]; queuedItemId?: string;
   client: OpenworkServerClient; workspaceRoot: string; localRuntime: boolean;
 }) {
   const { owner, draft, wall } = input;
@@ -42,9 +42,9 @@ export async function retainRejectedTurn(input: {
   useComposerStateStore.setState((state) => {
     const previous = state.pendingMessages[memoryOwner] ?? [];
     const existing = previous.find((item) => item.draft.messageId === draft.messageId);
-    const item = existing ? { ...existing, settled: true, autoAccessWall: wall } : {
+    const item = existing ? { ...existing, settled: true, submissionFailure: wall } : {
       draft, composer: { draft: draft.text, attachments: draft.attachments, mentions: {}, pasteParts: [], revertMessageId: null },
-      previousMessageIds: [], submissionMessageIds: turn.afterMessageId ? [turn.afterMessageId] : [], settled: true, autoAccessWall: wall,
+      previousMessageIds: [], submissionMessageIds: turn.afterMessageId ? [turn.afterMessageId] : [], settled: true, submissionFailure: wall,
     };
     return { pendingMessages: { ...state.pendingMessages, [memoryOwner]: existing
       ? previous.map((entry) => entry === existing ? item : entry) : [...previous, item] } };
@@ -74,7 +74,7 @@ export function mergeRejectedTurns(messages: readonly UIMessage[], turns: readon
   const result = [...messages];
   for (const turn of [...turns].sort((left, right) => left.created - right.created)) {
     const index = result.findIndex((message) => message.id === turn.id);
-    const metadata = { autoAccessWall: turn.wall, unprocessed: true, rejectedOwner: owner, opencode: { created: turn.created } };
+    const metadata = { submissionFailure: turn.wall, unprocessed: true, rejectedOwner: owner, opencode: { created: turn.created } };
     if (index !== -1) {
       if (result[index].role === "user" && result[index].metadata && typeof result[index].metadata === "object"
         && Reflect.get(result[index].metadata, "unprocessed") === true) result[index] = { ...result[index], metadata };

@@ -5,7 +5,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, HashRouter } from "react-router";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { initializeDenBootstrapConfig } from "./app/lib/den";
 import { startWebErrorMonitoring } from "./app/lib/error-monitoring";
 import { getOpenWorkDeployment } from "./app/lib/openwork-deployment";
 import { bootstrapTheme } from "./app/theme";
@@ -37,7 +36,6 @@ const startup = Promise.resolve().then(async () => {
   bootstrapTheme();
   initLocale();
   startDeepLinkBridge();
-  await initializeDenBootstrapConfig();
 
   root.dataset.openworkDeployment = getOpenWorkDeployment();
   const platform = createDefaultPlatform();

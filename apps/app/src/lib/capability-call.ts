@@ -283,16 +283,6 @@ export function connectActionForConnection(action: string, connectionName: strin
   return action.slice(namespace.length + 1).replace(/^\d+_(?=.)/, "") || null
 }
 
-/** "create" for Connect's `remote-session.create` tool, and so on. */
-export function connectRemoteSessionAction(toolName: string): string | null {
-  return /^openwork-cloud_remote-session_([a-z]+)$/.exec(toolName)?.[1] ?? null
-}
-
-/** One of OpenWork's own operations listed as a tool: `den.<operation>`, a namespace no connection can take. */
-export function connectDenOperation(toolName: string): string | null {
-  return /^openwork-cloud_den_([A-Za-z0-9]+)$/.exec(toolName)?.[1] ?? null
-}
-
 /** A camelCase operation name's verb, its remaining words, and the native service those words name. */
 function operationParts(name: string): { verb: string | undefined; rest: string[]; service: string | null } {
   const words = name.split(/(?=[A-Z])|[-_.\s]+/).filter(Boolean)
@@ -407,31 +397,8 @@ export function getCapabilityCallSentence(
     }
   }
 
-  // A Den Code Mode script: the work happens inside the script, so name the
-  // place it ran rather than the plumbing tool ("execute capability script").
-  if (toolName.endsWith("execute_capability_script")) {
-    return {
-      service: "OpenWork Cloud",
-      present: "Running a script on OpenWork Cloud",
-      past: "Ran a script on OpenWork Cloud",
-      failure: "Script on OpenWork Cloud failed",
-    }
-  }
-
-  // One of OpenWork's operations reads the same whether execute_capability
-  // ran it or Connect listed it as its own tool.
-  const denOperation = connectDenOperation(toolName)
-  if (toolName.endsWith("execute_capability") || denOperation) {
-    const name = denOperation ?? (isRecord(part.input) && typeof part.input.name === "string" ? part.input.name : null)
-    // Reading the organization directory to find a person or team by name.
-    if (name && /(?:^|:)getOrg$/.test(name)) {
-      return {
-        service: null,
-        present: "Looking up people in your organization",
-        past: "Looked up people in your organization",
-        failure: "Couldn't look up people in your organization",
-      }
-    }
+  if (toolName.endsWith("execute_capability")) {
+    const name = isRecord(part.input) && typeof part.input.name === "string" ? part.input.name : null
     const split = name ? splitCapabilityName(name) : null
     if (split) {
       const suffix = quoted ? `:${quoted}` : ""
@@ -443,7 +410,7 @@ export function getCapabilityCallSentence(
       }
     }
 
-    // Org MCP capabilities arrive as "mcp:<connection-id>:<tool_name>". The
+    // MCP capabilities arrive as "mcp:<connection-id>:<tool_name>". The
     // connection id is opaque, so the trailing tool name carries the meaning
     // ("query_granola_meetings" → "Queried granola meetings").
     if (name?.startsWith("mcp:")) {

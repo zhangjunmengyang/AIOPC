@@ -12,10 +12,6 @@ import {
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 
 import { desktopFetch } from "../../app/lib/desktop";
-import {
-  getOpenworkGatewayOrigin,
-  readOpenworkGatewayDenToken,
-} from "../../app/lib/gateway-runtime";
 import { isWebDeployment } from "../../app/lib/openwork-deployment";
 import { normalizeOpenworkServerUrl } from "../../app/lib/openwork-server";
 import { isDesktopRuntime } from "../../app/utils";
@@ -64,7 +60,6 @@ function readStoredActive(): string {
 }
 
 function readOpenworkToken(): string {
-  if (getOpenworkGatewayOrigin()) return readOpenworkGatewayDenToken();
 
   if (typeof window === "undefined") return "";
   try {
@@ -107,13 +102,11 @@ export function ServerProvider({ children, defaultUrl }: ServerProviderProps) {
     if (readyRef.current) return;
     if (typeof window === "undefined") return;
 
-    const gatewayOrigin = getOpenworkGatewayOrigin();
-    const fallback = normalizeServerUrl(gatewayOrigin ? `${gatewayOrigin}/opencode` : defaultUrl) ?? "";
+    const fallback = normalizeServerUrl(defaultUrl) ?? "";
 
     // Hosted web deployments served by OpenWork must reuse the OpenCode proxy
     // rather than any persisted localhost target.
     const forceProxy =
-      Boolean(gatewayOrigin) ||
       (!isDesktopRuntime() &&
         isWebDeployment() &&
         (import.meta.env.PROD ||

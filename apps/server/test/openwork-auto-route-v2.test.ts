@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AUTO_ROUTER_SESSION_ROUTES_KEY, AUTO_ROUTER_SESSION_ROUTES_MAX } from "@openwork/types/den/auto-router";
+import { AUTO_ROUTER_SESSION_ROUTES_KEY, AUTO_ROUTER_SESSION_ROUTES_MAX } from "@openwork/types/auto-router";
 import plugin, { autoRouteFromResponse, type AutoRouteContext } from "../src/opencode-plugins/openwork-auto-route-v2.js";
 
 type Callback = Parameters<AutoRouteContext["session"]["hook"]>[1];

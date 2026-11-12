@@ -6,17 +6,15 @@
 import { useMemo, useState } from "react";
 import type * as React from "react";
 import { ChevronDown, Lock, Pencil, Plus, Trash2, Zap } from "lucide-react";
-import { FAST_DEFAULT_VARIANT, FAST_VARIANT_PREFIX } from "@openwork/types/cloud-model-fast";
+import { FAST_DEFAULT_VARIANT, FAST_VARIANT_PREFIX } from "@openwork/types/model-fast";
 
 import type { Client, ModelOption, ModelRef } from "@/app/types";
-import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
-import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { modelRefKey, useModelCollectionsStore } from "@/react-app/domains/session/models/model-collections-store";
 import { ModelPickerList } from "@/react-app/domains/models/model-picker-list";
 import { runtimeModelOptions } from "@/react-app/domains/models/catalog";
@@ -331,7 +329,6 @@ export function KeyboardShortcutsView(props: KeyboardShortcutsViewProps) {
   const navigatorPlatform = typeof navigator === "undefined" ? "" : navigator.platform;
   const os = resolveShortcutOs(platform.os, navigatorPlatform);
   const thinkingOs = resolveThinkingModeShortcutOs(platform.os, navigatorPlatform);
-  const checkRestriction = useCheckDesktopRestriction();
   const shortcuts = useModelShortcutsStore((state) => state.shortcuts);
   const saveShortcut = useModelShortcutsStore((state) => state.save);
   const removeShortcut = useModelShortcutsStore((state) => state.remove);
@@ -413,7 +410,7 @@ export function KeyboardShortcutsView(props: KeyboardShortcutsViewProps) {
               const state = shortcutRowState({
                 ...ref,
                 providerName: shortcut.action.providerName,
-                blocked: isDesktopProviderBlocked({ providerId: ref.providerID, checkRestriction }),
+                blocked: false,
                 catalog: rowCatalog,
               });
               const available = state.kind === "available" || state.kind === "pending";

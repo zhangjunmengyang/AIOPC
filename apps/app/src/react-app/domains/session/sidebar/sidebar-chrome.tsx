@@ -5,7 +5,6 @@ import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
-import { NotificationBell } from "../../../shell/notification-center";
 import { useShellConfig } from "../../../shell/shell-config";
 
 export type ConversationHistoryControls = {
@@ -75,7 +74,7 @@ export function SidebarActions({ onOpenSessionSearch }: { onOpenSessionSearch?: 
           <TooltipContent>{t("workspace_list.search_sessions")} ({isMacPlatform() ? "⌘⇧F" : "Ctrl+Shift+F"})</TooltipContent>
         </Tooltip>
       ) : null}
-      <NotificationBell align="start" />
+
     </div>
   );
 }
@@ -90,7 +89,6 @@ export function MainSidebarControls({ onOpenSessionSearch }: { onOpenSessionSear
       {isMobile && openMobile ? (
         <div aria-hidden="true" className="flex gap-0.5">
           {onOpenSessionSearch ? <span className="size-8" /> : null}
-          {config.notifications ? <span className="size-8" /> : null}
         </div>
       ) : <SidebarActions onOpenSessionSearch={onOpenSessionSearch} />}
     </div>

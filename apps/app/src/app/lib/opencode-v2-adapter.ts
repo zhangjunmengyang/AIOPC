@@ -19,7 +19,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { createClient, createDesktopFetch, type FieldsResult } from "./opencode";
-import { AUTO_ROUTER_SESSION_ROUTES_KEY, autoRouterReplyRoutes } from "@openwork/types/den/auto-router";
+import { AUTO_ROUTER_SESSION_ROUTES_KEY, autoRouterReplyRoutes } from "@openwork/types/auto-router";
 import type { OpenworkSessionHistory } from "./openwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import type { McpStatusMap, OpencodeEvent } from "../types";

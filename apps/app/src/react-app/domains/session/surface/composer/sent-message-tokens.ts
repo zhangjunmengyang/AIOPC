@@ -2,14 +2,12 @@ import type { UIMessage } from "ai";
 
 import type { ComposerMentionKind } from "./mention-encoding";
 import { encodeComposerMentionValue } from "./mention-encoding";
-import { connectSkillPrompt } from "./connect-skill-token";
 import { CONNECTOR_PROMPT_HISTORY } from "./connector-token";
 import { sessionReferencePrompt } from "./session-reference-token";
 import { createPastedTextChip, type PastedTextChip } from "./pasted-text";
 import {
   composerPillText,
   composerPillToken,
-  computerInstructionHistory,
   readComposerPill,
   splitComposerPillText,
   type ComposerPill,
@@ -18,7 +16,7 @@ import {
 /**
  * The round trip of a composer token through a sent user turn.
  *
- * The composer draws skills, Connect skills, connectors, computers, task
+ * The composer draws skills, connectors, task
  * references, agents, file mentions and pasted text as chips. A send turns
  * each into visible text (what the person wrote) plus, for most, a hidden
  * instruction for the model. The transcript must draw the same chip again,
@@ -94,21 +92,10 @@ function instructionMatchers(): InstructionMatcher[] {
   if (matchers) return matchers;
   const pill = (value: ComposerPill): SentToken => ({ kind: "pill", pill: value });
   matchers = [
-    {
-      // The slug is not part of the instruction; it is recovered from the words.
-      re: templateRegExp(["name", "marketplace", "capability"], (slots) => connectSkillPrompt({ slug: "", name: slots.name!, marketplace: slots.marketplace!, capability: slots.capability! })),
-      toToken: (groups) => groups.name && groups.marketplace && groups.capability
-        ? pill({ kind: "connect-skill", slug: "", name: groups.name, marketplace: groups.marketplace, capability: groups.capability })
-        : null,
-    },
     ...CONNECTOR_PROMPT_HISTORY.map((render): InstructionMatcher => ({
       re: templateRegExp(["name"], (slots) => render(slots.name!)),
       toToken: (groups) => groups.name ? pill({ kind: "connector", name: groups.name }) : null,
     })),
-    ...(["cloud", "desktop"] as const).flatMap((target) => computerInstructionHistory(target).map((instruction): InstructionMatcher => ({
-      re: new RegExp(escapeRegExp(instruction), "g"),
-      toToken: () => pill({ kind: "computer", target }),
-    }))),
     ...[true, false].map((titled): InstructionMatcher => ({
       re: templateRegExp(titled ? ["title", "sessionId", "workspaceId"] : ["sessionId", "workspaceId"], (slots) => sessionReferencePrompt({
         workspaceId: slots.workspaceId!, sessionId: slots.sessionId!, title: titled ? slots.title! : "",
@@ -137,27 +124,8 @@ export function sentTokensFromInstructions(context: string): SentToken[] {
   return found.sort((a, b) => a.index - b.index).map((item) => item.token);
 }
 
-function slugify(name: string) {
-  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-const SLASH_TOKEN_RE = /(?<!\S)\/([A-Za-z0-9_-]+)(?!\S)/g;
-
 /** Where a token's visible text sits in the words, at or after `from`. */
 function locate(words: string, from: number, token: SentToken): { index: number; length: number; token: SentToken } | null {
-  if (token.kind === "pill" && token.pill.kind === "connect-skill") {
-    const { pill } = token;
-    // The visible text is `/slug`, and the slug is the skill's trigger or its
-    // slugged name. Prefer the slugged name; otherwise the next `/word`.
-    let fallback: RegExpExecArray | null = null;
-    SLASH_TOKEN_RE.lastIndex = from;
-    for (let match = SLASH_TOKEN_RE.exec(words); match; match = SLASH_TOKEN_RE.exec(words)) {
-      if (match[1] === slugify(pill.name)) { fallback = match; break; }
-      fallback ??= match;
-    }
-    if (!fallback?.[1]) return null;
-    return { index: fallback.index, length: fallback[0].length, token: { kind: "pill", pill: { ...pill, slug: fallback[1] } } };
-  }
   const visible = token.kind === "pill" ? composerPillText(token.pill) : mentionText(token.kind === "agent" ? token.name : token.path);
   // Parts are joined without separators, so a mention can follow a word directly.
   const index = words.indexOf(visible, from);
@@ -223,7 +191,6 @@ export function composerDraftFromSentParts(parts: UIMessage["parts"]): SentMessa
   const pasteParts: PastedTextChip[] = [];
   const pieces: string[] = [];
   const pushPill = (pill: ComposerPill) => {
-    if (pill.kind === "computer") mentions[pill.target] = "computer";
     pieces.push(composerPillToken(pill));
   };
   for (const part of parts) {

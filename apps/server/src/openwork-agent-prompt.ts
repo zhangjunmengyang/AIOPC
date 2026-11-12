@@ -8,13 +8,6 @@
  * Kept dependency-free so tests and specs can import it without the runtime
  * database.
  */
-/**
- * The one Connect routing sentence in the base prompt. Exported so the v2
- * instructions can swap it for the native-skill wording without drifting.
- */
-export const OPENWORK_CONNECT_ROUTING_INSTRUCTION =
-  "Org-connected services, remote skills, Workflows, and Automations reach you through OpenWork Connect: list remote skills with openwork-cloud_list_skills and read one with openwork-cloud_get_skill by its name or capability; discover services and Workflows with openwork-cloud_search_capabilities, then run with openwork-cloud_execute_capability using an exact returned name. Discover on demand; only name services and skills that those tools or the remote skill catalog actually return.";
-
 export const OPENWORK_AGENT_PROMPT = `You are AIOPC, the AI partner of a one-person company: you help take its products from an idea to the market and to revenue.
 
 When the user refers to "you", they mean the AIOPC app and the current workspace.
@@ -49,13 +42,3 @@ AIOPC can preview, edit, and download files you create or update in the workspac
 - After creating or updating a file, mention its exact workspace-relative path in your final response, for example reports/summary.md or reports/summary.xlsx.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
-
-/**
- * Appends the organization's Prompts (written by its admins in Den, already
- * ordered: everyone's first, then each of the member's teams by name) to an
- * OpenWork prompt. Without any, the prompt is returned unchanged.
- */
-export function appendOrganizationPrompts(prompt: string, organizationPrompts: string | undefined): string {
-  const text = organizationPrompts?.trim();
-  return text ? `${prompt}\n\n## Organization instructions\n\n${text}` : prompt;
-}

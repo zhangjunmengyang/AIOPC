@@ -3,15 +3,12 @@ import type { DynamicToolUIPart } from "ai";
 
 import { CapabilityCallLine, ConnectorMark, DetailsToggle, isOpenWorkActivity, OPENWORK_IDENTITY, TechnicalDetailsPanel } from "./capability-call-line";
 import { RAIL_LINE, RAIL_ROW, RailMeta, TextSentenceLine, TrailingChevron } from "./activity-rail";
-import { isOpenWorkSkillCall } from "@/lib/created-skill";
 import { splitSentence } from "@/lib/text-activity";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getCapabilityCallSentence } from "@/lib/capability-call";
 import { codeModeFailureReason, codeModeSummary, shortFailureReason } from "@/lib/code-mode-summary";
 import type { CapabilityCallSentence } from "@/lib/capability-call";
-import { savedSkillSentence, skillShareFailureReason, skillShareRequest, skillShareSentence } from "@/lib/created-skill";
 import { openWorkNativeSentence } from "@/lib/openwork-native-activity";
-import { useCreatedSkills } from "./created-skill-card";
 import { codeModeToolCalls } from "@/lib/code-mode-tools";
 import type { CurrentToolLifecycle } from "@/lib/current-tool-lifecycle";
 import { isToolPartInFlight } from "@/lib/tool-activity";
@@ -67,15 +64,9 @@ export function CodeModeTool({ part, calls: allCalls, lifecycle, connectors }: {
   // collapsed line, so finishing a step doesn't make the chat jump. Only the
   // person's choice opens a group, and it stays as they left it.
   const open = userOpen ?? false;
-  const { shareLabels } = useCreatedSkills();
   // The same sentences the rows use, so the group's label and its steps agree.
-  const knownSentence = (call: DynamicToolUIPart): CapabilityCallSentence | null => {
-    const saved = savedSkillSentence(call);
-    if (saved) return { service: null, ...saved };
-    if (skillShareRequest(call)) return { service: null, ...skillShareSentence(shareLabels.get(call.toolCallId) ?? null) };
-    return openWorkNativeSentence(call);
-  };
-  const isBlocked = (call: DynamicToolUIPart) => skillShareRequest(call) !== null && skillShareFailureReason(call) === "blocked";
+  const knownSentence = (call: DynamicToolUIPart) => openWorkNativeSentence(call);
+  const isBlocked = (_call: DynamicToolUIPart) => false;
   const blockedCalls = calls.filter(isBlocked);
   const failedCalls = calls.filter(call => call.state === "output-error" && !isBlocked(call));
   const failed = part.state === "output-error";
@@ -87,7 +78,6 @@ export function CodeModeTool({ part, calls: allCalls, lifecycle, connectors }: {
     // ran; the MCP's settings title ("Cloud Control") is plumbing.
     const connector = resolveConnectorToolIdentity(call, connectors);
     if (connector?.name) return connector.name;
-    if (call.toolName.startsWith("openwork-cloud_")) return "OpenWork Cloud";
     return getCapabilityCallSentence(call, { includeQuery: false }).service;
   };
   const summary = codeModeSummary(calls, { running, failed, serviceName, sentence: knownSentence, isBlocked });
@@ -162,7 +152,7 @@ export function CodeModeTool({ part, calls: allCalls, lifecycle, connectors }: {
   // service's real mark inline ("[OpenWork] Looked up 2 tools"), never a glyph.
   const groupMarks = [...new Map(calls.map((call) => {
     const identity = resolveConnectorToolIdentity(call, connectors)
-      ?? (isOpenWorkSkillCall(call) || isOpenWorkActivity(call) || call.toolName.startsWith("openwork-cloud_") ? OPENWORK_IDENTITY : null);
+      ?? (isOpenWorkActivity(call) ? OPENWORK_IDENTITY : null);
     return [identity?.id ?? "", identity] as const;
   })).values()];
   const groupMark = groupMarks.length === 1 ? groupMarks[0] ?? null : null;

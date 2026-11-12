@@ -16,14 +16,6 @@ import {
   type NotificationInput,
 } from "@/react-app/kernel/notification-store";
 
-/** Window event that asks the notification bell to open its panel. */
-export const openNotificationCenterEvent = "openwork-open-notification-center";
-
-export function openNotificationCenter(): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(openNotificationCenterEvent));
-}
-
 export function notifyEvent(input: NotificationInput): void {
   useNotificationStore.getState().add(input);
 }
@@ -53,10 +45,6 @@ export function notifyAlert(input: NotificationInput, options?: NotifyAlertOptio
   if (alertBurstCount > 1) {
     toast(t("notifications.summary", { count: alertBurstCount }), {
       id: ALERT_TOAST_ID,
-      action: {
-        label: t("notifications.view"),
-        onClick: openNotificationCenter,
-      },
     });
     return;
   }

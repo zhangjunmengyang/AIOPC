@@ -3,31 +3,31 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import type { PromptMode } from "../../../../app/types";
 import { z } from "zod";
-import { autoAccessWallSchema } from "@/app/lib/inference-access";
+import { submissionFailureSchema } from "@/react-app/domains/session/sync/submission-failure";
 
 export const rejectedTurnSchema = z.object({
   id: z.string().min(1), text: z.string(), created: z.number().finite(), afterMessageId: z.string().nullable(),
-  wall: autoAccessWallSchema,
+  wall: submissionFailureSchema,
   attachments: z.array(z.object({ name: z.string(), mime: z.string(), url: z.string().startsWith("file://").optional() })),
 });
 export type RejectedTurn = z.infer<typeof rejectedTurnSchema>;
-export const rejectedTurnOwnerSchema = z.object({ scopeId: z.string().nullable(), denBaseUrl: z.string().min(1), runtime: z.string().min(1), workspaceId: z.string().min(1), sessionId: z.string().min(1) });
+export const rejectedTurnOwnerSchema = z.object({ scopeId: z.string().nullable(), serverBaseUrl: z.string().min(1), runtime: z.string().min(1), workspaceId: z.string().min(1), sessionId: z.string().min(1) });
 export type RejectedTurnOwner = z.infer<typeof rejectedTurnOwnerSchema>;
-const recoverySchema = z.object({ from: z.string(), id: z.string(), denBaseUrl: z.string(), expiresAt: z.number().finite() });
-export function rejectedTurnOwner(input: { draftScope: string | null; denBaseUrl: string; opencodeBaseUrl: string; workspaceId: string; sessionId: string; localRuntime: boolean }): RejectedTurnOwner {
+const recoverySchema = z.object({ from: z.string(), id: z.string(), serverBaseUrl: z.string(), expiresAt: z.number().finite() });
+export function rejectedTurnOwner(input: { draftScope: string | null; serverBaseUrl: string; opencodeBaseUrl: string; workspaceId: string; sessionId: string; localRuntime: boolean }): RejectedTurnOwner {
   let runtime = "";
-  let denBaseUrl = "";
+  let serverBaseUrl = "";
   try {
     const url = new URL(input.opencodeBaseUrl);
-    const den = new URL(input.denBaseUrl);
+    const server = new URL(input.serverBaseUrl);
     runtime = input.localRuntime ? `desktop:${url.pathname}` : `${url.origin}${url.pathname}`;
-    denBaseUrl = `${den.origin}${den.pathname}`.replace(/\/+$/, "");
+    serverBaseUrl = `${server.origin}${server.pathname}`.replace(/\/+$/, "");
   } catch {}
-  return { scopeId: input.draftScope, denBaseUrl, runtime, workspaceId: input.workspaceId, sessionId: input.sessionId };
+  return { scopeId: input.draftScope, serverBaseUrl, runtime, workspaceId: input.workspaceId, sessionId: input.sessionId };
 }
 export function rejectedTurnOwnerKey(owner: RejectedTurnOwner) {
-  return owner.scopeId && owner.denBaseUrl && owner.runtime && owner.workspaceId && owner.sessionId
-    ? JSON.stringify([owner.scopeId, owner.denBaseUrl, owner.runtime, owner.workspaceId, owner.sessionId]) : "";
+  return owner.scopeId && owner.serverBaseUrl && owner.runtime && owner.workspaceId && owner.sessionId
+    ? JSON.stringify([owner.scopeId, owner.serverBaseUrl, owner.runtime, owner.workspaceId, owner.sessionId]) : "";
 }
 const rejectedOwnerKeySchema = z.tuple([z.string(), z.string(), z.string(), z.string(), z.string()]);
 function rejectedOwnerParts(key: string) {
@@ -44,11 +44,6 @@ export type SessionDraftSnapshot = {
    * unsent draft instead of dropping them or sending them unattended.
    */
   queued?: string[];
-};
-
-export type SessionDraftIdentity = {
-  principalId: string;
-  organizationId: string;
 };
 
 export type SessionDraftWriteResult =
@@ -121,22 +116,6 @@ const parseQueued = (value: unknown): string[] =>
 
 const isEmptyStoredDraft = (draft: Pick<StoredDraft, "text" | "mode" | "queued">) =>
   !draft.text && draft.mode === "prompt" && draft.queued.length === 0;
-
-export function cloudSessionDraftScope(identity: SessionDraftIdentity | null | undefined): string | null {
-  const principalId = identity?.principalId.trim() ?? "";
-  const organizationId = identity?.organizationId.trim() ?? "";
-  if (!principalId || !organizationId) return null;
-  return `cloud:${normalizedOpaqueId(principalId)}:${normalizedOpaqueId(organizationId)}`;
-}
-
-export function resolveSessionDraftScope(input: {
-  hasCloudCredential: boolean;
-  verifiedIdentity: SessionDraftIdentity | null | undefined;
-}) {
-  return input.hasCloudCredential
-    ? cloudSessionDraftScope(input.verifiedIdentity)
-    : LOCAL_SESSION_DRAFT_SCOPE;
-}
 
 export function sessionDraftScopeKey(
   scopeId: string | null | undefined,
@@ -407,28 +386,6 @@ export function createSessionDraftStore(options: DraftStoreOptions) {
     }
     return write({ ...latest, nextRevision: latest.nextRevision + 1, rejected, drafts }) ? "saved" : "unavailable";
   };
-  const beginRejectedRecovery = (owner: RejectedTurnOwner, id: string, now = Date.now()) => {
-    const from = rejectedTurnOwnerKey(owner);
-    const latest = parseDocument(readRaw());
-    if (owner.scopeId !== LOCAL_SESSION_DRAFT_SCOPE || !latest.rejected[from]?.some((turn) => turn.id === id)) return false;
-    return write({ ...latest, recovery: { from, id, denBaseUrl: owner.denBaseUrl, expiresAt: now + 30 * 60_000 } });
-  };
-  const claimRejectedRecovery = (denBaseUrl: string, identity: SessionDraftIdentity, now = Date.now()) => {
-    const latest = parseDocument(readRaw());
-    const recovery = latest.recovery;
-    const scope = cloudSessionDraftScope(identity);
-    if (!scope || !recovery || recovery.denBaseUrl !== denBaseUrl.replace(/\/+$/, "") || recovery.expiresAt < now) return false;
-    const parts = rejectedOwnerParts(recovery.from);
-    const turn = latest.rejected[recovery.from]?.find((row) => row.id === recovery.id);
-    if (!parts || parts[0] !== LOCAL_SESSION_DRAFT_SCOPE || parts[1] !== recovery.denBaseUrl || !turn) return false;
-    const destination = JSON.stringify([scope, ...parts.slice(1)]);
-    const rejected = { ...latest.rejected,
-      [recovery.from]: latest.rejected[recovery.from].filter((row) => row.id !== turn.id),
-      [destination]: [...(latest.rejected[destination] ?? []).filter((row) => row.id !== turn.id), turn],
-    };
-    if (!rejected[recovery.from].length) delete rejected[recovery.from];
-    return write({ ...latest, rejected, recovery: null, moved: { ...latest.moved, [JSON.stringify([recovery.from, turn.id])]: destination } });
-  };
 
   return {
     get,
@@ -438,8 +395,6 @@ export function createSessionDraftStore(options: DraftStoreOptions) {
     getRejected,
     hasMovedRejected: (owner: RejectedTurnOwner, id: string) => Boolean(loadCache().moved[JSON.stringify([rejectedTurnOwnerKey(owner), id])]),
     saveRejected,
-    beginRejectedRecovery,
-    claimRejectedRecovery,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -510,8 +465,6 @@ export const saveSessionQueuedDrafts = (scopeKey: string, queued: readonly strin
 
 export const saveRejectedTurn = (owner: RejectedTurnOwner, turn: RejectedTurn, queue?: { remaining: string[] }) =>
   getBrowserStore()?.saveRejected(owner, turn, queue) ?? "unavailable";
-export const beginRejectedTurnRecovery = (owner: RejectedTurnOwner, id: string) => getBrowserStore()?.beginRejectedRecovery(owner, id) ?? false;
-export const claimRejectedTurnRecovery = (denBaseUrl: string, identity: SessionDraftIdentity) => getBrowserStore()?.claimRejectedRecovery(denBaseUrl, identity) ?? false;
 export const getRejectedTurns = (owner: RejectedTurnOwner) => getBrowserStore()?.getRejected(owner) ?? [];
 export const hasMovedRejectedTurn = (owner: RejectedTurnOwner, id: string) => getBrowserStore()?.hasMovedRejected(owner, id) ?? false;
 export function useRejectedTurns(owner: RejectedTurnOwner) {

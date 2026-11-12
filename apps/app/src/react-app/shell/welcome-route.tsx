@@ -1,54 +1,32 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from "react";
+import { useCallback,useEffect,useReducer,useState } from "react";
 import { useNavigate } from "react-router";
 
-import { t } from "../../i18n";
+import { captureAnalyticsEvent } from "../../app/lib/analytics";
 import {
-  pickDirectory,
-  resolveWorkspaceListSelectedId,
-  workspaceSetRuntimeActive,
-  workspaceSetSelected,
-  type WorkspaceInfo,
-  type WorkspaceList,
+pickDirectory,
+resolveWorkspaceListSelectedId,
+workspaceSetRuntimeActive,
+workspaceSetSelected,
+type WorkspaceInfo,
+type WorkspaceList,
 } from "../../app/lib/desktop";
-import { isDesktopRuntime } from "../../app/utils";
+import { createClient,unwrap } from "../../app/lib/opencode";
+import { buildOpenworkWorkspaceBaseUrl,createOpenworkServerClient } from "../../app/lib/openwork-server";
 import { canCreateWorkspaces } from "../../app/lib/workspace-creation-policy";
-import { createClient, unwrap } from "../../app/lib/opencode";
-import { useLocal } from "../kernel/local-provider";
-import { usePlatform } from "../kernel/platform";
-import { WelcomePage } from "../domains/onboarding/welcome-page";
+import { isDesktopRuntime } from "../../app/utils";
+import { t } from "../../i18n";
+import { AttributionStep,type AttributionSource } from "../domains/onboarding/attribution-step";
 import { ProviderSelectionStep } from "../domains/onboarding/provider-selection-step";
-import { AttributionStep, type AttributionSource } from "../domains/onboarding/attribution-step";
+import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "../domains/workspace/types";
-import {
-  getOpenWorkModelsActionUrl,
-  hideOpenWorkModelsPromo,
-  useOpenWorkModelsPromoEligibility,
-  markOpenWorkModelsStartupPromoShown,
-} from "../domains/cloud/openwork-models-promo";
-import { useDenAuth } from "../domains/cloud/den-auth-provider";
-import { JoinOrganizationDialog } from "../domains/cloud/join-organization-dialog";
-import { resolveOpenworkConnection } from "./openwork-connection";
-import { captureAnalyticsEvent } from "../../app/lib/analytics";
-import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../../app/lib/openwork-server";
-import { buildDenAuthUrl, DEFAULT_DEN_BASE_URL, readDenSettings } from "../../app/lib/den";
-import { markDesktopSignInInitiated } from "../../app/lib/den-sign-in-intent";
-import { denSettingsChangedEvent } from "../../app/lib/den-session-events";
-import { writeActiveWorkspaceId, writeLastSessionFor, writeWorkspaceProjectDimension } from "./session-memory";
-import { workspaceSessionRoute } from "./workspace-routes";
+import { useLocal } from "../kernel/local-provider";
+import { usePlatform } from "../kernel/platform";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
-import { shouldHoldWelcomeForDenSession } from "./welcome-den-session";
-
-function subscribeToDenSettings(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(denSettingsChangedEvent, onStoreChange);
-  return () => window.removeEventListener(denSettingsChangedEvent, onStoreChange);
-}
-
-function readDenAuthTokenSnapshot() {
-  return readDenSettings().authToken?.trim() ?? "";
-}
+import { resolveOpenworkConnection } from "./openwork-connection";
+import { writeActiveWorkspaceId,writeLastSessionFor,writeWorkspaceProjectDimension } from "./session-memory";
+import { workspaceSessionRoute } from "./workspace-routes";
 
 function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -124,21 +102,8 @@ export function WelcomeRoute() {
   const navigate = useNavigate();
   const local = useLocal();
   const platform = usePlatform();
-  const denAuth = useDenAuth();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
   const [manualFolder, setManualFolder] = useState("");
-  const [joinOrganizationOpen, setJoinOrganizationOpen] = useState(false);
-  const showOpenWorkModelsPromo = useOpenWorkModelsPromoEligibility();
-  const denAuthTokenSnapshot = useSyncExternalStore(
-    subscribeToDenSettings,
-    readDenAuthTokenSnapshot,
-    readDenAuthTokenSnapshot,
-  );
-  const holdSignedOutSurface = shouldHoldWelcomeForDenSession({
-    authStatus: denAuth.status,
-    hasStoredAuthToken: Boolean(denAuthTokenSnapshot),
-    isSignedIn: denAuth.isSignedIn,
-  });
 
   // If user already completed onboarding, redirect away immediately.
   useEffect(() => {
@@ -146,12 +111,6 @@ export function WelcomeRoute() {
       navigate("/session", { replace: true });
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
-
-  useEffect(() => {
-    if (denAuth.isSignedIn) {
-      navigate("/onboarding", { replace: true });
-    }
-  }, [denAuth.isSignedIn, navigate]);
 
   const markOnboardingComplete = useCallback(() => {
     local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
@@ -271,13 +230,6 @@ export function WelcomeRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace, manualFolder]);
 
-  const handleTeamSignIn = useCallback(() => {
-    markOnboardingComplete();
-    const settings = readDenSettings();
-    markDesktopSignInInitiated();
-    platform.openLink(buildDenAuthUrl(settings.baseUrl || DEFAULT_DEN_BASE_URL, "sign-in"));
-  }, [markOnboardingComplete, platform]);
-
   const finishOnboarding = useCallback(() => {
     markOnboardingComplete();
     navigate(state.pendingRoute ?? "/session", { replace: true });
@@ -303,10 +255,6 @@ export function WelcomeRoute() {
     finishOnboarding();
   }, [finishOnboarding]);
 
-  if (holdSignedOutSurface) {
-    return null;
-  }
-
   return (
     <>
       <WelcomePage
@@ -317,17 +265,8 @@ export function WelcomeRoute() {
         onManualFolderChange={setManualFolder}
         onUseManualFolder={handleUseManualFolder}
         showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
-        onTeamSignIn={handleTeamSignIn}
-        onJoinOrganization={() => setJoinOrganizationOpen(true)}
       />
-      <JoinOrganizationDialog
-        open={joinOrganizationOpen}
-        onOpenChange={setJoinOrganizationOpen}
-        onConnected={() => {
-          markOnboardingComplete();
-          setJoinOrganizationOpen(false);
-        }}
-      />
+
       <CreateWorkspaceModal
         open={state.modalOpen}
         onClose={() => dispatch({ type: "close" })}
@@ -348,20 +287,7 @@ export function WelcomeRoute() {
       />
       {state.providerStep ? (
         <ProviderSelectionStep
-          showOpenWorkModels={showOpenWorkModelsPromo}
-          onOpenWorkModels={() => {
-            // Land on the OpenWork Models value-prop page when already
-            // signed in to Den; otherwise start sign-up. Previously this
-            // always opened a bare sign-up page — payment before value.
-            platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn, "sign-up"));
-            const route = state.pendingWorkspaceId
-              ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
-              : "/session";
-            dispatch({ type: "attribution-step", route });
-          }}
           onBringYourOwn={() => {
-            markOpenWorkModelsStartupPromoShown();
-            hideOpenWorkModelsPromo();
             const route = state.pendingWorkspaceId
               ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
               : "/session";

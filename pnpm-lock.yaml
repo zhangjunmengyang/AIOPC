@@ -159,9 +159,6 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.18.15
         version: 1.18.18
-      '@openwork/install-config':
-        specifier: workspace:*
-        version: link:../../packages/install-config
       '@openwork/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -325,18 +322,9 @@ importers:
       '@openwork/enterprise-mcp-client':
         specifier: workspace:*
         version: link:../../packages/enterprise-mcp-client
-      '@openwork/free-auto':
-        specifier: workspace:*
-        version: link:../../packages/free-auto
-      '@openwork/headless-threads':
-        specifier: workspace:*
-        version: link:../../packages/headless-threads
       '@openwork/paths':
         specifier: workspace:*
         version: link:../../packages/paths
-      '@openwork/remote-sessions':
-        specifier: workspace:*
-        version: link:../../packages/remote-sessions
       '@openwork/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
@@ -349,9 +337,6 @@ importers:
       '@openwork/types':
         specifier: workspace:*
         version: link:../../packages/types
-      '@sentry/electron':
-        specifier: ^7.16.0
-        version: 7.16.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
@@ -379,6 +364,9 @@ importers:
       node-pty:
         specifier: npm:@lydell/node-pty@1.2.0-beta.12
         version: '@lydell/node-pty@1.2.0-beta.12'
+      opencode-scheduler:
+        specifier: 1.3.0
+        version: 1.3.0(@opencode-ai/plugin@1.19.5)
       undici:
         specifier: 6.29.1
         version: 6.29.1
@@ -422,9 +410,6 @@ importers:
       '@openwork/enterprise-mcp-client':
         specifier: workspace:*
         version: link:../../packages/enterprise-mcp-client
-      '@openwork/free-auto':
-        specifier: workspace:*
-        version: link:../../packages/free-auto
       '@openwork/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -537,25 +522,6 @@ importers:
         specifier: ^4.6.6
         version: 4.6.6
 
-  packages/connect-link:
-    dependencies:
-      '@openwork/types':
-        specifier: workspace:*
-        version: link:../types
-      zod:
-        specifier: 4.6.6
-        version: 4.6.6
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.7
-      tsup:
-        specifier: ^8.5.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-
   packages/enterprise-mcp-client:
     dependencies:
       '@modelcontextprotocol/client':
@@ -571,78 +537,6 @@ importers:
       '@types/node':
         specifier: ^20.11.30
         version: 20.12.12
-      tsup:
-        specifier: ^8.5.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-
-  packages/free-auto:
-    dependencies:
-      '@openwork/types':
-        specifier: workspace:*
-        version: link:../types
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.7
-      tsup:
-        specifier: ^8.5.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-
-  packages/headless-threads:
-    dependencies:
-      '@opencode-ai/sdk':
-        specifier: ^1.18.15
-        version: 1.18.18
-      zod:
-        specifier: ^4.6.6
-        version: 4.6.6
-    devDependencies:
-      bun-types:
-        specifier: ^1.3.6
-        version: 1.3.14
-      tsup:
-        specifier: ^8.5.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-
-  packages/install-config:
-    dependencies:
-      zod:
-        specifier: 4.6.6
-        version: 4.6.6
-    devDependencies:
-      tsup:
-        specifier: ^8.5.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-
-  packages/managed-deployments:
-    dependencies:
-      fast-xml-parser:
-        specifier: 5.12.0
-        version: 5.12.0
-      jose:
-        specifier: 6.2.8
-        version: 6.2.8
-      zod:
-        specifier: ^4.6.6
-        version: 4.6.6
-
-  packages/opencode-plugin:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.7
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
@@ -667,8 +561,6 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
-
-  packages/remote-sessions: {}
 
   packages/sandbox:
     devDependencies:
@@ -731,9 +623,6 @@ importers:
 
   packages/types:
     dependencies:
-      '@openwork/managed-deployments':
-        specifier: workspace:*
-        version: link:../managed-deployments
       zod:
         specifier: ^4.6.6
         version: 4.6.6
@@ -801,17 +690,6 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@antfu/install-pkg/-/install-pkg-1.1.0.tgz}
-
-  '@apm-js-collab/code-transformer-bundler-plugins@0.7.4':
-    resolution: {integrity: sha512-nAfOeZPSUAQvJa1iFT/5oCrTm5YQhMMrfCNthNnaXHZiOQhu1KGuLoIx7HtbAi3wfwaBYLaICPIeenIaEwcXIg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@apm-js-collab/code-transformer-bundler-plugins/-/code-transformer-bundler-plugins-0.7.4.tgz}
-    engines: {node: '>=18.0.0'}
-
-  '@apm-js-collab/code-transformer@0.18.1':
-    resolution: {integrity: sha512-u1Hb6bHjWtkSpiprwVP6YaHC1DTN4RAU3zYkUDUe7WMnJwdyU1pwTL9dFKiSJB9IiLue/EQovmyx6xhU7FFtAQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@apm-js-collab/code-transformer/-/code-transformer-0.18.1.tgz}
-    hasBin: true
-
-  '@apm-js-collab/tracing-hooks@0.13.0':
-    resolution: {integrity: sha512-mTvWz9rnQwx1U3h0XPTHaX7bgfkpipLLTQyjlC2cdhQpQEuoLT0AGzoydeoq2NxfEVv6fWOOETcSbb2nptleyw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@apm-js-collab/tracing-hooks/-/tracing-hooks-0.13.0.tgz}
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@aws-crypto/crc32/-/crc32-5.2.0.tgz}
@@ -1810,8 +1688,25 @@ packages:
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha1-Cs8y9HCvLOr0fwlc3s1A1oZm79o=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@open-draft/until/download/@open-draft/until-2.1.0.tgz}
 
+  '@opencode-ai/plugin@1.19.5':
+    resolution: {integrity: sha512-79PY+pxcJajHReWv2OP2SYTdlx1f7zOmq2hIaReOJnovsxNaSvxVyQHx+6Yq22T5UcS4z3Qgws4KB4lQOaIbdQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@opencode-ai/plugin/-/plugin-1.19.5.tgz}
+    peerDependencies:
+      '@opentui/core': '>=0.4.5'
+      '@opentui/keymap': '>=0.4.5'
+      '@opentui/solid': '>=0.4.5'
+    peerDependenciesMeta:
+      '@opentui/core':
+        optional: true
+      '@opentui/keymap':
+        optional: true
+      '@opentui/solid':
+        optional: true
+
   '@opencode-ai/sdk@1.18.18':
     resolution: {integrity: sha512-zJlwXskIR47V1dkPJqeKBgq7nejG1uU8lJaGIGqbX3MWRCT8vKn0fEotbxuPCKnTdmWsDyNGNg9q1qIliDSMDA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@opencode-ai/sdk/-/sdk-1.18.18.tgz}
+
+  '@opencode-ai/sdk@1.19.5':
+    resolution: {integrity: sha512-+bqu8gHiwmq96T9q5G34uLNHWCInIMsrE3hytCNHj1cVaxjY0AGJyNCT1rkeeZwgPU7A5TMTNwN+0XxCO2vqDg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@opencode-ai/sdk/-/sdk-1.19.5.tgz}
 
   '@opencode/codemode@2.2.5':
     resolution: {integrity: sha512-oqZXynEO71nOpM9kOVacyRY6qOceYdk2p9Q0667kwSP4ZXgKSKtxV2HkI0iUBh3ci+TueO88BxIb2CgL1slpGw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@opencode/codemode/-/codemode-2.2.5.tgz}
@@ -2263,79 +2158,6 @@ packages:
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha1-YN6JG7Emq/3FQQ/cYWasoGXxCgw=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sec-ant/readable-stream/download/@sec-ant/readable-stream-0.4.1.tgz}
-
-  '@sentry/browser-utils@10.67.0':
-    resolution: {integrity: sha512-HUzaf0xAnPAB+OHBkD7N1Py+CTbD5InHulQ/pdhX4JctWtxuwD8odMD1LzdPnW8J6gVHlDVvcVBR8mXMZYSLSw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/browser-utils/-/browser-utils-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/browser@10.67.0':
-    resolution: {integrity: sha512-/ZhsAvte4rYhg0A0RtSFFgAgXhyMOfQIeOAfMfptN+X6IVSYOfkA9jtrP+Ej4+6vlaUFWRir1HweF56y63dEEA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/browser/-/browser-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/conventions@0.16.0':
-    resolution: {integrity: sha512-fO9PLmHdVURcSPUpWCItWAtgKiMwGdJHbovoSEyLplX5sxs2ugvI4CBPTrkkgqhObnZOD0CnWBKDzSVQYBKEyQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/conventions/-/conventions-0.16.0.tgz}
-    engines: {node: '>=14'}
-
-  '@sentry/core@10.67.0':
-    resolution: {integrity: sha512-b6U3pJ8AUvN9aouq0vl+VZI8KT8RslBsfGMFuNwRr313zOmdmFJBZqTiUw9VGgJ2jGKxLO9alm9rlxBfX4hf+w==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/core/-/core-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/electron@7.16.0':
-    resolution: {integrity: sha512-GgnsAGynr1IKfakRuW5AGlxQsIZi0cFUyzcn9ekrYy1cIyb85piVLN5u7W9pXzSzKopaGrxXBWubPBSRagyXjA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/electron/-/electron-7.16.0.tgz}
-    peerDependencies:
-      '@sentry/node-native': 10.67.0
-    peerDependenciesMeta:
-      '@sentry/node-native':
-        optional: true
-
-  '@sentry/feedback@10.67.0':
-    resolution: {integrity: sha512-I4ML2/SF3enwikb6ZSoRiqolQrx0zSzTSnUgwCmugICF/jpHW0th1pCray9R+t1Zzibw/Dpj4t/DNXaSDRa2MA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/feedback/-/feedback-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/node-core@10.67.0':
-    resolution: {integrity: sha512-dBHHRwZyan1pOnFJ+sNBvR8TkXbZAfZU/jpxmALS3JZ2/8AGR7cQKL+b7SleKuJ7iUDZyklN3Nqi0i5JkcA+HA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/node-core/-/node-core-10.67.0.tgz}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@opentelemetry/api': ^1.9.0
-      '@opentelemetry/core': ^1.30.1 || ^2.1.0
-      '@opentelemetry/exporter-trace-otlp-http': '>=0.57.0 <1'
-      '@opentelemetry/instrumentation': '>=0.57.1 <1'
-      '@opentelemetry/sdk-trace-base': ^1.30.1 || ^2.1.0
-    peerDependenciesMeta:
-      '@opentelemetry/api':
-        optional: true
-      '@opentelemetry/core':
-        optional: true
-      '@opentelemetry/exporter-trace-otlp-http':
-        optional: true
-      '@opentelemetry/instrumentation':
-        optional: true
-      '@opentelemetry/sdk-trace-base':
-        optional: true
-
-  '@sentry/node@10.67.0':
-    resolution: {integrity: sha512-SFKpZGqOCEFSmP93NdDP6ikZp4NS7A/JR8+2ofK3jF6Y9Vyox7pX0pxdOnPLpFcPtMybMahfWqSAWJvsFs4RmA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/node/-/node-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/opentelemetry@10.67.0':
-    resolution: {integrity: sha512-oLTOrAK1rOqmYRktOJZwz37B1seXPx1W2FTMVtzTVNjMFA/LZwGzePeZzhUOgzZgfLHixMd/ceWtGqoxAndcjQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/opentelemetry/-/opentelemetry-10.67.0.tgz}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@opentelemetry/api': ^1.9.0
-      '@opentelemetry/core': ^1.30.1 || ^2.1.0
-      '@opentelemetry/sdk-trace-base': ^1.30.1 || ^2.1.0
-
-  '@sentry/replay-canvas@10.67.0':
-    resolution: {integrity: sha512-neNA4T6MFtZzMdKYetiR+LZd9BNSd0q2szMn0wk+A15PqHE/IN7a34V6JZc9rCtmzB0wldh0eWGOBb49MSNKjA==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/replay-canvas/-/replay-canvas-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/replay@10.67.0':
-    resolution: {integrity: sha512-nkEUgPCR82EcyJkCf3XCE9H0R5KisCqyCAaSGxe7NpAoQbvASHx4MUNgXVAn+D0M494gvPZh6lFH7JgzqTcSqQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/replay/-/replay-10.67.0.tgz}
-    engines: {node: '>=18'}
-
-  '@sentry/server-utils@10.67.0':
-    resolution: {integrity: sha512-GQ9t+RSTx5s3b/aZrLFuL4nrwPLMah5NiZk5cjxJmgmOSgm3nMdO8gdqCedDch5B13F3YsxtaQYjSJnzLz8M5A==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@sentry/server-utils/-/server-utils-10.67.0.tgz}
-    engines: {node: '>=18'}
 
   '@shikijs/core@4.0.2':
     resolution: {integrity: sha512-hxT0YF4ExEqB8G/qFdtJvpmHXBYJ2lWW7qTHDarVkIudPFE6iCIrqdgWxGn5s+ppkGXI0aEGlibI0PAyzP3zlw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@shikijs/core/-/core-4.0.2.tgz}
@@ -2876,9 +2698,6 @@ packages:
   '@types/estree@1.0.8':
     resolution: {integrity: sha1-lYuRyZGxhnztMYvt6g4hXuBQcm4=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@types/estree/download/@types/estree-1.0.8.tgz}
 
-  '@types/estree@1.0.9':
-    resolution: {integrity: sha1-zz8Oh2177hWpOrkluCv1cKOQSiQ=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@types/estree/download/@types/estree-1.0.9.tgz}
-
   '@types/fs-extra@9.0.13':
     resolution: {integrity: sha1-dZT7rgT+fxkYzos9IT90/0SsH0U=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@types/fs-extra/download/@types/fs-extra-9.0.13.tgz}
 
@@ -3048,10 +2867,6 @@ packages:
   ast-types@0.16.1:
     resolution: {integrity: sha1-ep2hYXyQgbwSH6r+kXEbTIu4HaI=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/ast-types/download/ast-types-0.16.1.tgz}
     engines: {node: '>=4'}
-
-  astring@1.9.0:
-    resolution: {integrity: sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/astring/-/astring-1.9.0.tgz}
-    hasBin: true
 
   async-exit-hook@2.0.1:
     resolution: {integrity: sha1-i9iwJLDsmxwBzMua+dspvXF9+vM=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/async-exit-hook/download/async-exit-hook-2.0.1.tgz}
@@ -3783,6 +3598,9 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha1-WQxhFWsK4vTwJVcyoViyZrxWsh0=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/ee-first/download/ee-first-1.1.1.tgz}
 
+  effect@4.0.0-beta.83:
+    resolution: {integrity: sha512-0wsak8RtgGAr9UWSbVDgJHZcUqMSvicHcvaZv1MbMM7MCGgW4Rn/137J1MHQbwYPcwYGxT/IqehFd+UbYuj78w==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/effect/-/effect-4.0.0-beta.83.tgz}
+
   effect@4.0.0-rc.112:
     resolution: {integrity: sha512-wXxwuh1Ywnv4cPRM3Wfa0vDwuOHnZ1TsTgHJkG9XgzND6inhBH9n1vBxhg3iIXOia/OrpmvVmd3lrD4vq6bF3A==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/effect/-/effect-4.0.0-rc.112.tgz}
 
@@ -3912,14 +3730,6 @@ packages:
     engines: {node: '>=4'}
     hasBin: true
 
-  esquery@1.7.0:
-    resolution: {integrity: sha512-Ap6G0WQwcU/LHsvLwON1fAQX9Zp0A2Y6Y/cJBl9r/JbW90Zyg4/zbG6zzKa2OTALELarYHmKu0GhpM5EO+7T0g==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/esquery/-/esquery-1.7.0.tgz}
-    engines: {node: '>=0.10'}
-
-  estraverse@5.3.0:
-    resolution: {integrity: sha1-LupSkHAvJquP5TcDcP+GyWXSESM=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/estraverse/download/estraverse-5.3.0.tgz}
-    engines: {node: '>=4.0'}
-
   etag@1.8.1:
     resolution: {integrity: sha1-Qa4u62XvpiJorr/qg6x9eSmbCIc=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/etag/download/etag-1.8.1.tgz}
     engines: {node: '>= 0.6'}
@@ -4030,6 +3840,9 @@ packages:
   finalhandler@2.1.1:
     resolution: {integrity: sha1-osUXplWYUrzbBtH4vX9Rto+tgJk=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/finalhandler/download/finalhandler-2.1.1.tgz}
     engines: {node: '>= 18.0.0'}
+
+  find-my-way-ts@0.1.6:
+    resolution: {integrity: sha1-N/e4Qz0PYef+cpB3IkCwwTOw6/I=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/find-my-way-ts/download/find-my-way-ts-0.1.6.tgz}
 
   fix-dts-default-cjs-exports@1.0.1:
     resolution: {integrity: sha512-pVIECanWFC61Hzl2+oOCtoJ3F17kglZC/6N94eRWycFgBH35hHx0Li604ZIzhseh97mf2p0cv7vVrOZGoqhlEg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/fix-dts-default-cjs-exports/-/fix-dts-default-cjs-exports-1.0.1.tgz}
@@ -4308,6 +4121,10 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha1-D6LGT5MpF8NDOg3tVTY6rjdBa3w=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/inherits/download/inherits-2.0.4.tgz}
 
+  ini@7.0.0:
+    resolution: {integrity: sha1-2LPsv5QlqFgb2Vkh6zvhp5SFMdQ=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/ini/download/ini-7.0.0.tgz}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
   internmap@1.0.1:
     resolution: {integrity: sha1-ABfMijuZYF8DAvKxmNJy4BXl35U=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/internmap/download/internmap-1.0.1.tgz}
 
@@ -4515,6 +4332,9 @@ packages:
     resolution: {integrity: sha1-lRBhAXlfcFDGxlDzUMaD/r3bF4A=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/kleur/download/kleur-4.1.5.tgz}
     engines: {node: '>=6'}
 
+  kubernetes-types@1.30.0:
+    resolution: {integrity: sha1-9obKywj/xffoklSJnCFTxyNCARY=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/kubernetes-types/download/kubernetes-types-1.30.0.tgz}
+
   layout-base@1.0.2:
     resolution: {integrity: sha1-EpHilog8Miqd1MXdggY3IbU+JuI=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/layout-base/download/layout-base-1.0.2.tgz}
 
@@ -4708,10 +4528,6 @@ packages:
     resolution: {integrity: sha1-Q2iJL4hekHRVpv19xVwMnUBJkK4=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/merge2/download/merge2-1.4.1.tgz}
     engines: {node: '>= 8'}
 
-  meriyah@6.1.4:
-    resolution: {integrity: sha512-Sz8FzjzI0kN13GK/6MVEsVzMZEPvOhnmmI1lU5+/1cGOiK3QUahntrNNtdVeihrO7t9JpoH75iMNXg6R6uWflQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/meriyah/-/meriyah-6.1.4.tgz}
-    engines: {node: '>=18.0.0'}
-
   mermaid@11.17.1:
     resolution: {integrity: sha512-G1BP6qU4BRwEGk2SdsxgDk1cSuApimT32Nkb52YRSv+856FrmB8qo28BaNk9Ee8Fvuon3OxpXDJ4L6cD5AykXg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/mermaid/-/mermaid-11.17.1.tgz}
 
@@ -4843,6 +4659,9 @@ packages:
       typescript:
         optional: true
 
+  multipasta@0.2.9:
+    resolution: {integrity: sha512-kAovZHgxryqb0xTFz7OTCPxbas8UBTTwCDhfrlaNecp1/z6xcMfp5PVhDxsW7jONHyDF10/ccp30MxA2+66GJw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/multipasta/-/multipasta-0.2.9.tgz}
+
   mute-stream@3.0.0:
     resolution: {integrity: sha512-dkEJPVvun4FryqBmZ5KhDo0K9iDXAwn08tMLDinNdRBNPcYEDiWYysLcc6k3mjTMlbP9KyylvRpd4wFtwrT9rw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/mute-stream/-/mute-stream-3.0.0.tgz}
     engines: {node: ^20.17.0 || >=22.9.0}
@@ -4951,6 +4770,11 @@ packages:
   open@11.0.0:
     resolution: {integrity: sha1-iX5hMvmU01VMvPcuDfmPF2p+X2I=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/open/download/open-11.0.0.tgz}
     engines: {node: '>=20'}
+
+  opencode-scheduler@1.3.0:
+    resolution: {integrity: sha512-zloAazOZDiPop1V6B5jMKcG1M+ogl0VI5Ym3xu7vj3siAncU26Wn+hMbn9FfvpHqEBGWbzLrhJVZPb9yIRvESw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/opencode-scheduler/-/opencode-scheduler-1.3.0.tgz}
+    peerDependencies:
+      '@opencode-ai/plugin': '>=1.0.0'
 
   ora@8.2.0:
     resolution: {integrity: sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/ora/-/ora-8.2.0.tgz}
@@ -5345,9 +5169,6 @@ packages:
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/scheduler/-/scheduler-0.27.0.tgz}
 
-  semifies@1.0.0:
-    resolution: {integrity: sha512-xXR3KGeoxTNWPD4aBvL5NUpMTT7WMANr3EWnaS190QVkY52lqqcVRD7Q05UVbBhiWDGWMlJEUam9m7uFFGVScw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/semifies/-/semifies-1.0.0.tgz}
-
   semver-compare@1.0.0:
     resolution: {integrity: sha1-De4hahyUGrN+nvsXiPavxf9VN/w=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/semver-compare/download/semver-compare-1.0.0.tgz}
 
@@ -5637,6 +5458,10 @@ packages:
     resolution: {integrity: sha1-O+NDIaiKgg7RvYDfqjPkefu43TU=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/toidentifier/download/toidentifier-1.0.1.tgz}
     engines: {node: '>=0.6'}
 
+  toml@5.0.1:
+    resolution: {integrity: sha512-EqYNA/YvUNndrA2B3O2ojzLQoTQrBxeZ9UIjQwk8t10oe6n7dwclBwd9IdZQTOKwe6vWX+AXtl6IntXRbepdxQ==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/toml/-/toml-5.0.1.tgz}
+    engines: {node: '>=20'}
+
   tough-cookie@6.0.1:
     resolution: {integrity: sha1-pJX4M4NmCe2YPBm8ZWOc+861THY=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/tough-cookie/download/tough-cookie-6.0.1.tgz}
     engines: {node: '>=16'}
@@ -5795,6 +5620,10 @@ packages:
 
   uuid@11.1.1:
     resolution: {integrity: sha1-9tgdLhxl0Adi5eKbFsXS2ZXiCK0=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/uuid/download/uuid-11.1.1.tgz}
+    hasBin: true
+
+  uuid@14.0.3:
+    resolution: {integrity: sha512-Sc5u1VVln93y1Xnz4R+CunOZc7R9LUcTmhj7Rc7Eg3HVcf7rVn2FOoa812fe0W8p3jD7xeoGSYbfqCGGH2B6xw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/uuid/-/uuid-14.0.3.tgz}
     hasBin: true
 
   validate-npm-package-name@7.0.2:
@@ -6020,30 +5849,6 @@ snapshots:
     dependencies:
       package-manager-detector: 1.8.0
       tinyexec: 1.1.2
-
-  '@apm-js-collab/code-transformer-bundler-plugins@0.7.4':
-    dependencies:
-      '@apm-js-collab/code-transformer': 0.18.1
-      es-module-lexer: 2.3.2
-      magic-string: 0.30.21
-      module-details-from-path: 1.0.4
-
-  '@apm-js-collab/code-transformer@0.18.1':
-    dependencies:
-      '@types/estree': 1.0.9
-      astring: 1.9.0
-      esquery: 1.7.0
-      meriyah: 6.1.4
-      semifies: 1.0.0
-      source-map: 0.6.1
-
-  '@apm-js-collab/tracing-hooks@0.13.0':
-    dependencies:
-      '@apm-js-collab/code-transformer': 0.18.1
-      debug: 4.4.3
-      module-details-from-path: 1.0.4
-    transitivePeerDependencies:
-      - supports-color
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -7545,7 +7350,18 @@ snapshots:
 
   '@open-draft/until@2.1.0': {}
 
+  '@opencode-ai/plugin@1.19.5':
+    dependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@opencode-ai/sdk': 1.19.5
+      effect: 4.0.0-beta.83
+      zod: 4.6.6
+
   '@opencode-ai/sdk@1.18.18':
+    dependencies:
+      cross-spawn: 7.0.6
+
+  '@opencode-ai/sdk@1.19.5':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -7984,96 +7800,6 @@ snapshots:
     optional: true
 
   '@sec-ant/readable-stream@0.4.1': {}
-
-  '@sentry/browser-utils@10.67.0':
-    dependencies:
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-
-  '@sentry/browser@10.67.0':
-    dependencies:
-      '@sentry/browser-utils': 10.67.0
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-      '@sentry/feedback': 10.67.0
-      '@sentry/replay': 10.67.0
-      '@sentry/replay-canvas': 10.67.0
-
-  '@sentry/conventions@0.16.0': {}
-
-  '@sentry/core@10.67.0':
-    dependencies:
-      '@sentry/conventions': 0.16.0
-
-  '@sentry/electron@7.16.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))':
-    dependencies:
-      '@sentry/browser': 10.67.0
-      '@sentry/core': 10.67.0
-      '@sentry/node': 10.67.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
-    transitivePeerDependencies:
-      - '@opentelemetry/core'
-      - '@opentelemetry/exporter-trace-otlp-http'
-      - supports-color
-
-  '@sentry/feedback@10.67.0':
-    dependencies:
-      '@sentry/core': 10.67.0
-
-  '@sentry/node-core@10.67.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))':
-    dependencies:
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-      '@sentry/opentelemetry': 10.67.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))
-      import-in-the-middle: 3.3.1
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/exporter-trace-otlp-http': 0.220.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/sdk-trace-base': 2.9.0(@opentelemetry/api@1.9.1)
-
-  '@sentry/node@10.67.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/sdk-trace-base': 2.9.0(@opentelemetry/api@1.9.1)
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-      '@sentry/node-core': 10.67.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))
-      '@sentry/opentelemetry': 10.67.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))
-      '@sentry/server-utils': 10.67.0
-      import-in-the-middle: 3.3.1
-    transitivePeerDependencies:
-      - '@opentelemetry/core'
-      - '@opentelemetry/exporter-trace-otlp-http'
-      - supports-color
-
-  '@sentry/opentelemetry@10.67.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/sdk-trace-base': 2.9.0(@opentelemetry/api@1.9.1)
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-
-  '@sentry/replay-canvas@10.67.0':
-    dependencies:
-      '@sentry/core': 10.67.0
-      '@sentry/replay': 10.67.0
-
-  '@sentry/replay@10.67.0':
-    dependencies:
-      '@sentry/browser-utils': 10.67.0
-      '@sentry/core': 10.67.0
-
-  '@sentry/server-utils@10.67.0':
-    dependencies:
-      '@apm-js-collab/code-transformer-bundler-plugins': 0.7.4
-      '@apm-js-collab/tracing-hooks': 0.13.0
-      '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.67.0
-    transitivePeerDependencies:
-      - supports-color
 
   '@shikijs/core@4.0.2':
     dependencies:
@@ -8741,8 +8467,6 @@ snapshots:
 
   '@types/estree@1.0.8': {}
 
-  '@types/estree@1.0.9': {}
-
   '@types/fs-extra@9.0.13':
     dependencies:
       '@types/node': 25.6.0
@@ -8948,8 +8672,6 @@ snapshots:
   ast-types@0.16.1:
     dependencies:
       tslib: 2.8.1
-
-  astring@1.9.0: {}
 
   async-exit-hook@2.0.1: {}
 
@@ -9594,6 +9316,19 @@ snapshots:
 
   ee-first@1.1.1: {}
 
+  effect@4.0.0-beta.83:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      fast-check: 4.9.0
+      find-my-way-ts: 0.1.6
+      ini: 7.0.0
+      kubernetes-types: 1.30.0
+      msgpackr: 2.0.5
+      multipasta: 0.2.9
+      toml: 5.0.1
+      uuid: 14.0.3
+      yaml: 2.9.0
+
   effect@4.0.0-rc.112:
     dependencies:
       fast-check: 4.9.0
@@ -9782,12 +9517,6 @@ snapshots:
 
   esprima@4.0.1: {}
 
-  esquery@1.7.0:
-    dependencies:
-      estraverse: 5.3.0
-
-  estraverse@5.3.0: {}
-
   etag@1.8.1: {}
 
   events@3.3.0: {}
@@ -9955,6 +9684,8 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  find-my-way-ts@0.1.6: {}
 
   fix-dts-default-cjs-exports@1.0.1:
     dependencies:
@@ -10288,6 +10019,8 @@ snapshots:
 
   inherits@2.0.4: {}
 
+  ini@7.0.0: {}
+
   internmap@1.0.1: {}
 
   internmap@2.0.3: {}
@@ -10424,6 +10157,8 @@ snapshots:
   kleur@3.0.3: {}
 
   kleur@4.1.5: {}
+
+  kubernetes-types@1.30.0: {}
 
   layout-base@1.0.2: {}
 
@@ -10568,8 +10303,6 @@ snapshots:
   merge-stream@2.0.0: {}
 
   merge2@1.4.1: {}
-
-  meriyah@6.1.4: {}
 
   mermaid@11.17.1:
     dependencies:
@@ -10731,6 +10464,8 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
+  multipasta@0.2.9: {}
+
   mute-stream@3.0.0: {}
 
   mz@2.7.0:
@@ -10839,6 +10574,10 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
+
+  opencode-scheduler@1.3.0(@opencode-ai/plugin@1.19.5):
+    dependencies:
+      '@opencode-ai/plugin': 1.19.5
 
   ora@8.2.0:
     dependencies:
@@ -11244,8 +10983,6 @@ snapshots:
 
   scheduler@0.27.0: {}
 
-  semifies@1.0.0: {}
-
   semver-compare@1.0.0:
     optional: true
 
@@ -11591,6 +11328,8 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
+  toml@5.0.1: {}
+
   tough-cookie@6.0.1:
     dependencies:
       tldts: 7.4.10
@@ -11751,6 +11490,8 @@ snapshots:
   util-deprecate@1.0.2: {}
 
   uuid@11.1.1: {}
+
+  uuid@14.0.3: {}
 
   validate-npm-package-name@7.0.2: {}
 

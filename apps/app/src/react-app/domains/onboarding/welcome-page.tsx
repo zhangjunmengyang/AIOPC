@@ -22,8 +22,6 @@ type WelcomePageProps = {
   onManualFolderChange?: (value: string) => void;
   onUseManualFolder?: () => void;
   showManualFolder?: boolean;
-  onTeamSignIn?: () => void;
-  onJoinOrganization: () => void;
 };
 
 export function WelcomePage({
@@ -35,8 +33,6 @@ export function WelcomePage({
   onManualFolderChange,
   onUseManualFolder,
   showManualFolder,
-  onTeamSignIn,
-  onJoinOrganization,
 }: WelcomePageProps) {
   const { config: shellConfig } = useShellConfig();
   const appName = shellConfig.appName;
@@ -88,23 +84,12 @@ export function WelcomePage({
               </div>
 
               <div className="mt-11 flex flex-col gap-3">
-                {onTeamSignIn ? (
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="h-12 w-full text-[15px] font-semibold"
-                    onClick={onTeamSignIn}
-                    disabled={busy}
-                    data-testid="welcome-team-signin"
-                  >
-                    {t("welcome.sign_in_cloud")}
-                  </Button>
-                ) : null}
+
 
                 <Button
                   type="button"
                   size="lg"
-                  variant={onTeamSignIn ? "outline" : "default"}
+                  variant="default"
                   className="h-12 w-full text-[15px] font-medium"
                   onClick={onGetStarted}
                   disabled={busy}
@@ -112,24 +97,10 @@ export function WelcomePage({
                 >
                   {busy
                     ? t("welcome.creating_workspace")
-                    : (getStartedLabel || t("welcome.use_without_cloud"))}
+                    : (getStartedLabel || "开始使用")}
                 </Button>
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                    onClick={onJoinOrganization}
-                    data-testid="welcome-join-org"
-                  >
-                    <span className="font-medium text-foreground/90">
-                      {t("welcome.join_org")}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {t("welcome.join_org_subtitle")}
-                    </span>
-                  </button>
-                </div>
+
 
                 {error ? (
                   <p className="text-center text-xs text-destructive">{error}</p>

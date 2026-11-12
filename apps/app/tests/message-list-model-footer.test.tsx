@@ -11,7 +11,7 @@ const previousAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT")
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true)
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 const { MessageList } = await import("../src/components/chat/message-list")
 const { useModelPickerCatalogStore } = await import("../src/react-app/domains/session/models/model-collections-store")
@@ -48,7 +48,7 @@ async function render(messages: UIMessage[], streaming = false, modelOptions?: r
   const root = createRoot(container)
   mounted = { root, container }
   await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -58,7 +58,7 @@ async function render(messages: UIMessage[], streaming = false, modelOptions?: r
       onMcpReconnect: async () => {}, onMcpReopenAuthorization: async () => {},
       children: createElement(MessageList, { messages, status: streaming ? "streaming" : "ready" }),
     }),
-  }) }), })))
+  }), })))
   return container
 }
 
@@ -109,17 +109,6 @@ test("older turns keep their footer hover-only", async () => {
   expect(labels[1].className).toContain("group-hover/message-group:opacity-100")
 })
 
-test("an Auto reply renders the OpenWork mark beside the routed name", async () => {
-  const message = answer("reply")
-  message.metadata = { opencode: { replyModel: {
-    requestedProviderID: "openwork", providerID: "openai", modelID: "gpt-6", name: "GPT-6", resolved: true,
-  } } }
-  const container = await render([message])
-  const label = container.querySelector('[data-testid="reply-model"]')
-  expect(label?.textContent).toBe("Replied with GPT-6")
-  expect(label?.querySelector('svg[aria-label="OpenWork"]')).not.toBeNull()
-  expect(label?.querySelector('svg[aria-label="OpenWork"]')?.closest('[aria-hidden="true"]')).not.toBeNull()
-})
 
 test("a Smart Router reply names the model the gateway chose, with its thinking level", async () => {
   const smart = "openwork-smart-ar_engineering"

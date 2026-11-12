@@ -1,18 +1,4 @@
-/**
- * Shared contract for the Electron desktop IPC bridge.
- *
- * Producer: apps/desktop/electron/main.mjs — `desktopCommandHandlers`, typed
- * via JSDoc against `DesktopCommandHandlers` so missing/extra/renamed
- * commands fail `typecheck:electron`.
- * Consumer: apps/app/src/app/lib/desktop.ts — the `desktopBridge` Proxy and
- * its named exports derive per-command signatures from `DesktopCommandMap`.
- *
- * Every command sent over the `openwork:desktop` channel has exactly one
- * entry here: `args` is the tuple the renderer passes, `result` what the
- * main process resolves. Results marked `unknown` are not yet modeled —
- * tighten them instead of widening call sites.
- */
-import type { ConnectLinkVerifyFailure, ConnectLinkVerifyResult } from "./connect-link.js";
+
 import type { WorkspaceWire } from "./workspace.js";
 
 // ---------------------------------------------------------------------------
@@ -136,9 +122,6 @@ export type WorkspaceExportSummary = {
   included: number;
   excluded: string[];
 };
-
-export type BrandIconApplyResult = { ok: boolean; reason?: string };
-export type BrandIconState = { applied: boolean; sourceUrl: string | null; reason: string | null };
 export type EvalRelaunchResult = { ok: true };
 
 export type OpencodeCommandDraft = {
@@ -191,48 +174,6 @@ export type DesktopDistributionInfo = {
   requireActivation: boolean;
 };
 
-/** Org + first-skill identity shared by the handoff and prepared records. */
-export type DesktopBootstrapOrgSkill = {
-  orgId: string;
-  orgName: string;
-  orgSlug: string;
-  skillId: string;
-  skillTitle: string;
-};
-
-export type DesktopBootstrapConfig = {
-  baseUrl: string;
-  apiBaseUrl?: string | null;
-  requireSignin: boolean;
-  requireActivation?: boolean;
-  brandAppName?: string | null;
-  brandLogoUrl?: string | null;
-  brandIconUrl?: string | null;
-  writtenAt?: string | null;
-  fromFile?: boolean;
-  claimLinks?: Array<{
-    id: string;
-    role: string;
-    token?: string;
-    url: string;
-    expiresAt: string;
-  }> | null;
-  handoff?: (DesktopBootstrapOrgSkill & {
-    grant: string;
-    denBaseUrl: string;
-    createdAt: string;
-  }) | null;
-  prepared?: (DesktopBootstrapOrgSkill & {
-    skillsDir: string;
-    skillPath: string;
-    preparedAt: string;
-  }) | null;
-  enterpriseActivation?: {
-    activatedAt: string;
-    denBaseUrl: string;
-  } | null;
-};
-
 export type OpenworkDockerCleanupResult = {
   candidates: string[];
   removed: string[];
@@ -279,13 +220,10 @@ export type CacheResetResult = {
 
 export type NukeManifestPreview = {
   deletePaths: string[];
-  bootstrapPath: string;
-  preserveBootstrapPath: string | null;
   partitions: string[];
 };
 
 export type NukeOptions = {
-  preserveBootstrap: boolean;
 };
 
 export type NukeReceiptError = {
@@ -298,7 +236,6 @@ export type NukeReceipt = {
   deleted: string[];
   pendingRetry: string[];
   errors: NukeReceiptError[];
-  preservedBootstrap: boolean;
   relaunchMode: "cleanup_worker" | "direct";
   workerScheduled: boolean;
 };
@@ -479,11 +416,6 @@ export type DesktopCommandMap = {
     args: [input: DesktopNotificationInput];
     result: DesktopNotificationResult;
   };
-  desktopSentrySetSession: {
-    args: [input: { userId: string; orgId: string }];
-    result: { enabled: boolean };
-  };
-  desktopSentryClearSession: { args: []; result: { enabled: boolean } };
   /** Keep the computer from sleeping while this window's agents are working. */
   desktopSetKeepAwake: { args: [active: boolean]; result: { active: boolean } };
   desktopIntegrationStatus: { args: []; result: DesktopIntegrationStatus };
@@ -518,8 +450,6 @@ export type DesktopCommandMap = {
   computerChatFiles: { args: [input: { sessionId: string }]; result: { files: Array<{ path: string; bytes: number; modifiedAt: number }> } };
   /** An image saved in the chat's output folder, to show inline in a reply; null for anything else. */
   computerChatImage: { args: [input: { sessionId: string; path: string }]; result: { data: Uint8Array<ArrayBuffer>; contentType: string } | null };
-  computerListFileGrants: { args: []; result: { enabled: boolean; grants: Array<{ id: string; origin: string; folder: string; blocked?: boolean }> } };
-  computerRemoveFileGrant: { args: [id: string]; result: { ok: boolean } };
   computerSetFeatureEnabled: { args: [enabled: boolean]; result: boolean };
   agentQuestionsSetEnabled: { args: [enabled: boolean]; result: boolean };
   computerSetRemoteEnabled: { args: [enabled: boolean]; result: boolean };
@@ -535,34 +465,11 @@ export type DesktopCommandMap = {
   computerSetBackgroundEnabled: { args: [enabled: boolean]; result: boolean };
   computerResetPermission: { args: [permission: ComputerPermission]; result: { setupId: string } };
   computerEndTurn: { args: [sessionId: string]; result: boolean };
-
-  // Bootstrap config
-  getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };
-  debugDesktopBootstrapConfig: { args: []; result: unknown };
-  clearDesktopBootstrapConfig: { args: []; result: unknown };
-  setDesktopBootstrapConfig: {
-    args: [config: Partial<DesktopBootstrapConfig>];
-    result: DesktopBootstrapConfig;
-  };
-
-  // Connect links use a short-lived HTTPS exchange by default and can use an
-  // embedded-key signed token when explicitly enabled. The renderer relays
-  // only the raw URL. `connectLinkAccept` resolves it again after confirmation,
-  // enforces one-time use, and persists the target as desktop bootstrap config.
-  connectLinkVerify: { args: [rawUrl: string]; result: ConnectLinkVerifyResult };
-  connectLinkAccept: {
-    args: [rawUrl: string];
-    result: { ok: true; config: DesktopBootstrapConfig } | ConnectLinkVerifyFailure;
-  };
   nukeOpenworkAndOpencodeConfigPreview: { args: [options?: NukeOptions]; result: NukeManifestPreview };
   nukeOpenworkAndOpencodeConfigAndExit: { args: [options?: NukeOptions]; result: NukeReceipt };
 
   // Openwork server sidecar
   openworkServerInfo: { args: []; result: OpenworkServerInfo };
-  automationRunnerConfigure: {
-    args: [configuration: { baseUrl: string; token: string; runnerId: string } | null];
-    result: { connected: boolean };
-  };
   openworkServerRestart: {
     args: [options?: Record<string, unknown>];
     result: OpenworkServerInfo;
@@ -625,9 +532,6 @@ export type DesktopCommandMap = {
   __openPath: { args: [target: string]; result: unknown };
   __openWorkspaceFile: { args: [workspaceRoot: string, target: string, options?: { reveal?: boolean }]; result: DesktopWorkspaceFileOpenResult };
   __revealItemInDir: { args: [target: string]; result: unknown };
-  __applyBrandAppName: { args: [appName: string | null]; result: { ok: true; appName: string } };
-  __applyBrandIcon: { args: [url: string | null]; result: BrandIconApplyResult };
-  __getBrandIconState: { args: []; result: BrandIconState };
   __evalRelaunch: { args: []; result: EvalRelaunchResult };
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string, workspaceRoot: string]; result: unknown };

@@ -6,15 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { isWebDeployment } from "@/app/lib/openwork-deployment";
 import { hydrateOpenworkServerSettingsFromEnv } from "@/app/lib/openwork-server";
 import { isDesktopRuntime } from "@/app/utils";
-import { ConnectLinkProvider } from "@/react-app/domains/cloud/connect-link-provider";
-import { DenAuthProvider } from "@/react-app/domains/cloud/den-auth-provider";
-import { AutoRejectedTurnRecoveryBridge } from "@/react-app/domains/cloud/auto-access-ui";
-import { FreeAutoAnalyticsBridge } from "@/react-app/domains/cloud/free-auto-analytics-bridge";
-import { AutomationRunnerBridge } from "@/react-app/domains/automations/automation-runner-bridge";
 import { GlobalQueueDrainerBridge } from "@/react-app/domains/session/sync/global-queue-drainer-bridge";
-import { BrandThemeProvider } from "@/react-app/domains/cloud/brand-theme";
-import { DesktopConfigProvider } from "@/react-app/domains/cloud/desktop-config-provider";
-import { RestrictionNoticeProvider } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
 import { KeepAwakeBridge } from "@/react-app/domains/session/status/keep-awake-bridge";
 import { ServerProvider } from "@/react-app/kernel/server-provider";
@@ -54,34 +46,16 @@ type AppProvidersProps = {
   children: ReactNode;
 };
 
-// One provider tree for every activation state. The runtime bridges below
-// (DesktopRuntimeBoot, AutomationRunnerBridge,
-// GlobalQueueDrainerBridge) each render nothing until enterprise activation
-// completes, so AppRoot-level consumers such as DesktopUpdaterProvider always
-// find the same contexts and nothing privileged starts before activation.
-export function EnterpriseAwareAppProviders({ children }: AppProvidersProps) {
-  return (
-    <>
-      <DesktopRuntimeBoot />
-      <ConnectLinkProvider>
-        <DesktopConfigProvider>
-          <BrandThemeProvider>
-            <RestrictionNoticeProvider>
-              <LocalProvider>
-                <AutomationRunnerBridge />
-                <GlobalQueueDrainerBridge />
-                <AutoRejectedTurnRecoveryBridge />
-                <FreeAutoAnalyticsBridge />
-                <KeepAwakeBridge />
-                <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
-                <Toaster />
-              </LocalProvider>
-            </RestrictionNoticeProvider>
-          </BrandThemeProvider>
-        </DesktopConfigProvider>
-      </ConnectLinkProvider>
-    </>
-  );
+export function LocalAppProviders({ children }: AppProvidersProps) {
+  return <>
+    <DesktopRuntimeBoot />
+    <LocalProvider>
+      <GlobalQueueDrainerBridge />
+      <KeepAwakeBridge />
+      <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
+      <Toaster />
+    </LocalProvider>
+  </>;
 }
 
 export function AppProviders({ children }: AppProvidersProps) {
@@ -104,9 +78,7 @@ export function AppProviders({ children }: AppProvidersProps) {
     <BootStateProvider>
       <ServerProvider defaultUrl={defaultUrl}>
         <ArchitectureMismatchGate>
-          <DenAuthProvider>
-            <EnterpriseAwareAppProviders>{children}</EnterpriseAwareAppProviders>
-          </DenAuthProvider>
+          <LocalAppProviders>{children}</LocalAppProviders>
         </ArchitectureMismatchGate>
       </ServerProvider>
     </BootStateProvider>

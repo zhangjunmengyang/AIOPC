@@ -8,10 +8,7 @@ import {
 } from "@/app/lib/provider-events";
 import { t } from "@/i18n";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
-import { readDenSettings } from "@/app/lib/den";
-import { requestMemberActivityRefresh } from "@/react-app/kernel/activity-types";
 import { notifyEvent } from "./notifications";
-import { orgOnboardingVisibilityEvent } from "./reload-coordinator";
 
 const SEEN_KEY = "openwork.seenProviderIds";
 const NEW_PROVIDERS_DEDUPE_KEY = "new-providers";
@@ -60,8 +57,6 @@ const EMPTY_STATE: ListenerState = {
  */
 export function NewProvidersListener() {
   const [state, setState] = useState<ListenerState>(EMPTY_STATE);
-  const [orgOnboardingVisible, setOrgOnboardingVisible] = useState(false);
-  const [pendingProviders, setPendingProviders] = useState<NewProviderInfo[]>([]);
 
   const showProviders = useCallback((detail: NewProvidersEventDetail) => {
     const seen = readSeenProviderIds();
@@ -87,40 +82,13 @@ export function NewProvidersListener() {
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<NewProvidersEventDetail>).detail;
-      // The engine catalog describes materialization, not member entitlement.
-      // Signed-in provider changes belong to the scoped inventory observer;
-      // never add a second, profile-wide cloud entry (including on first sync).
-      if (readDenSettings().authToken?.trim()) {
-        requestMemberActivityRefresh();
-        return;
-      }
       if (detail.providers.length === 0 && !detail.newModelCount) return;
-      if (orgOnboardingVisible) {
-        setPendingProviders((current) => [
-          ...current,
-          ...detail.providers.filter((p) => !current.some((existing) => existing.id === p.id)),
-        ]);
-        return;
-      }
       showProviders(detail);
     };
     window.addEventListener(newProvidersEvent, handler);
     return () => window.removeEventListener(newProvidersEvent, handler);
-  }, [orgOnboardingVisible, showProviders]);
+  }, [showProviders]);
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      setOrgOnboardingVisible(Boolean((event as CustomEvent<{ visible?: boolean }>).detail?.visible));
-    };
-    window.addEventListener(orgOnboardingVisibilityEvent, handler);
-    return () => window.removeEventListener(orgOnboardingVisibilityEvent, handler);
-  }, []);
-
-  useEffect(() => {
-    if (orgOnboardingVisible || pendingProviders.length === 0) return;
-    showProviders({ providers: pendingProviders, source: "cloud_sync" });
-    setPendingProviders([]);
-  }, [orgOnboardingVisible, pendingProviders, showProviders]);
 
   // Write the accumulated summary into the notification center. The dedupe
   // key keeps one unread entry that absorbs repeated provider syncs.

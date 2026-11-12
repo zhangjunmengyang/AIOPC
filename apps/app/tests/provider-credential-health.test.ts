@@ -105,7 +105,6 @@ for (const error of [
   { name: "APIError", data: { statusCode: 403, message: "Access denied" } },
   { name: "APIError", data: { statusCode: 429, message: "Invalid API key" } },
   { name: "APIError", data: { statusCode: 500, message: "Invalid API key" } },
-  { name: "APIError", data: { statusCode: 401, responseBody: '{"error":{"code":"openwork_auth_required"}}' } },
   { name: "APIError", data: { statusCode: 401, message: "Invalid OpenWork Gateway key.", responseBody: '{"error":{"code":"invalid_api_key"}}' } },
   { name: "APIError", data: { statusCode: 401, message: "An OpenWork Models key is required." } },
   { name: "APIError", data: { message: "ECONNRESET" } },

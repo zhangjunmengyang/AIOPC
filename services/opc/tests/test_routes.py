@@ -28,12 +28,12 @@ def make(tmp_path, platform="x", identity=None):
 def test_browser_is_the_default_route(tmp_path):
     social, browser, account = make(tmp_path)
     result = asyncio.run(social.publish(account["id"], "hello"))
-    assert result["status"] == "composer_filled" and result["route"] == "内置浏览器"
+    assert result["status"] == "composer_filled" and result["route"] == "项目环境"
     assert browser.composed == [("x", "post", "hello")]
     assert social.history()[0]["route"] == "browser"
 
 
-def test_official_api_wins_and_falls_back_for_media(tmp_path, monkeypatch):
+def test_official_api_never_publishes_instead_of_filling_composer(tmp_path, monkeypatch):
     social, browser, account = make(tmp_path)
     AccountStore(tmp_path / "home").set_route(account["id"], "x-api", {"username": "me"})
     sent = []
@@ -44,11 +44,11 @@ def test_official_api_wins_and_falls_back_for_media(tmp_path, monkeypatch):
 
     monkeypatch.setattr(routes.XApiRoute, "publish", publish)
     described = social.describe(AccountStore(tmp_path / "home").get(account["id"]))
-    assert described["publish"] == "direct" and described["routes"][0]["id"] == "x-api"
+    assert described["publish"] == "compose" and described["routes"][0]["id"] == "x-api"
 
     result = asyncio.run(social.publish(account["id"], "短帖", tags=["opc"]))
-    assert result["status"] == "published" and sent == ["短帖"]
-    assert social.history()[0]["action"] == "published"
+    assert result["status"] == "composer_filled" and sent == []
+    assert social.history()[0]["action"] == "compose"
 
     image = tmp_path / "a.png"
     image.write_bytes(b"png")
@@ -114,7 +114,7 @@ def test_routes_endpoints(tmp_path, monkeypatch):
     params, headers = {"workspace": str(tmp_path)}, {"Authorization": "Bearer t"}
     added = api.post(f"/api/accounts/{account['id']}/routes", params=params, headers=headers,
                      json={"route": "bluesky-api", "fields": {"handle": "me", "app_password": "abcd-efgh"}}).json()
-    assert added["publish"] == "direct" and any(item["attached"] for item in added["enhancements"])
+    assert added["publish"] == "compose" and any(item["attached"] for item in added["enhancements"])
     removed = api.delete(f"/api/accounts/{account['id']}/routes/bluesky-api", params=params, headers=headers).json()
     assert removed["publish"] == "compose"
     services = api.get("/api/integrations", params=params, headers=headers).json()["services"]
@@ -130,7 +130,7 @@ def test_connect_with_official_api_alone(tmp_path, monkeypatch):
     keys = {"api_key": "a", "api_secret": "b", "access_token": "c", "access_token_secret": "d"}
     connected = asyncio.run(social.connect_with_route("X", "x-api", keys))
     account = connected["account"]
-    assert account["handle"] == "opc_lab" and account["publish"] == "direct"
+    assert account["handle"] == "opc_lab" and account["publish"] == "compose"
     assert account["services"][0]["id"] == "twitterapi"
     with pytest.raises(SocialError, match="四项"):
         asyncio.run(social.connect_with_route("x", "x-api", {"api_key": "a"}))

@@ -1,0 +1,10 @@
+{
+  "test": "manual supervisor fault injection (not a real calendar trigger)",
+  "firstExit": null,
+  "duplicateExit": 0,
+  "lastRunStatus": "running",
+  "starts": 1,
+  "overlapSkipped": true,
+  "timeoutKilled": false,
+  "lockRemoved": false
+}

@@ -9,25 +9,6 @@ import test from "node:test";
 const smoke = fileURLToPath(new URL("./npm-web-smoke.mjs", import.meta.url));
 const version = "0.18.65";
 
-test("recovery uses the workflow's smoke script while package sources stay pinned to the release", async () => {
-  const workflow = await readFile(new URL("../../../.github/workflows/release-macos-aarch64.yml", import.meta.url), "utf8");
-  const verification = workflow.slice(workflow.indexOf("  verify-npm-hosts:"), workflow.indexOf("  publish-npm:"));
-  assert.match(verification, /name: Checkout smoke script[\s\S]*?ref: \$\{\{ github\.sha \}\}/);
-  const preparation = workflow.slice(workflow.indexOf("  prepare-npm:"), workflow.indexOf("  verify-npm-hosts:"));
-  assert.match(preparation, /RELEASE_TAG: \$\{\{ needs\.resolve-release\.outputs\.release_tag \}\}/);
-  assert.match(preparation, /ref: \$\{\{ env\.RELEASE_TAG \}\}/);
-});
-
-test("snapshot recovery has its own concurrency namespace, not the caller's workflow name", async () => {
-  const snapshot = await readFile(new URL("../../../.github/workflows/release-daytona-snapshot.yml", import.meta.url), "utf8");
-  const concurrency = snapshot.slice(snapshot.indexOf("\nconcurrency:"), snapshot.indexOf("\njobs:"));
-  assert.match(concurrency, /group: release-daytona-snapshot-\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/);
-  assert.match(concurrency, /cancel-in-progress: false/);
-  // github.workflow is "Release App" inside a workflow_call too. In recovery,
-  // both inputs.tag values are v0.18.65; using github.workflow would deadlock.
-  assert.doesNotMatch(concurrency, /group:.*github\.workflow/);
-});
-
 // Run the release smoke itself, not a copy of its request logic. This launcher
 // replaces only the installed package and its engine, without downloading either.
 const launcherSource = String.raw`

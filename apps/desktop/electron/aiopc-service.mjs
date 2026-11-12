@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { configureAiopcScheduler } from "./aiopc-scheduler.mjs";
 
 const PREFERRED_PORT = 18800;
 const HEALTH_TIMEOUT_MS = 180_000;
@@ -75,6 +76,7 @@ export function createAiopcService({ app, desktopRoot, log = console }) {
     process.env.AIOPC_HOME = home;
     // One environment shared by the API process and every workspace's MCP, outside the app bundle.
     process.env.UV_PROJECT_ENVIRONMENT = path.join(home, "venv");
+    configureAiopcScheduler({ app, desktopRoot, serviceDir, uv, home });
     // Tools AIOPC installs for the agent (e.g. the GitHub CLI) live here; the runtime's shells inherit it.
     const toolDir = path.join(home, "bin");
     if (!String(process.env.PATH ?? "").split(path.delimiter).includes(toolDir)) {

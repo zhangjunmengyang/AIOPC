@@ -7,20 +7,7 @@ import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontex
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { CallToolResultSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { connectionActionAppResourceUri, connectionActionIntentSchema, type ConnectionActionIntent } from "@openwork/types/connection-action-app";
-import { trustedAppHostCloudEndpoint } from "./connect-mcp-server-catalog.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import {
-  CONNECT_MCP_APP_HOST_CAPABILITY,
-  CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
-  CONNECT_MCP_APP_HOST_NAME_PREFIX,
-  connectMcpAppHostName,
-  findOpenWorkConnectMcpAppHostServer,
-  readOpenWorkConnectMcpAppHostAuthorization,
-  readOpenWorkConnectMcpAppHostAuthorizationRevision,
-  readOpenWorkConnectMcpAppHostCatalog,
-  refreshOpenWorkConnectMcpAppHostCatalog,
-  type ConnectMcpCatalogDiagnostic,
-} from "./connect-mcp-server-catalog.js";
 import type { ServerConfig } from "./types.js";
 import { join } from "node:path";
 import { runtimeStorageDir } from "./runtime-db.js";
@@ -65,11 +52,8 @@ export const MCP_APP_READ_ONLY_RESULT_META = "openwork/readOnly";
 /** Result _meta key naming the verified server and credential revision a result came from, so a kept result never crosses either. */
 export const MCP_APP_PROVIDER_IDENTITY_META = "openwork/providerIdentity";
 
-export async function supportsHostConnectionActions(serverName: string, config: Record<string, unknown>, toolName: string, resourceUri: string): Promise<boolean> {
-  if (serverName !== "openwork-cloud" && serverName !== "openwork") return false;
-  if (toolName !== "connection_action" || resourceUri !== connectionActionAppResourceUri) return false;
-  const endpoint = remoteUrl(config);
-  return endpoint !== null && endpoint.pathname === "/mcp/agent" && await trustedAppHostCloudEndpoint(config);
+export async function supportsHostConnectionActions(_serverName: string, _config: Record<string, unknown>, _toolName: string, _resourceUri: string): Promise<boolean> {
+  return false;
 }
 
 function stripProviderHostActions(value: unknown): unknown {
@@ -136,11 +120,8 @@ function staleLaunch(): McpAppHostError {
 /** Values and private credential revisions stay on the host, never in the resource response. */
 async function launchFingerprint(input: { serverConfig: ServerConfig; workspaceId: string }, serverName: string, config: Record<string, unknown>): Promise<string> {
   const managed = await localManagedMcpAppIdentity(input.serverConfig, input.workspaceId, serverName, config.url);
-  const runtimeRevisions = readRuntimeMcpConfigRevisions(input.serverConfig, input.workspaceId,
-    serverName.startsWith(CONNECT_MCP_APP_HOST_NAME_PREFIX) ? "openwork-cloud" : serverName);
-  const privateRevision = serverName.startsWith(CONNECT_MCP_APP_HOST_NAME_PREFIX)
-    ? await readOpenWorkConnectMcpAppHostAuthorizationRevision(input.serverConfig, input.workspaceId) : null;
-  return createHash("sha256").update(JSON.stringify({ config, managed, runtimeRevisions, privateRevision })).digest("hex");
+  const runtimeRevisions = readRuntimeMcpConfigRevisions(input.serverConfig, input.workspaceId, serverName);
+  return createHash("sha256").update(JSON.stringify({ config, managed, runtimeRevisions })).digest("hex");
 }
 
 // The revision URI of an App built in OpenWork, as mcpAppResourceUri in
@@ -157,7 +138,7 @@ async function readAppResource(input: { serverConfig: ServerConfig; workspaceId:
   };
   const id = BUILT_APP_REVISION_URI.exec(uri)?.[1];
   // A provider can imitate a revision URI. Only the trusted private built-App endpoint is immutable.
-  if (!id || serverName !== connectMcpAppHostName(id)) return load();
+  if (!id || serverName !== id) return load();
   let cache = resourceCaches.get(input.serverConfig);
   if (!cache) {
     cache = createMcpAppResourceCache(join(runtimeStorageDir(input.serverConfig), "mcp-app-resources"));
@@ -398,24 +379,12 @@ async function connectRemoteClient(config: Record<string, unknown>): Promise<Cli
     throw error;
   }
   const transportFetch = createLocalManagedMcpGuardedFetch();
-  const canonicalCloud = url.pathname === "/mcp/agent" && await trustedAppHostCloudEndpoint(config);
-  const guardedFetch: typeof transportFetch = async (target, init) => {
-    if (canonicalCloud && new URL(String(target)).href !== url.href) {
-      throw new McpAppHostError("untrusted_gateway_endpoint", "The Cloud App transport changed its canonical endpoint.");
-    }
-    const response = await transportFetch(target, init);
-    if (canonicalCloud && response.url !== url.href) {
-      await response.body?.cancel();
-      throw new McpAppHostError("untrusted_gateway_endpoint", "The Cloud App transport redirected away from its canonical endpoint.");
-    }
-    return response;
-  };
   const requestInit = {
     headers: stringHeaders(config.headers),
   };
   const attempts = [
-    () => new StreamableHTTPClientTransport(url, { requestInit, fetch: guardedFetch }),
-    () => new SSEClientTransport(url, { requestInit, fetch: guardedFetch }),
+    () => new StreamableHTTPClientTransport(url, { requestInit, fetch: transportFetch }),
+    () => new SSEClientTransport(url, { requestInit, fetch: transportFetch }),
   ];
   const failures: string[] = [];
   for (const [index, createTransport] of attempts.entries()) {
@@ -624,78 +593,6 @@ function decodeResourceHtml(content: { text?: string; blob?: string }): { html: 
   throw new McpAppHostError("invalid_resource", "The MCP App resource must contain exactly one of text or blob HTML.");
 }
 
-function connectCatalogError(diagnostic: Exclude<ConnectMcpCatalogDiagnostic, "ready" | "empty">): McpAppHostError {
-  const messages = {
-    missing_app_host_auth: "The Connect MCP App host needs a fresh private authorization. Sync OpenWork Connect and try again.",
-    untrusted_origin: "The Connect MCP catalog origin is not trusted. Activate the enterprise Den origin before loading Apps.",
-    invalid_catalog: "The Connect MCP catalog is invalid. Ask your administrator to check the Den catalog.",
-    invalid_proxy_descriptor: "The Connect MCP catalog contains an invalid provider proxy descriptor. Ask your administrator to correct it in Den.",
-    discovery_unavailable: "The Connect MCP catalog could not be discovered. Try again; this does not establish that the connection is missing.",
-  };
-  return new McpAppHostError(`connect_catalog_${diagnostic}`, messages[diagnostic]);
-}
-
-const CONNECT_CATALOG_RECOVERY_BUDGET_MS = 1_000;
-
-async function privateConnectMcpConfigUntimed(input: {
-  serverConfig: ServerConfig;
-  workspaceId: string;
-  connectionId?: string;
-  serverName?: string;
-}): Promise<{ serverName: string; config: Record<string, unknown> } | null> {
-  // Ordinary user-configured servers do not depend on Connect discovery.
-  if (input.connectionId === undefined && !input.serverName?.startsWith(CONNECT_MCP_APP_HOST_NAME_PREFIX)) return null;
-  let descriptor = await findOpenWorkConnectMcpAppHostServer(
-    input.serverConfig,
-    input.workspaceId,
-    { connectionId: input.connectionId, serverName: input.serverName },
-  );
-  if (!descriptor) {
-    let refreshed = await refreshOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
-    if (refreshed.diagnostic === "discovery_unavailable") {
-      // One immediate discovery-only recovery, with one shared deadline for
-      // its handshake and read. Never add backoff or replay a provider tool.
-      const deadline = AbortSignal.timeout(CONNECT_CATALOG_RECOVERY_BUDGET_MS);
-      refreshed = await refreshOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId, (url, init) => externalFetch(url, {
-        ...init,
-        signal: init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline,
-      }));
-    }
-    if (refreshed.diagnostic !== "ready" && refreshed.diagnostic !== "empty") {
-      throw connectCatalogError(refreshed.diagnostic);
-    }
-    if (refreshed.status === "synced") {
-      descriptor = await findOpenWorkConnectMcpAppHostServer(
-        input.serverConfig,
-        input.workspaceId,
-        { connectionId: input.connectionId, serverName: input.serverName },
-      );
-    }
-  }
-  if (!descriptor) return null;
-  const appHostAuthorization = await readOpenWorkConnectMcpAppHostAuthorization(
-    input.serverConfig,
-    input.workspaceId,
-    descriptor.url,
-  );
-  if (!appHostAuthorization) throw connectCatalogError("missing_app_host_auth");
-  return {
-    serverName: connectMcpAppHostName(descriptor.connectionId),
-    config: {
-      type: "remote",
-      url: descriptor.url,
-      enabled: true,
-      headers: {
-        Authorization: appHostAuthorization,
-        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
-      },
-    },
-  };
-}
-
-function privateConnectMcpConfig(input: Parameters<typeof privateConnectMcpConfigUntimed>[0]) {
-  return timeMcpApp("desktop.private-connect-config", () => privateConnectMcpConfigUntimed(input));
-}
 
 function findHtmlResource(
   resourceUri: string,
@@ -828,26 +725,8 @@ export async function listMcpAppCatalog(input: {
   workspaceRoot: string;
 }): Promise<McpAppCatalogServer[]> {
   const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
-  // Connect app-host providers: org connections surfaced through the Cloud
-  // capability gateway. Their catalog and authorization live in the private
-  // app-host store, not the workspace MCP config, and their launches resolve
-  // through a connection reference (app audience only).
-  let connectCatalog = await readOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
-  if (connectCatalog.servers.length === 0) {
-    const refreshed = await refreshOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
-    if (refreshed.status === "synced") {
-      connectCatalog = await readOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
-    }
-  }
-  // A Connect host can also appear in the workspace MCP config under the same
-  // name; the provider section owns it (its entries carry the connection
-  // reference launches need), so the workspace copy is skipped.
-  const connectHostNames = new Set(
-    connectCatalog.servers.map((descriptor) => connectMcpAppHostName(descriptor.connectionId)),
-  );
-
   const configuredEntries = configured
-    .filter((item) => item.config.enabled !== false && remoteUrl(item.config) && !connectHostNames.has(item.name))
+    .filter((item) => item.config.enabled !== false && remoteUrl(item.config))
     .map(async (item): Promise<McpAppCatalogServer> => {
       try {
         const apps = await withCatalogProbeTimeout(withRemoteClient(item.config, (client) =>
@@ -870,57 +749,9 @@ export async function listMcpAppCatalog(input: {
       }
     });
 
-  const connectEntries = connectCatalog.servers.map(async (descriptor): Promise<McpAppCatalogServer> => {
-    const hostName = connectMcpAppHostName(descriptor.connectionId);
-    const base = {
-      serverName: hostName,
-      displayName: descriptor.name,
-      connectionId: descriptor.connectionId,
-    };
-    const authorization = await readOpenWorkConnectMcpAppHostAuthorization(
-      input.serverConfig,
-      input.workspaceId,
-      descriptor.url,
-    );
-    if (!authorization) {
-      return {
-        ...base,
-        reachable: false,
-        error: "The Connect MCP provider is not authorized for this workspace.",
-        apps: [],
-      };
-    }
-    const config: Record<string, unknown> = {
-      type: "remote",
-      url: descriptor.url,
-      enabled: true,
-      headers: {
-        Authorization: authorization,
-        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
-      },
-    };
-    try {
-      const apps = await withCatalogProbeTimeout(withRemoteClient(config, (client) =>
-        catalogAppsFromClient(client, {
-          serverName: hostName,
-          workspaceRoot: input.workspaceRoot,
-          connectionId: descriptor.connectionId,
-          requireModelVisibility: false,
-        })));
-      return { ...base, reachable: true, apps };
-    } catch (error) {
-      return {
-        ...base,
-        reachable: false,
-        error: error instanceof Error ? error.message : "The Connect MCP provider could not be reached.",
-        apps: [],
-      };
-    }
-  });
-
   // Servers are independent probes: run them concurrently so catalog latency
   // is the slowest single server, not the sum of every connection attempt.
-  return Promise.all([...configuredEntries, ...connectEntries]);
+  return Promise.all(configuredEntries);
 }
 
 export async function resolveMcpAppResource(input: {
@@ -1021,13 +852,11 @@ export async function resolveConnectMcpAppResource(input: {
     throw new McpAppHostError("invalid_resource_uri", "MCP App resource URI must use ui://.");
   }
 
-  const item = await privateConnectMcpConfig({
-    serverConfig: input.serverConfig,
-    workspaceId: input.workspaceId,
-    connectionId: input.launch.connectionId,
-  });
+  const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
+  const matching = configured.find((candidate) => candidate.name === input.launch.connectionId);
+  const item = matching ? { serverName: matching.name, config: matching.config } : null;
   if (!item || !remoteUrl(item.config)) {
-    throw new McpAppHostError("server_unavailable", "The originating Connect MCP server is not available to this workspace.");
+    throw new McpAppHostError("server_unavailable", "The originating MCP server is not available to this workspace.");
   }
   const { serverName } = item;
   const fingerprint = await launchFingerprint(input, serverName, item.config);
@@ -1187,15 +1016,8 @@ export async function callMcpAppTool(input: {
     throw new McpAppHostError("invalid_resource_digest", "expectedResourceDigest must be a SHA-256 hex digest.");
   }
   const currentConfig = async () => {
-    const privateItem = await privateConnectMcpConfig({
-      serverConfig: input.serverConfig,
-      workspaceId: input.workspaceId,
-      serverName: input.serverName,
-    });
-    const configured = privateItem ? [] : await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
-    // A reserved private host must never fall back to a same-name workspace configuration.
-    const item = input.serverName.startsWith(CONNECT_MCP_APP_HOST_NAME_PREFIX)
-      ? privateItem : configured.find((candidate) => candidate.name === input.serverName);
+    const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
+    const item = configured.find((candidate) => candidate.name === input.serverName);
     if (!item || item.config.enabled === false) {
       throw new McpAppHostError("server_unavailable", "The originating MCP server is not available to this workspace. Reopen the App after restoring the connection.");
     }
@@ -1280,7 +1102,7 @@ export async function callMcpAppTool(input: {
     // missing required argument) must reach the member as that rejection,
     // not as an unhandled 500 "Unexpected server error". The text is
     // provider-controlled: bound it the same way Den bounds provider excerpts.
-    const result = await timeMcpApp("desktop.tools-call", () => client.callTool({ name: input.name, arguments: input.arguments ?? {} })).catch((error: unknown) => {
+    const result = await timeMcpApp("desktop.tools-call", () => client.callTool({ name: input.name, arguments: input.arguments ?? {}, _meta: { "io.aiopc/app-action": { approved: input.approved === true, resourceUri: launch.resourceUri } } })).catch((error: unknown) => {
       throw new McpAppHostError("tool_call_failed", providerErrorExcerpt(error) ?? "The MCP App tool call failed.");
     });
     if (new TextEncoder().encode(JSON.stringify(result)).byteLength > MAX_RESULT_BYTES) {

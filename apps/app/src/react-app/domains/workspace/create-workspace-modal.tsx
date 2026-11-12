@@ -84,18 +84,18 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
   const headerTitle = (() => {
     switch (screen) {
       case "local":
-        return t("dashboard.create_local_workspace_title");
+        return t("workspace.create_local_workspace_title");
       default:
-        return props.title ?? t("dashboard.create_workspace_title");
+        return props.title ?? t("workspace.create_workspace_title");
     }
   })();
 
   const headerSubtitle = (() => {
     switch (screen) {
       case "local":
-        return t("dashboard.create_local_workspace_subtitle");
+        return t("workspace.create_local_workspace_subtitle");
       default:
-        return props.subtitle ?? t("dashboard.create_workspace_subtitle");
+        return props.subtitle ?? t("workspace.create_workspace_subtitle");
     }
   })();
 
@@ -163,7 +163,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
               disabled={submitting}
               variant="ghost"
               size="icon"
-              aria-label={t("dashboard.modal_back")}
+              aria-label={t("workspace.modal_back")}
             >
               <ArrowLeft className="size-4" />
             </Button>
@@ -180,12 +180,12 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
           <div className={modalBodyClass}>
             <div className="space-y-3">
               <WorkspaceOptionCard
-                title={t("dashboard.create_local_workspace_title")}
+                title={t("workspace.create_local_workspace_title")}
                 description={
                   props.localDisabled
                     ? props.localDisabledReason?.trim() ||
-                      t("dashboard.chooser_local_desc")
-                    : t("dashboard.chooser_local_desc")
+                      t("workspace.chooser_local_desc")
+                    : t("workspace.chooser_local_desc")
                 }
                 icon={FolderPlus}
                 onClick={() => setScreen("local")}
@@ -193,7 +193,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
                 endAdornment={
                   props.localDisabled ? (
                     <span className={tagClass}>
-                      {t("dashboard.desktop_badge")}
+                      {t("workspace.desktop_badge")}
                     </span>
                   ) : undefined
                 }
@@ -209,10 +209,10 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
                     {props.importingConfig ? (
                       <span className="inline-flex items-center gap-2">
                         <Loader2 size={14} className="animate-spin" />
-                        {t("dashboard.importing")}
+                        {t("workspace.importing")}
                       </span>
                     ) : (
-                      t("dashboard.import_config")
+                      t("workspace.import_config")
                     )}
                   </button>
                 </div>

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentPermissionRule } from "@openwork/types/den/agent-permissions-runtime";
+import type { AgentPermissionRule } from "@openwork/types/agent-permissions-runtime";
 import { agentPermissionEngineV2Decision, agentPermissionEngineV2Rules, agentPermissionEngineV2ToolHidden } from "../src/agent-permission-engine.js";
 
 test("browser upload rules stay out of the engine grammar and do not change existing tools", () => {

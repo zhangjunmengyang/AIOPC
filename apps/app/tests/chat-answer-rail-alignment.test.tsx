@@ -64,49 +64,22 @@ async function render(messages: UIMessage[], streaming = false, modelOptions?: r
   return container
 }
 
-/** The rail's leading 20px lane holds the chevron; its text starts after it (lane + gap-2). */
-function railLane(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('[data-testid="completed-work-rail"] span[aria-hidden="true"]')
-}
+test("finished work and answer text share the conversation column", async () => {
+  const container = await render([answer("reply")]);
+  const rail = container.querySelector('[data-testid="completed-work-rail"]');
+  expect(rail?.textContent).toContain("Worked for 7s");
+  const prose = container.querySelector('[data-message-role="assistant"] .prose');
+  expect(prose?.textContent).toContain("The document is ready.");
+  expect(prose?.closest(".max-w-3xl")?.className).toContain("md:px-10");
+  expect(rail?.closest(".max-w-3xl")?.className).toContain("md:px-10");
+});
 
-/** The answer's lane: the same 20px lane, reserved so the reply's text starts where the rail's labels do. */
-function answerLane(container: HTMLElement): HTMLElement | null {
-  const prose = container.querySelector<HTMLElement>('[data-message-role="assistant"] .prose')
-  // The prose sits in a flex row whose first child is the lane (the rail's shared alignment).
-  const row = prose?.parentElement
-  if (!row || !row.classList.contains("flex") || !row.classList.contains("gap-2")) return null
-  return row.querySelector<HTMLElement>(":scope > span[aria-hidden='true']")
-}
-
-test("the answer aligns with the activity rail: both reserve the same leading lane", async () => {
-  const container = await render([answer("reply")])
-
-  // The completed rail still folds to one line and keeps its chevron lane.
-  const rail = container.querySelector('[data-testid="completed-work-rail"]')
-  expect(rail?.textContent).toContain("Worked for 7s")
-  const railLaneEl = railLane(container)
-  expect(railLaneEl).not.toBeNull()
-  // The rail's label sits after the lane (lane + gap), not at the rail row's left edge.
-  expect(rail?.querySelector("span:not([aria-hidden='true'])")?.previousElementSibling).toBe(railLaneEl)
-
-  // The answer reserves the same lane, so its text starts where the rail's labels do —
-  // not 28px to the rail's left.
-  const answerLaneEl = answerLane(container)
-  expect(answerLaneEl).not.toBeNull()
-  expect(answerLaneEl?.className).toContain("size-5")
-  expect(railLaneEl?.className).toContain("size-5")
-  // Same lane width and same gap: their text columns share one left edge.
-  expect(answerLaneEl?.classList.contains("shrink-0")).toBe(true)
-  const proseRow = container.querySelector('[data-message-role="assistant"] .prose')?.parentElement
-  expect(proseRow?.classList.contains("gap-2")).toBe(true)
-})
-
-test("the answer keeps the lane while it streams, so it does not jump left when it finishes", async () => {
-  const container = await render([answer("streaming")], true)
-  expect(answerLane(container)).not.toBeNull()
-  // No completed rail while streaming; the lane is the answer's own, not the rail's.
-  expect(container.querySelector('[data-testid="completed-work-rail"]')).toBeNull()
-})
+test("the answer keeps its column while streaming", async () => {
+  const container = await render([answer("streaming")], true);
+  const prose = container.querySelector('[data-message-role="assistant"] .prose');
+  expect(prose?.closest(".max-w-3xl")?.className).toContain("md:px-10");
+  expect(container.querySelector('[data-testid="completed-work-rail"]')).toBeNull();
+});
 
 /** A script that started but has no visible calls yet — its lane must be a spinner, not a generic dot. */
 function runningScript(toolCallId: string): UIMessage {
@@ -126,7 +99,7 @@ function runningScript(toolCallId: string): UIMessage {
   }
 }
 
-test("a running script with no visible calls shows a spinner in the lane, not a generic dot", async () => {
+test("a running script with no visible calls shows its running state as text", async () => {
   const container = await render(
     [{ id: "user_script", role: "user", parts: [{ type: "text", text: "Run a script." }], metadata: { opencode: { created: 900 } } }, runningScript("call_script")],
     true,
@@ -138,7 +111,7 @@ test("a running script with no visible calls shows a spinner in the lane, not a 
   // The lane holds a spinner (LoaderCircle svg with animate-spin), never the
   // generic solid-dot fallback (size-1 rounded-full bg-muted-foreground) that
   // read as a bullet beside the run (DESIGN.md T1).
-  expect(container.querySelector('[data-code-mode-call] .animate-spin')).not.toBeNull()
+  expect(container.querySelector('[data-code-mode-call] [data-text-step-tone="running"]')).not.toBeNull()
   expect(container.querySelector('[data-code-mode-call] .size-1.rounded-full.bg-muted-foreground')).toBeNull()
 })
 
@@ -159,7 +132,7 @@ function runningGenericCall(toolCallId: string): UIMessage {
   }
 }
 
-test("an in-flight capability call with no connector shows a spinner in the lane, not a generic dot", async () => {
+test("an in-flight capability call with no connector shows its running state as text", async () => {
   const container = await render(
     [{ id: "user_call", role: "user", parts: [{ type: "text", text: "Fetch the data." }], metadata: { opencode: { created: 900 } } }, runningGenericCall("call_data")],
     true,
@@ -169,6 +142,6 @@ test("an in-flight capability call with no connector shows a spinner in the lane
   // The lane holds a spinner (LoaderCircle svg with animate-spin), never the
   // generic solid-dot fallback (size-1 rounded-full bg-muted-foreground) that
   // read as a bullet, whether the text shimmers or not (DESIGN.md T1).
-  expect(container.querySelector('[data-capability-call] .animate-spin')).not.toBeNull()
+  expect(container.querySelector('[data-capability-call] [data-text-step-tone="running"]')).not.toBeNull()
   expect(container.querySelector('[data-capability-call] .size-1.rounded-full.bg-muted-foreground')).toBeNull()
 })

@@ -298,8 +298,8 @@ test("without a workspace Claude Code is not offered and no root integration end
   } finally { f.cleanup(); }
 });
 
-test("feature and policy changes during discovery prevent a new external POST", async () => {
-  for (const restriction of ["feature", "policy"]) {
+test("turning the feature off during discovery prevents a new external POST", async () => {
+  for (const restriction of ["feature"]) {
     const f = fixture({ beforeRequest: (request) => {
       if (!request.url.endsWith("/api/integration")) return;
       if (restriction === "feature") f.setEnabled(false);

@@ -1,0 +1,23 @@
+{
+  "name": "aiopc-final-calendar-20261112",
+  "scopeId": "aiopc-scheduler-acceptance-20261112-5ba6477f84c6",
+  "slug": "aiopc-final-calendar-20261112",
+  "lastRunAt": "2026-11-12T11:41:05+0800",
+  "lastRunSource": "scheduled",
+  "lastRunStatus": "success",
+  "lastRunExitCode": 0,
+  "privateSupervisor": true,
+  "invocation": {
+    "command": "/Users/zhangjunmengyang/.aiopc/bin/aiopc-scheduled",
+    "args": [
+      "run",
+      "--model",
+      "maas-gemini/gemini-4-argon",
+      "--format",
+      "json",
+      "--",
+      "Local simulated scheduler acceptance. Read metrics.json in the current project. Write final-report.md summarizing total revenue and the absolute price change, clearly label it simulated data, and include the reminder text. No shell, no network, no posting or sending. Write only that file and finish."
+    ]
+  },
+  "workdir": "/private/tmp/aiopc-scheduler-acceptance-20261112"
+}

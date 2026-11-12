@@ -82,9 +82,9 @@ function fakeUpdaterHarness({ version, platform, manualNativeStaging }) {
 }
 
 /**
- * @param {{ version: string, platform?: string, manualNativeStaging?: boolean, nativeStagingTimeoutMs?: number, assertActivation?: () => void }} options
+ * @param {{ version: string, platform?: string, manualNativeStaging?: boolean, nativeStagingTimeoutMs?: number }} options
  */
-async function registerFakeUpdaterIpc({ version, platform = "linux", manualNativeStaging = false, nativeStagingTimeoutMs, assertActivation }, { arch = process.arch, runningUnderARM64Translation = false } = {}) {
+async function registerFakeUpdaterIpc({ version, platform = "linux", manualNativeStaging = false, nativeStagingTimeoutMs }, { arch = process.arch, runningUnderARM64Translation = false } = {}) {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "openwork-updater-test-"));
   const handlers = new Map();
   const harness = fakeUpdaterHarness({ version, platform, manualNativeStaging });
@@ -112,7 +112,6 @@ async function registerFakeUpdaterIpc({ version, platform = "linux", manualNativ
     nativeStagingTimeoutMs,
     shipItDefaultsDomain: "test.openwork.ShipIt",
     writeDefaults: async (args) => { defaultsWrites.push(args); },
-    ...(assertActivation ? { assertActivation } : {}),
   });
   return { tempDir, handlers, defaultsWrites, controls, ...harness };
 }
@@ -211,7 +210,7 @@ describe("recovery metadata and candidates", () => {
         previousVersion: "1.2.3",
       });
       assert.match(await readFile(path.join(userData, "app-recovery.v1.json"), "utf8"), /"previousVersion": "1\.2\.3"/);
-      assert.deepEqual(await readRecoveryState(app, "cloud"), {
+      assert.deepEqual(await readRecoveryState(app, "legacy"), {
         currentVersion: null,
         previousVersion: null,
       });
@@ -220,18 +219,17 @@ describe("recovery metadata and candidates", () => {
     }
   });
 
-  it("filters strict stable versions by minimum and fresh organization policy", async () => {
+  it("filters stable recovery versions and marks current and previous installs", async () => {
     const releases = await compatibleRecoveryReleases({
       versions: ["2.4.0", "2.3.1", "2.3.0-beta.1", "2.2.9", "https://invalid"],
       currentVersion: "2.4.0",
       previousVersion: "2.3.1",
-      minimumVersion: "2.3.0",
-      allowedVersions: ["2.4.0", "2.3.1"],
       resolveArtifact: async (version) => ({ url: `verified:${version}` }),
     });
     assert.deepEqual(releases.map(({ version, marking }) => ({ version, marking })), [
       { version: "2.4.0", marking: "current" },
       { version: "2.3.1", marking: "previous" },
+      { version: "2.2.9", marking: null },
     ]);
   });
 
@@ -262,25 +260,6 @@ describe("recovery metadata and candidates", () => {
     }), null);
   });
 
-  it("accepts each artifact flavor only for its matching distribution", () => {
-    const artifacts = {
-      public: "aiopc-mac-arm64-1.2.3.dmg",
-      cloud: "aiopc-cloud-mac-arm64-1.2.3.dmg",
-      enterprise: "aiopc-enterprise-mac-arm64-1.2.3.dmg",
-    };
-    for (const [distribution, fileName] of Object.entries(artifacts)) {
-      const files = [{ url: fileName, sha512: `${distribution}-checksum` }];
-      assert.equal(selectRecoveryArtifact(files, {
-        version: "1.2.3", platform: "darwin", arch: "arm64", distribution,
-      })?.url, `https://github.com/zhangjunmengyang/AIOPC/releases/download/v1.2.3/${fileName}`);
-      for (const otherDistribution of Object.keys(artifacts).filter((flavor) => flavor !== distribution)) {
-        assert.equal(selectRecoveryArtifact(files, {
-          version: "1.2.3", platform: "darwin", arch: "arm64", distribution: otherDistribution,
-        }), null);
-      }
-    }
-  });
-
   it("rejects upstream artifacts and release URLs", () => {
     for (const url of [
       "openwork-mac-arm64-1.2.3.dmg",
@@ -298,9 +277,9 @@ files:
   - url: aiopc-mac-arm64-1.2.3.dmg
     sha512: mac-checksum
     size: 100
-  - url: aiopc-cloud-win-x64-1.2.3.exe
+  - url: aiopc-win-x64-1.2.3.exe
     sha512: win-checksum
-  - url: aiopc-enterprise-linux-x64-1.2.3.AppImage
+  - url: aiopc-linux-x64-1.2.3.AppImage
     sha512: linux-checksum
 path: aiopc-mac-arm64-1.2.3.zip
 sha512: updater-zip-checksum
@@ -310,14 +289,14 @@ releaseDate: '2026-08-11T00:00:00.000Z'
       version: "1.2.3", platform: "darwin", arch: "arm64", distribution: "public",
     })?.url.endsWith(".dmg"), true);
     assert.equal(selectRecoveryArtifact(files, {
-      version: "1.2.3", platform: "win32", arch: "x64", distribution: "cloud",
+      version: "1.2.3", platform: "win32", arch: "x64", distribution: "public",
     })?.url.endsWith(".exe"), true);
     assert.equal(selectRecoveryArtifact(files, {
-      version: "1.2.3", platform: "linux", arch: "x64", distribution: "enterprise",
+      version: "1.2.3", platform: "linux", arch: "x64", distribution: "public",
     })?.url.endsWith(".AppImage"), true);
     assert.equal(recoveryManifestName("darwin", "arm64", "public"), "latest-mac.yml");
-    assert.equal(recoveryManifestName("win32", "x64", "cloud"), "cloud.yml");
-    assert.equal(recoveryManifestName("linux", "arm64", "enterprise"), "enterprise-linux-arm64.yml");
+    assert.equal(recoveryManifestName("win32", "x64", "public"), "latest.yml");
+    assert.equal(recoveryManifestName("linux", "arm64", "public"), "latest-linux-arm64.yml");
   });
 
   it("rejects a checksum mismatch without producing a cached installer", async () => {
@@ -545,38 +524,6 @@ describe("installAndRestart", () => {
       ok: false,
       reason: "update-not-downloaded",
     });
-  });
-});
-
-describe("pre-activation guard", () => {
-  it("rejects check, download, and install without touching the updater while activation is required", async () => {
-    let activationRequired = true;
-    const { tempDir, handlers, calls, feeds } = await registerFakeUpdaterIpc({
-      version: "9.9.9",
-      assertActivation: () => {
-        if (activationRequired) throw new Error("OpenWork must be activated from your Den portal before this command is available.");
-      },
-    });
-    try {
-      const check = handlers.get("openwork:updater:check");
-      const download = handlers.get("openwork:updater:download");
-      const install = handlers.get("openwork:updater:installAndRestart");
-      await assert.rejects(() => check(null, "stable"), /must be activated/, "check must reject before activation");
-      await assert.rejects(() => download(), /must be activated/, "download must reject before activation");
-      await assert.rejects(() => install(), /must be activated/, "installAndRestart must reject before activation");
-      // ensureAutoUpdater selects a feed as soon as electron-updater loads, so an
-      // empty feed list proves the updater was never even configured.
-      assert.deepEqual(feeds, [], "no update feed may be selected before activation");
-      assert.deepEqual(calls, [], "no download may start before activation");
-
-      // The same handlers work normally once the installation is activated.
-      activationRequired = false;
-      assert.equal((await check(null, "stable")).available, true);
-      assert.deepEqual(await download(), { ok: true });
-      assert.deepEqual(calls, ["download"]);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
   });
 });
 
@@ -1123,7 +1070,6 @@ describe("evalUpdaterFeedUrl", () => {
         app: { isPackaged: false, getVersion: () => desktopVersion, getPath: () => userData },
         ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
         getMainWindow: () => null,
-        manifestChannel: "enterprise",
       });
       assert.equal((await handlers.get("openwork:updater:getChannel")()).feedUrl, "http://127.0.0.1:4567");
       // A version-targeted check still resolves to the fixed GitHub release.
@@ -1142,33 +1088,6 @@ describe("release channel changes", () => {
 
     preventPendingUpdaterInstall(updater);
     assert.equal(updater.autoInstallOnAppQuit, false);
-  });
-
-  it("pins enterprise builds to their parallel stable manifest channel", async () => {
-    const handlers = new Map();
-    const userData = await mkdtemp(path.join(os.tmpdir(), "openwork-enterprise-updater-"));
-    try {
-      registerUpdaterIpc({
-        app: {
-          isPackaged: false,
-          getVersion: () => desktopVersion,
-          getPath: () => userData,
-        },
-        ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
-        getMainWindow: () => null,
-        manifestChannel: "enterprise",
-      });
-
-      const setChannel = handlers.get("openwork:updater:setChannel");
-      assert.equal(typeof setChannel, "function");
-      assert.deepEqual(await setChannel(null, "alpha"), {
-        channel: "stable",
-        feedUrl: "https://github.com/zhangjunmengyang/AIOPC/releases/latest/download",
-        currentVersion: desktopVersion,
-      });
-    } finally {
-      await rm(userData, { recursive: true, force: true });
-    }
   });
 
   it("does not let a check overwrite the selected channel", {

@@ -1,18 +1,10 @@
 import { expect, test } from "bun:test"
 import type { UIMessage } from "ai"
 import { replyModelLabel, replyModelProvider } from "../src/react-app/domains/session/sync/reply-model"
-import { AUTO_MODEL_ID } from "../src/react-app/domains/models/model-catalog"
 
 function reply(model: object): UIMessage {
   return { id: "reply", role: "assistant", parts: [], metadata: { opencode: { replyModel: model } } }
 }
-
-test("Auto keeps the OpenWork mark and reports the routed name once", () => {
-  const message = reply({ requestedProviderID: "openwork", requestedModelID: AUTO_MODEL_ID,
-    providerID: "openai", modelID: "gpt-6", name: "GPT-6", resolved: true })
-  expect(replyModelLabel(message)).toBe("GPT-6")
-  expect(replyModelProvider(message)).toBe("openwork")
-})
 
 test("direct provider replies use their provider mark", () => {
   const message = reply({ providerID: "anthropic", modelID: "claude-sonnet", name: "Claude Sonnet", resolved: true })
@@ -39,8 +31,6 @@ test("gateway requested identities fall back only to a catalog title", () => {
 
 test("resolved identity wins over the requested catalog title", () => {
   expect(replyModelLabel(reply({ providerID: "openai", modelID: "gpt-6", name: "GPT-6", resolved: true }), () => "Other model")).toBe("GPT-6")
-  expect(replyModelLabel(reply({ providerID: "openwork", modelID: AUTO_MODEL_ID, resolved: true }))).toBe("GPT-6 Luna")
-  expect(replyModelLabel(reply({ providerID: "openwork", modelID: AUTO_MODEL_ID }), () => "OpenWork Free")).toBeNull()
 })
 
 test("an opaque resolved name never leaks even without a gateway provider", () => {
@@ -109,5 +99,4 @@ test("a routed model without a name uses the catalog name, then a public id, nev
 test("routing decisions never relabel other models' replies", () => {
   const message = reply({ providerID: "anthropic", modelID: "claude-sonnet", name: "Claude Sonnet", resolved: true })
   expect(replyModelLabel(message, undefined, [haiku])).toBe("Claude Sonnet")
-  expect(replyModelLabel(reply({ requestedProviderID: "openwork", requestedModelID: AUTO_MODEL_ID, providerID: "openai", modelID: "gpt-6", name: "GPT-6", resolved: true }), undefined, [haiku])).toBe("GPT-6")
 })

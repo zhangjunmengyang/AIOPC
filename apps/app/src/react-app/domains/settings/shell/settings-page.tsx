@@ -44,13 +44,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
-import { isSettingsTabAllowed } from "../../../../app/cloud/desktop-app-restrictions";
 import type { PlatformCapabilities } from "../../../../app/lib/platform-capabilities";
 import type { SettingsTab } from "../../../../app/types";
 import { isElectronRuntime } from "../../../../app/utils";
 import { cn } from "@/lib/utils";
 import { usePlatform } from "../../../kernel/platform";
-import { useCheckDesktopRestriction } from "../../cloud/desktop-config-provider";
 import {
   SettingsContent,
   SettingsPanel,
@@ -74,16 +72,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return SlidersHorizontal;
     case "permissions":
       return FolderLock;
-    case "cloud-account":
-      return UserCircle;
-    case "usage":
-      return Gauge;
     case "connect":
       return Cable;
-    case "cloud-marketplaces":
-      return Store;
-    case "cloud-providers":
-      return CloudCog;
     case "skills":
       return Sparkles;
     case "extensions":
@@ -121,16 +111,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Preferences";
     case "permissions":
       return "Permissions";
-    case "cloud-account":
-      return t("settings.tab_cloud_account");
-    case "usage":
-      return "Usage";
     case "connect":
       return t("settings.tab_connect");
-    case "cloud-marketplaces":
-      return t("settings.tab_cloud_marketplaces");
-    case "cloud-providers":
-      return t("settings.tab_cloud_providers");
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
@@ -170,16 +152,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Default model, reasoning, and compaction";
     case "permissions":
       return "Authorized folders and file access";
-    case "cloud-account":
-      return t("settings.tab_description_cloud_account");
-    case "usage":
-      return "How much of your limits is left";
     case "connect":
       return t("settings.tab_description_connect");
-    case "cloud-marketplaces":
-      return t("settings.tab_description_cloud_marketplaces");
-    case "cloud-providers":
-      return t("settings.tab_description_cloud_providers");
     case "skills":
       return t("settings.tab_description_skills");
     case "extensions":
@@ -226,7 +200,6 @@ export function getGlobalSettingsTabs(
 }
 
 /** AIOPC has no cloud account, so no cloud settings. */
-export const CLOUD_SETTINGS_TABS: SettingsTab[] = [];
 
 export function isSettingsTabBeta(_tab: SettingsTab) {
   return false;
@@ -262,7 +235,6 @@ export type SettingsNavGroups = {
   hub: SettingsTab[];
   workspace: SettingsTab[];
   global: SettingsTab[];
-  cloud: SettingsTab[];
 };
 
 /**
@@ -273,16 +245,14 @@ export type SettingsNavGroups = {
  */
 export function useSettingsNavGroups(developerMode: boolean): SettingsNavGroups {
   const platform = usePlatform();
-  const checkRestriction = useCheckDesktopRestriction();
   // Computer use runs in the desktop app; the web app has no local computer.
   const computerUse = useDesktopFeature("computerUse") && isElectronRuntime();
   const allowed = (tabs: SettingsTab[]) =>
-    tabs.filter((tab) => isSettingsTabAllowed({ tab, checkRestriction }));
+    tabs;
   return {
     hub: allowed(["general"]),
     workspace: allowed(getWorkspaceSettingsTabs()),
     global: allowed(getGlobalSettingsTabs(developerMode, platform.capabilities, { computerUse })),
-    cloud: allowed(CLOUD_SETTINGS_TABS),
   };
 }
 
@@ -353,7 +323,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton type="button" onClick={props.onClose}>
               <ArrowLeft size={14} />
-              <span>{t("dashboard.back_to_app")}</span>
+              <span>{t("workspace.back_to_app")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -416,12 +386,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           activeTab={props.activeTab}
           onSelectTab={props.onSelectTab}
         />
-        <SettingsSidebarGroup
-          label={t("settings.group_cloud")}
-          tabs={groups.cloud}
-          activeTab={props.activeTab}
-          onSelectTab={props.onSelectTab}
-        />
+
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

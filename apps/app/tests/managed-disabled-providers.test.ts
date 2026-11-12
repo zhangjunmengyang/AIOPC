@@ -1,10 +1,8 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createClient } from "../src/app/lib/opencode";
-import { createClientV2 } from "../src/app/lib/opencode-v2-adapter";
 import { createOpenworkServerClient } from "../src/app/lib/openwork-server";
 import { readManagedDisabledProviders } from "../src/react-app/domains/connections/managed-engine-config";
-import { reconcilePolicyDisabledProviders } from "../src/react-app/domains/connections/policy-provider-reconcile";
 
 const RUNTIME_PATH = "/workspace/workspace/runtime-config/disabled-providers";
 
@@ -67,57 +65,6 @@ test("ENG-994: v1 reads outside a managed local workspace still come from the en
       workspaceType: "remote",
     });
     expect(disabled).toEqual(["opencode"]);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("ENG-994: policy reconcile builds on the current list, not a route's stale copy", async () => {
-  // Another route disabled `remote` after this route read its list. Writing the
-  // stale list plus the policy-blocked provider silently re-enabled `remote`.
-  const runtime = { list: ["remote"] };
-  const mock = mockServer(runtime);
-  const reported: string[][] = [];
-  try {
-    const result = await reconcilePolicyDisabledProviders({
-      opencodeClient: createClientV2("http://localhost:8787/opencode2", "/workspace", {}),
-      openworkClient: server(),
-      workspaceId: "workspace",
-      workspaceType: "local",
-      allProviders: [{ id: "anthropic" }, { id: "remote" }],
-      connectedProviderIds: ["anthropic"],
-      disabledProviderIds: [],
-      // Only Cloud providers are allowed, so `anthropic` must be disabled.
-      checkRestriction: ({ restriction }) => restriction === "allowCustomProviders",
-      storage: null,
-      setDisabledProviders: (providers) => reported.push(providers),
-    });
-    expect(mock.writes).toEqual([["remote", "anthropic"]]);
-    expect(runtime.list).toEqual(["remote", "anthropic"]);
-    expect(result.disabledProviderIds).toEqual(["remote", "anthropic"]);
-    expect(reported.at(-1)).toEqual(["remote", "anthropic"]);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("ENG-994: policy reconcile does not write when the current list already satisfies the policy", async () => {
-  const runtime = { list: ["anthropic", "remote"] };
-  const mock = mockServer(runtime);
-  try {
-    await reconcilePolicyDisabledProviders({
-      opencodeClient: createClientV2("http://localhost:8787/opencode2", "/workspace", {}),
-      openworkClient: server(),
-      workspaceId: "workspace",
-      workspaceType: "local",
-      allProviders: [{ id: "anthropic" }, { id: "remote" }],
-      connectedProviderIds: ["anthropic"],
-      disabledProviderIds: [],
-      checkRestriction: ({ restriction }) => restriction === "allowCustomProviders",
-      storage: null,
-    });
-    expect(mock.writes).toEqual([]);
-    expect(runtime.list).toEqual(["anthropic", "remote"]);
   } finally {
     mock.restore();
   }

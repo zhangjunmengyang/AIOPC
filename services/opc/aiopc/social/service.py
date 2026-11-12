@@ -1,9 +1,8 @@
 """The one social core for AIOPC: the AI's tools and the app's Accounts page both call this.
 
-Every account is connected by logging in once in AIOPC's built-in browser. Behind
-the same publish / read calls each account may have more routes (official APIs,
-third-party data); the service picks the best one for each job, so neither the
-AI nor the pages need to know which mechanism ran. Routes live in ``routes.py``.
+Accounts log in inside their project's environment. Publishing only fills the
+platform composer for the person to publish. Official APIs and data services
+remain available for account verification and reading.
 """
 
 from __future__ import annotations
@@ -229,7 +228,6 @@ class SocialService:
         platform = account["platform"]
         identity = account.get("identity") or {}
         routes = self._routes_for(account)
-        direct = any(route.kind == "api" and route.id != "github-cli" for route in routes)
         attached = {route.id for route in routes}
         return {
             "account_id": account["id"], "platform": platform, "platform_name": PLATFORMS.get(platform, platform),
@@ -239,9 +237,7 @@ class SocialService:
             "status": ("needs_login" if not identity.get("id") or account.get("logged_in") is False
                        else "ready" if platform in DETECTED or account.get("routes") else "unverified"),
             "checked_at": account.get("checked_at"),
-            # direct: an official API publishes after the person approves; compose: the AI fills the composer and the
-            # person presses publish; browser: the AI works on the site in the built-in browser.
-            "publish": "direct" if direct else "compose" if platform in MULTIPOST_KEYS else "browser",
+            "publish": "compose" if platform in MULTIPOST_KEYS else "browser",
             "forms": list(MULTIPOST_KEYS.get(platform, {})),
             "reads": sorted({what for what in READ_KINDS for route in routes if route.reads(account, what)}),
             "routes": [{"id": route.id, "kind": route.kind,
@@ -481,7 +477,7 @@ class SocialService:
             problems.append("文章需要标题")
         if problems:
             raise SocialError("；".join(problems))
-        route = next((route for route in self._routes_for(account) if route.publishes(account, post)), None)
+        route = next((route for route in self._routes_for(account) if route.kind == "browser" and route.publishes(account, post)), None)
         if route is None:
             if not info["forms"]:
                 raise SocialError(f"{info['platform_name']} 不能自动填写发布页；请直接在网站上操作（登录已保存在项目环境里）")

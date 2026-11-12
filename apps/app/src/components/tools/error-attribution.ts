@@ -1,5 +1,4 @@
 import type { DynamicToolUIPart } from "ai"
-import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-connection-action"
 import { connectionActionPayloadSchema, type ConnectionActionPayload } from "@openwork/types/connection-action-app"
 import { parseMcpAppResourceUri } from "@openwork/types/mcp-app"
 import { CONNECT_STATUS_TOOL, connectActionToolName } from "@/lib/capability-call"
@@ -156,18 +155,7 @@ function chatConnectionTarget(toolName: string, result: unknown, input?: unknown
     if (("source" in candidate && candidate.source !== "openwork-cloud")
       || ("version" in candidate && candidate.version !== 1)
       || ("kind" in candidate && candidate.kind !== "connection_action")) return null
-    const legacy = openworkCloudMcpConnectionActionSchema.safeParse(candidate)
-    const payload = connectionActionPayloadSchema.safeParse(legacy.success && !("schemaVersion" in candidate)
-      ? {
-        ...legacy.data,
-        schemaVersion: "1",
-        message: stringValue(candidate, "message") ?? CONNECTION_ACTION_LABELS[legacy.data.action.type],
-        action: {
-          ...legacy.data.action,
-          label: isRecord(candidate.action) ? stringValue(candidate.action, "label") ?? CONNECTION_ACTION_LABELS[legacy.data.action.type] : CONNECTION_ACTION_LABELS[legacy.data.action.type],
-        },
-      }
-      : candidate)
+    const payload = connectionActionPayloadSchema.safeParse(candidate)
     if (!payload.success) return null
     if (target && (target.connectionId !== payload.data.connectionId || target.connectionName !== payload.data.connectionName
       || target.state !== payload.data.state || target.actor !== payload.data.actor

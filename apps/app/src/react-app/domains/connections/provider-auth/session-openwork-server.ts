@@ -1,21 +1,4 @@
-// Session-route adapter for the provider-auth store's `openworkServer` slice.
-//
-// The settings route feeds the store the full openwork-server store, whose
-// snapshot carries the server's real capabilities (including `providerSync`)
-// and host-token auth. The session route used to fabricate a snapshot with
-// hard-coded `{ config }` capabilities and no auth at all, so on the app's
-// default surface `serverHandlesProviderSync()` was permanently false:
-// PUT /den-session never fired after sign-in, the local server never learned
-// the Den session, and server-side cloud provider sync never started (#3671).
-//
-// This adapter reports the truth for the endpoint it wraps:
-// - loopback local endpoints (the desktop's own OpenWork server) advertise
-//   `providerSync: true` — every OpenWork server does
-//   (apps/server/src/types.ts `Capabilities.providerSync: true`) — and carry
-//   the live host token so the store can PUT /den-session and
-//   POST /cloud-provider-sync/run;
-// - non-loopback local URL overrides stay config-only:
-//   a local workspace label does not authorize forwarding desktop credentials.
+// Adapter for the local server that owns this workspace.
 import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
@@ -94,7 +77,6 @@ export function createSessionOpenworkServer(
         },
         openworkServerCapabilities: {
           config: { read: true, write: true },
-          providerSync: true,
         },
       };
     },

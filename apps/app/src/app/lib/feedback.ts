@@ -5,7 +5,7 @@ const ENV_APP_VERSION = String(import.meta.env.VITE_OPENWORK_APP_VERSION ?? "").
 const ENV_BUILD_SHA = String(import.meta.env.VITE_OPENWORK_BUILD_SHA ?? "").trim();
 
 export const DEFAULT_FEEDBACK_URL =
-  ENV_FEEDBACK_URL || "https://openworklabs.com/feedback";
+  ENV_FEEDBACK_URL || "https://github.com/zhangjunmengyang/AIOPC/issues";
 
 type FeedbackUrlOptions = {
   entrypoint: string;

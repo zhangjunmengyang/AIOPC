@@ -28,7 +28,8 @@
       "types": "./dist/types/src/runtime.d.ts",
       "development": "./src/runtime.ts",
       "default": "./dist/runtime.js"
-    }
+    },
+    "./chromium": "./chromium.mjs"
   },
   "dependencies": {
     "typescript": "5.9.3",

@@ -3,8 +3,6 @@ import type { ComputerCrewMember } from "@openwork/types/desktop-ipc"
 import { ComputerCrew } from "./computer-crew"
 import type { DynamicToolUIPart } from "ai"
 import { ChevronRight, CodeXml, ExternalLink, FileText, FolderOpen, Monitor, MoreHorizontal, Paperclip, Pause, PictureInPicture2, Play } from "lucide-react"
-
-import { markFeatureUsed } from "@/app/lib/den"
 import { desktopBridge } from "@/app/lib/desktop"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -141,7 +139,6 @@ export function ComputerSessionHistory({ history, active, renderAction, live, fi
       onOpenChange={value => {
         setOpen(value)
         if (!value) setPlaying(false)
-        else markFeatureUsed("computerSessionHistory")
       }}
     >
       <div className="flex min-w-0 items-center">

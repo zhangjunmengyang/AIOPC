@@ -16,7 +16,6 @@ import {
   readUserConfigProviders,
   type LocalProviderAuth,
 } from "../src/opencode-v2-local-auth.js";
-import { organizationProviderGate } from "../src/organization-provider-gate.js";
 
 // Trimmed GET /provider answer from the bundled OpenCode v1.18.30 engine,
 // recorded with an OpenRouter API key and a ChatGPT (OAuth) sign-in in its
@@ -111,36 +110,6 @@ test("without a rollout or sign-in, the real v1.18.30 OpenRouter entry becomes o
   assert.equal(model("deepseek/deepseek-v4.1-flash", "modelID"), "deepseek/deepseek-v4.1-flash");
   assert.deepEqual(model("scaledown/summarize", "capabilities"), { tools: false, input: ["text", "image", "pdf"], output: ["text"] });
   assert.equal(model("bytedance-seed/seed-1.6", "disabled"), true, "a deprecated model stays out of the picker, as in v1");
-});
-
-test("an organization that allows only its own providers mirrors none of the keys added on this computer", async () => {
-  const allows = organizationProviderGate({ allowCustomProviders: false });
-  const reads = providerReads;
-  const local = await localProviderDefinitions(connection(), auth({ openrouter: KEY, anthropic: "sk-ant-local" }, ["openai"]), {}, { allows });
-
-  assert.deepEqual(local.providers, {});
-  assert.deepEqual(local.skipped, [
-    { id: "anthropic", reason: "policy" },
-    { id: "openai", reason: "policy" },
-    { id: "openrouter", reason: "policy" },
-  ]);
-  assert.equal(providerReads, reads, "blocked providers are not even looked up");
-});
-
-test("the organization rule matches the providers v1 keeps in enabled_providers", () => {
-  const provider = Object.fromEntries(["lpr_team", "ipr_gateway", "openwork", "personal-byok", "openrouter"]
-    .map(id => [id, { npm: "@ai-sdk/openai-compatible", models: {} }]));
-  for (const managedPolicy of [{ allowCustomProviders: false }, { allowCustomProviders: false, allowZenModel: false }]) {
-    const v1 = buildOpenworkRuntimeConfigObjectFromSnapshot({ provider, managedPolicy }).enabled_providers;
-    assert.ok(Array.isArray(v1));
-    const allows = organizationProviderGate(managedPolicy);
-    assert.ok(allows);
-    for (const id of [...Object.keys(provider), "opencode", "anthropic"]) {
-      assert.equal(allows(id), v1.includes(id), `${id} with ${JSON.stringify(managedPolicy)}`);
-    }
-  }
-  assert.equal(organizationProviderGate({ allowCustomProviders: true }), null);
-  assert.equal(organizationProviderGate(undefined), null);
 });
 
 test("a ChatGPT-style sign-in is reported as skipped instead of disappearing", async () => {
@@ -276,86 +245,4 @@ test("a provider the v2 catalog does not know still uses the v1 description", as
   const local = await localProviderDefinitions(connection(), auth({ openrouter: KEY }), {}, { native: new Map() });
   assert.deepEqual(Object.keys(local.providers), ["openrouter"]);
   assert.deepEqual(local.native, []);
-});
-
-test("environment keys reach v2 like v1 reads them, only for providers that need nothing but a key", async () => {
-  const native = await nativeProviders();
-  const environment = {
-    NVIDIA_API_KEY: "nv-env",
-    GROQ_API_KEY: "gsk-env",
-    AZURE_API_KEY: "azure-env",
-    AWS_BEARER_TOKEN_BEDROCK: "bedrock-env",
-    GITHUB_TOKEN: "github-env",
-    OPENAI_API_KEY: "sk-env",
-    OPENCODE_API_KEY: "  ",
-  };
-  const local = await localProviderDefinitions(connection(), auth({ groq: "gsk-saved" }, ["openai"]), {}, { native, environment });
-
-  assert.deepEqual(local.native, [
-    { id: "groq", name: "Groq", apiKey: "gsk-saved" },
-    { id: "nvidia", name: "Nvidia", apiKey: "nv-env" },
-  ], "a saved key wins; Azure, Bedrock, Copilot and blank values are left out");
-  assert.deepEqual(local.skipped, [{ id: "openai", reason: "oauth" }], "an environment key never replaces a ChatGPT sign-in");
-
-  const allows = organizationProviderGate({ allowCustomProviders: false });
-  const blocked = await localProviderDefinitions(connection(), auth({}), {}, { native, environment, allows });
-  assert.deepEqual(blocked, { providers: {}, native: [], skipped: [] }, "an environment key the organization refuses is not reported as connected");
-  const configured = await localProviderDefinitions(connection(), auth({}), { nvidia: {} }, { native, environment });
-  assert.deepEqual(configured.native.map(provider => provider.id), ["groq", "openai"], "a Settings definition owns its own credential");
-  const nvidia = native.get("nvidia");
-  assert.ok(nvidia);
-  assert.equal(environmentProviderKey("nvidia", nvidia, {}), undefined);
-});
-
-test("providers written in this computer's OpenCode config file reach v2", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openwork-user-config-"));
-  try {
-    const path = join(directory, "opencode.jsonc");
-    await writeFile(path, `{
-      // Hand-written, as v1 reads it.
-      "provider": {
-        "nvidia": { "options": { "apiKey": "{env:NV_KEY}" } },
-        "zai-coding-plan": {},
-        "groq": {},
-        "my-endpoint": {
-          "npm": "@ai-sdk/openai-compatible",
-          "name": "My endpoint",
-          "options": { "baseURL": "https://llm.example.test/v1", "apiKey": "{file:key.txt}" },
-          "models": { "model-a": { "name": "Model A" } },
-        },
-        "settings-wins": { "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "https://file.example.test/v1" } },
-        "lpr_team": { "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "https://file.example.test/v1" } },
-      },
-    }`);
-    await writeFile(join(directory, "key.txt"), "file-key\n");
-    const read = () => readUserConfigProviders(path);
-    const native = await nativeProviders();
-    const file = await userConfigProviders(
-      { "settings-wins": {} }, null, native, new Map([["zai-coding-plan", "zai-saved"]]), new Map(), read, { NV_KEY: "nv-file" },
-    );
-
-    assert.deepEqual(Object.keys(file.claimed).sort(), ["groq", "my-endpoint", "nvidia", "zai-coding-plan"]);
-    assert.deepEqual(file.native, [
-      { id: "nvidia", name: "Nvidia", apiKey: "nv-file" },
-      { id: "zai-coding-plan", name: "Z.AI Coding Plan", apiKey: "zai-saved" },
-    ]);
-    assert.deepEqual(file.skipped, [{ id: "groq", reason: "credentials" }]);
-    assert.deepEqual(file.errors, []);
-    const mapped = mapRuntimeProvidersToV2Specs(file.definitions, new Map(), new Map(), new Set(Object.keys(file.definitions)));
-    assert.deepEqual(mapped.specs.map(spec => [spec.id, spec.package, spec.baseUrl, spec.apiKey, spec.models.map(model => model.id)]), [
-      ["my-endpoint", "@opencode/ai/providers/openai-compatible", "https://llm.example.test/v1", "file-key", ["model-a"]],
-    ], "a hand-written endpoint is trusted like a Settings definition");
-
-    const allows = organizationProviderGate({ allowCustomProviders: false });
-    const blocked = await userConfigProviders({}, allows, native, new Map(), new Map(), read, { NV_KEY: "nv-file" });
-    assert.deepEqual(blocked.native, []);
-    assert.deepEqual(blocked.definitions, {});
-    assert.deepEqual(blocked.skipped.map(provider => provider.reason), ["policy", "policy", "policy", "policy", "policy"]);
-
-    assert.deepEqual(await readUserConfigProviders(join(directory, "missing.jsonc")), { directory, providers: {} });
-    await writeFile(path, "{ not json");
-    assert.deepEqual((await readUserConfigProviders(path)).providers, {});
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
 });

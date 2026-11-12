@@ -1,64 +1,62 @@
 /** @jsxImportSource react */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ForwardedRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer.js";
-import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin.js";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext.js";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable.js";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary.js";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin.js";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin.js";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext.js";
+import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin.js";
+import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin.js";
 import {
-  $applyNodeReplacement,
-  $createRangeSelection,
-  $createParagraphNode,
-  $createTextNode,
-  $getNearestNodeFromDOMNode,
-  $getNodeByKey,
-  $getRoot,
-  $getSelection,
-  $nodesOfType,
-  $setSelection,
-  $isElementNode,
-  $isRangeSelection,
-  $isTextNode,
-  COMMAND_PRIORITY_CRITICAL,
-  COMMAND_PRIORITY_HIGH,
-  KEY_ARROW_LEFT_COMMAND,
-  KEY_ARROW_RIGHT_COMMAND,
-  KEY_BACKSPACE_COMMAND,
-  KEY_DOWN_COMMAND,
-  KEY_ENTER_COMMAND,
-  PASTE_COMMAND,
-  type SerializedTextNode,
-  type Spread,
-  TextNode,
-  type EditorConfig,
-  type LexicalNode,
-  type NodeKey,
+$applyNodeReplacement,
+$createParagraphNode,
+$createRangeSelection,
+$createTextNode,
+$getNearestNodeFromDOMNode,
+$getNodeByKey,
+$getRoot,
+$getSelection,
+$isElementNode,
+$isRangeSelection,
+$isTextNode,
+$nodesOfType,
+$setSelection,
+COMMAND_PRIORITY_CRITICAL,
+COMMAND_PRIORITY_HIGH,
+KEY_ARROW_LEFT_COMMAND,
+KEY_ARROW_RIGHT_COMMAND,
+KEY_BACKSPACE_COMMAND,
+KEY_DOWN_COMMAND,
+KEY_ENTER_COMMAND,
+PASTE_COMMAND,
+TextNode,
+type EditorConfig,
+type LexicalNode,
+type NodeKey,
+type SerializedTextNode,
+type Spread,
 } from "lexical";
-import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
-import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
-import { encodeConnectorToken } from "./connector-token";
-import { COMPOSER_DRAFT_TOKEN_RE, COMPOSER_TOKEN_CLASS, parseComposerPillToken, type ComposerPill } from "./composer-pills";
+import { forwardRef,useCallback,useEffect,useImperativeHandle,useMemo,useRef,type ForwardedRef } from "react";
 import {
-  agentBadge,
-  composerPillBadge,
-  createChipIconDom,
-  fileMentionBadge,
-  pastedTextBadge,
-  renderAttachmentFileChipDom,
-  renderComposerBadgeDom,
-  sessionReferenceBadge,
-  type ComposerBadge,
+agentBadge,
+composerPillBadge,
+createChipIconDom,
+fileMentionBadge,
+pastedTextBadge,
+renderAttachmentFileChipDom,
+renderComposerBadgeDom,
+sessionReferenceBadge,
+type ComposerBadge,
 } from "./composer-chips";
-import {
-  encodeSessionReferenceToken,
-  type SessionReferenceTokenValue,
-} from "./session-reference-token";
-import { isComputerTarget } from "./computer-mentions";
-import { shouldCollapsePastedText, splitPastedText } from "./pasted-text";
-import { insertPastedText } from "./pasted-text-insertion";
+import { COMPOSER_DRAFT_TOKEN_RE,COMPOSER_TOKEN_CLASS,parseComposerPillToken,type ComposerPill } from "./composer-pills";
+import { encodeConnectorToken } from "./connector-token";
 import { lineBoundaryMoveForKey } from "./line-boundary-keys";
+import { decodeComposerMentionValue,encodeComposerMentionValue,type ComposerMentionKind } from "./mention-encoding";
+import { shouldCollapsePastedText,splitPastedText } from "./pasted-text";
+import { insertPastedText } from "./pasted-text-insertion";
+import {
+encodeSessionReferenceToken,
+type SessionReferenceTokenValue,
+} from "./session-reference-token";
 
 type PastedTextToken = { label: string; lines: number; text: string };
 
@@ -142,8 +140,6 @@ function mentionBadge(value: string, kind: ComposerMentionKind): ComposerBadge {
       return agentBadge(value);
     case "file":
       return fileMentionBadge(value);
-    case "computer":
-      return isComputerTarget(value) ? composerPillBadge({ kind: "computer", target: value }) : agentBadge(value);
   }
 }
 
@@ -288,10 +284,10 @@ function $createComposerSlashCommandNode(commandName: string) {
   return $applyNodeReplacement(new ComposerSlashCommandNode(commandName));
 }
 
-/** A skill chip is a local skill or a Connect skill; its token says which, so it badges like the sent chip. */
+/** A skill chip uses the same local skill identity as the sent message. */
 function skillNodePill(name: string, token: string): ComposerPill {
   const pill = parseComposerPillToken(token);
-  return pill?.kind === "connect-skill" || pill?.kind === "skill" ? pill : { kind: "skill", name };
+  return pill?.kind === "skill" ? pill : { kind: "skill", name };
 }
 
 class ComposerSkillNode extends TextNode {
@@ -959,10 +955,6 @@ function setPrompt(
     }
     if (pill?.kind === "session") {
       paragraph.append($createComposerSessionReferenceNode(pill));
-      continue;
-    }
-    if (pill?.kind === "connect-skill") {
-      paragraph.append($createComposerSkillNode(pill.slug, segment));
       continue;
     }
     if (pill?.kind === "skill") {

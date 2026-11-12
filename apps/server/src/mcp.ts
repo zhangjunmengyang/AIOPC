@@ -23,10 +23,6 @@ export type McpToolDeny = {
 
 type McpToolAllow = McpToolDeny;
 
-const OPENWORK_CLOUD_DIAGNOSTIC_TOOL_IDS = [
-  "openwork-cloud_search_capabilities",
-  "openwork-cloud_execute_capability",
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,7 +69,7 @@ function getToolIdsForDiagnostics(name: string, toolIds: string[]): string[] {
 }
 
 function diagnosticToolIdsForMcp(name: string): string[] {
-  return name === "openwork-cloud" ? OPENWORK_CLOUD_DIAGNOSTIC_TOOL_IDS : [];
+  return [];
 }
 
 function permissionCandidates(name: string, toolId: string): string[] {

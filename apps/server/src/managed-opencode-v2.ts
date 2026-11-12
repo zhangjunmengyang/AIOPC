@@ -1,12 +1,10 @@
 import { envKey, setEnv } from "@openwork/paths";
 import { startupPhase } from "./startup-phase.js";
-import type { EnginePermissionRule } from "./managed-policy-rules.js";
+type EnginePermissionRule = { action: string; resource: string; effect: "allow" | "deny" };
 import { agentPermissionEngineV2Rules, type AgentPermissionRule, type EngineV2PermissionRule } from "./agent-permission-engine.js";
 import type { OrganizationMcpServers } from "./organization-mcp-names.js";
-import { nativeModelVariants } from "@openwork/types/cloud-model-fast";
-import { gatewayBase } from "./gateway-quota.js";
-import { openworkAgentPermissionsV2PluginPath, openworkAutoRouteV2PluginPath, openworkContextV2PluginPath, openworkGatewayQuotaV2PluginPath, openworkMcpResultsV2PluginPath, openworkMcpReadinessV2PluginPath, openworkProviderFiltersV2PluginPath, openworkProviderSyncV2PluginPath, openworkVisibleReasoningV2PluginPath } from "./openwork-extensions-plugin-path.js";
-import { DRIVE_UPLOAD_PERMISSION, GMAIL_DRAFT_PERMISSION, OUTLOOK_DRAFT_PERMISSION } from "./extensions/cloud-upload-constants.js";
+import { nativeModelVariants } from "@openwork/types/model-fast";
+import { openworkAgentPermissionsV2PluginPath, openworkAutoRouteV2PluginPath, openworkContextV2PluginPath, openworkMcpResultsV2PluginPath, openworkMcpReadinessV2PluginPath, openworkProviderFiltersV2PluginPath, openworkVisibleReasoningV2PluginPath } from "./openwork-extensions-plugin-path.js";
 import { pathToFileURL } from "node:url";
 // Parallel v2 lane prototype: provider injection is a watched-config write. This module
 // deliberately has no reload/dispose call, unlike managed-opencode.ts and server.ts reloadOpencodeEngine.
@@ -16,7 +14,6 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { appendEngineOutputTail, createEngineStartupLineReader } from "./engine-output.js";
 import { resolveOpencodeHistoryDatabase } from "./opencode-history.js";
-import { providerCredentialBrokerSource } from "./opencode-v2-provider-channel.js";
 
 export { installOpencodeV2Binary } from "./opencode-v2-binary.js";
 
@@ -69,7 +66,6 @@ export interface ManagedOpencodeV2ServerOptions {
   bootTimeoutMs?: number;
   contextTools?: { url: string; token: string; browser?: { url: string; token: string } };
   /** Session capability travels once over an inherited pipe, never environment or config. */
-  providerSession?: { url: string; token: string };
   permissions?: () => Promise<EngineV2PermissionRule[]>;
   /** Extra absolute skill directories registered before boot, so no later config write reloads the catalog. */
   skills?: string[];
@@ -225,10 +221,7 @@ export function renderOpencodeV2Config(input: {
   disabledProviderIds?: string[];
   permissions?: EngineV2PermissionRule[];
   skills: string[];
-  gatewayQuotaPluginDirectory?: string;
-  providerSyncPluginDirectory?: string;
-  desktopSession?: string;
-  /** Catalog-only rules survive removal of live-owned providers from config. */
+      /** Catalog-only rules survive removal of live-owned providers from config. */
   providerFilters?: OpencodeV2ProviderFilters;
   providerFiltersPluginDirectory?: string;
   /** Preserves OpenWork Cloud connection reports from Code Mode calls for the chat. */
@@ -244,8 +237,7 @@ export function renderOpencodeV2Config(input: {
   agentPermissionsPluginDirectory?: string;
 }): Record<string, unknown> {
   const disabled = new Set(input.disabledProviderIds ?? []);
-  const enabledProviders = input.providers.filter((provider) => !disabled.has(provider.id)
-    && (!input.desktopSession || !/^ipr_/i.test(provider.id)));
+  const enabledProviders = input.providers.filter((provider) => !disabled.has(provider.id));
   const providerConfig: Record<string, unknown> = {};
   for (const provider of enabledProviders) {
     if (provider.native) {
@@ -293,10 +285,6 @@ export function renderOpencodeV2Config(input: {
       models,
     };
   }
-  const gatewayProviders = Object.fromEntries(enabledProviders.flatMap((provider) => {
-    const base = gatewayBase(provider.id, provider.baseUrl);
-    return base ? [[provider.id, base.href]] : [];
-  }));
   const filters: Record<string, { whitelist?: string[]; blacklist?: string[] }> = Object.fromEntries(
     input.providers.filter(provider => provider.whitelist !== undefined || provider.blacklist !== undefined)
       .map(provider => [provider.id, { whitelist: provider.whitelist, blacklist: provider.blacklist }]),
@@ -307,15 +295,7 @@ export function renderOpencodeV2Config(input: {
   // disconnected OpenCode Zen disappears here too and returns once re-enabled.
   for (const id of disabled) filters[id] = { whitelist: [] };
   const plugins = [
-    ...(input.desktopSession && input.providerSyncPluginDirectory ? [{
-      package: pathToFileURL(input.providerSyncPluginDirectory).href,
-      options: { desktopSession: input.desktopSession },
-    }] : []),
     ...(input.contextTools && input.contextPluginDirectory ? [{ package: pathToFileURL(input.contextPluginDirectory).href, options: input.contextTools }] : []),
-    ...((Object.keys(gatewayProviders).length || input.desktopSession) && input.gatewayQuotaPluginDirectory ? [{
-      package: pathToFileURL(input.gatewayQuotaPluginDirectory).href,
-      options: { providers: gatewayProviders, ...(input.desktopSession ? { liveProviders: true } : {}) },
-    }] : []),
     ...(Object.keys(filters).length && input.providerFiltersPluginDirectory ? [{
       package: pathToFileURL(input.providerFiltersPluginDirectory).href,
       options: { providers: filters },
@@ -336,7 +316,7 @@ export function renderOpencodeV2Config(input: {
   // denials come last: an agent permission exception never lifts them. The
   // engine allows unlisted actions, so the context tools' Drive writes and
   // Gmail and Outlook drafts are listed as ask: their bridge runs them only after the person allows it.
-  const contextWrites = [DRIVE_UPLOAD_PERMISSION, "drive_pull_file", "drive_push_file", GMAIL_DRAFT_PERMISSION, OUTLOOK_DRAFT_PERMISSION];
+  const contextWrites: string[] = [];
   const permissions: EngineV2PermissionRule[] = [
     ...(input.contextTools && input.contextPluginDirectory ? contextWrites.map(action => ({ action, resource: "*", effect: "ask" as const })) : []),
     ...agentPermissionEngineV2Rules(input.agentPermissionRules ?? []), ...(input.permissions ?? []),
@@ -399,9 +379,6 @@ async function createManagedOpencodeV2ServerInner(
   const bootTimeoutMs = options.bootTimeoutMs ?? 60_000;
   const instanceRoot = options.instanceId ? join(options.rootDir, "instances", options.instanceId) : options.rootDir;
   const configDir = join(instanceRoot, "config");
-  const providerSyncPluginDirectory = join(instanceRoot, "provider-sync-plugin");
-  const providerCredentialBrokerPath = join(providerSyncPluginDirectory, "credential-broker.cjs");
-  const gatewayQuotaPluginDirectory = join(instanceRoot, "gateway-quota-plugin");
   const providerFiltersPluginDirectory = join(instanceRoot, "provider-filters-plugin");
   const mcpResultsPluginDirectory = join(instanceRoot, "mcp-results-plugin");
   const mcpReadinessPluginDirectory = join(instanceRoot, "mcp-readiness-plugin");
@@ -430,17 +407,6 @@ async function createManagedOpencodeV2ServerInner(
   await chmod(options.rootDir, 0o700);
   await mkdir(configDir, { recursive: true, mode: 0o700 });
   await chmod(configDir, 0o700);
-  if (options.providerSession) {
-    await mkdir(providerSyncPluginDirectory, { recursive: true, mode: 0o700 });
-    await writeFile(providerCredentialBrokerPath, providerCredentialBrokerSource, { mode: 0o600 });
-    await writeFile(join(providerSyncPluginDirectory, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
-    await writeFile(join(providerSyncPluginDirectory, "server.js"),
-      `export { default } from ${JSON.stringify(pathToFileURL(openworkProviderSyncV2PluginPath()).href)};\n`, { mode: 0o600 });
-  }
-  await mkdir(gatewayQuotaPluginDirectory, { recursive: true, mode: 0o700 });
-  await writeFile(join(gatewayQuotaPluginDirectory, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
-  await writeFile(join(gatewayQuotaPluginDirectory, "server.js"),
-    `export { default } from ${JSON.stringify(pathToFileURL(openworkGatewayQuotaV2PluginPath()).href)};\n`, { mode: 0o600 });
   await mkdir(providerFiltersPluginDirectory, { recursive: true, mode: 0o700 });
   await writeFile(join(providerFiltersPluginDirectory, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
   await writeFile(join(providerFiltersPluginDirectory, "server.js"),
@@ -478,26 +444,13 @@ async function createManagedOpencodeV2ServerInner(
     env: {
       ...inherited,
       ...(options.env?.OPENCODE_DISABLE_MODELS_FETCH ? { OPENCODE_DISABLE_MODELS_FETCH: options.env.OPENCODE_DISABLE_MODELS_FETCH } : {}),
-      ...(options.providerSession ? { OPENWORK_PROVIDER_SESSION_FD: "3", OPENWORK_PROVIDER_SESSION_BROKER: providerCredentialBrokerPath } : {}),
       OPENCODE_PASSWORD: password,
       OPENCODE_DB: historyDatabase,
       OPENCODE_CONFIG_DIR: configDir,
       ...(opencodeModelsUrl === undefined ? {} : { OPENCODE_MODELS_URL: opencodeModelsUrl }),
     },
-    stdio: ["ignore", "pipe", "pipe", options.providerSession ? "pipe" : "ignore"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  if (options.providerSession) {
-    const channel = child.stdio[3];
-    if (!channel || !("end" in channel)) {
-      child.kill();
-      throw new Error("OpenCode v2 credential channel unavailable");
-    }
-    // A private, anonymous pipe: no named socket, file, argument, or environment
-    // contains this credential. The trusted plugin consumes and closes it before
-    // setup and retains it only in its module closure.
-    channel.on("error", () => { child.kill(); });
-    channel.end(JSON.stringify({ endpoint: options.providerSession.url, token: options.providerSession.token }));
-  }
 
   let stdout = "";
   let stderr = "";
@@ -574,8 +527,6 @@ async function createManagedOpencodeV2ServerInner(
     const next = `${JSON.stringify(renderOpencodeV2Config({
       providers: [...providers.values()],
       disabledProviderIds,
-      gatewayQuotaPluginDirectory,
-      ...(options.providerSession ? { providerSyncPluginDirectory, desktopSession: options.providerSession.url } : {}),
       providerFiltersPluginDirectory,
       providerFilters,
       mcpResultsPluginDirectory,

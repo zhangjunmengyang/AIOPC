@@ -18,7 +18,7 @@ import {
 import { formatMcpAppDiagnostic, safeMcpAppDiagnosticMessage } from "../src/components/chat/mcp-app-diagnostics"
 import type { McpAppSandboxViewProps } from "../src/components/chat/mcp-app-frame"
 import * as mcpAppOrigin from "../src/components/chat/mcp-app-origin"
-import { markCloudCredentialRefreshed } from "../src/react-app/domains/connections/cloud-credential-revision"
+
 
 // happy-dom 21 loads no iframe page by default, so frames would have no window to talk to.
 GlobalRegistrator.register({ url: "https://web.example/", settings: { enableIframePageLoading: true } })
@@ -38,10 +38,10 @@ const { WorkspaceProvider } = await import("../src/react-app/shell/workspace-pro
 const { useUiStateStore } = await import("../src/react-app/shell/ui-state-store")
 const { usePanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store")
 const { useSessionActivityStore } = await import("../src/react-app/domains/session/status/session-activity-store")
-const { McpAppTile } = await import("../src/react-app/domains/dashboard/mcp-app-tile")
-const { DASHBOARD_AUTO_REFRESH_INTERVAL_MS, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, writeDashboardTileCache } = await import("../src/react-app/domains/dashboard/dashboard-tile-cache")
-const { RetainedArtifactSurface } = await import("../src/react-app/domains/dashboard/retained-artifact-surface")
-const { reconcileMemberAccess, resetMemberAccessSession, setMemberAccessScope, trackMemberAccessCheck } = await import("../src/react-app/domains/dashboard/mcp-app-member-access")
+const { McpAppTile } = await import("../src/react-app/domains/mcp-apps/mcp-app-tile")
+const { DASHBOARD_AUTO_REFRESH_INTERVAL_MS, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, writeDashboardTileCache } = await import("../src/react-app/domains/mcp-apps/dashboard-tile-cache")
+const { RetainedArtifactSurface } = await import("../src/react-app/domains/mcp-apps/retained-artifact-surface")
+
 const { flushDashboardTileCacheStorage, resetDashboardTileCacheMemory } = await import("../src/app/lib/dashboard-cache-storage")
 const { setMcpAppDocumentBackend } = await import("../src/app/lib/mcp-app-document-store")
 const { cachedMcpAppResult, forgetMcpAppResult, rememberMcpAppResult } = await import("../src/app/lib/mcp-app-result-cache")
@@ -304,8 +304,8 @@ describe("MCP App startup scheduling", () => {
       callProviderMetadata: { openwork: { mcpResult: { content: [{ type: "text", text: "ok" }], _meta: { "openwork/mcpApp": launch } } } },
     }
     try {
-      localStorage.setItem("openwork.den.authToken", "preview-fixture-token")
-      const scope = await mcpAppPresentationScope({ client: host.client, workspaceId: "fixture", sessionId: null, readOnly: false })
+
+      const scope = await mcpAppPresentationScope({ client: host.client, workspaceId: "fixture", sessionId: null, readOnly: false, engine: "v2" })
       if (!scope) throw new Error("Missing presentation scope")
       await createMcpAppPresentationCache(scope, "fixture").write(launch, saved)
       await host.renderElement(createElement(MessageListProvider, {
@@ -353,7 +353,7 @@ describe("MCP App startup scheduling", () => {
       }
       expect(releaseSpy).not.toHaveBeenCalled()
     } finally {
-      localStorage.removeItem("openwork.den.authToken")
+
       try {
         await host.renderElement(createElement("div"))
         flushDashboardTileCacheStorage()
@@ -728,22 +728,22 @@ describe("MCP App stored reads on a saved tile", () => {
       spyOn(host.client, "releaseMcpApp").mockResolvedValue({ released: true }),
       spyOn(host.client, "callMcpAppTool").mockImplementation(async (_workspace, request) => { calls.push(request); return await options.run(request) }),
     ]
-    localStorage.setItem("openwork.den.authToken", "stored-read-token")
-    localStorage.setItem("openwork.den.activeOrgId", "org_saved_tile")
+
+
     writeDashboardTileCache(scope, "stored-0", {
       argumentsSignature: "{}", cachedAt: Date.now(), workspaceId: "fixture", app, result: { content: [] },
     })
     if (options.stored !== false) {
       await rememberMcpAppResult(origin, app, "read_detail", {}, { content: [{ type: "text", text: "stored" }], _meta: checked })
     }
-    resetMemberAccessSession()
-    setMemberAccessScope(member)
-    if (options.confirmed !== false) reconcileMemberAccess(member, null, { capabilities: { plugins: [] }, connections: [] })
+
+
+
     if (options.storedRead) {
       rememberDashboardTileRead(scope, "stored-0", { name: "read_detail", arguments: {} },
         { providerIdentity: "provider-1", result: { content: [{ type: "text", text: "stored" }] } })
     }
-    if (options.checking) trackMemberAccessCheck(options.checking)
+
     const render = () => host.renderElement(createElement(WorkspaceProvider, {
       client: null, openworkServerClient: host.client, workspaceId: "fixture", selectedWorkspaceRoot: "/fixture",
     }, createElement(McpAppTile, {
@@ -773,9 +773,9 @@ describe("MCP App stored reads on a saved tile", () => {
       },
       async close() {
         await forgetMcpAppResult(origin, app, "read_detail", {})
-        resetMemberAccessSession()
-        localStorage.removeItem("openwork.den.activeOrgId")
-        localStorage.removeItem("openwork.den.authToken")
+
+
+
         removeDashboardTileCache(scope, "stored-0")
         flushDashboardTileCacheStorage()
         try { await host.dispose() } finally { for (const spy of spies) spy.mockRestore() }
@@ -783,24 +783,7 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   }
 
-  test("before access is compared, a stored result answers while the launch is still running its reads, and the tool does not run", async () => {
-    const launch = Promise.withResolvers<{ content: [] }>()
-    const tile = await savedTile({
-      confirmed: false,
-      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
-      run: async request => request.checkOnly ? { content: [], _meta: checked } : request.name === "render-0" ? await launch.promise : { content: [] },
-    })
-    try {
-      const answer = await tile.ask()
-      expect(answer.content).toEqual([{ type: "text", text: "stored" }])
-      expect(answer._meta?.["openwork/cached"]).toBe(true)
-      expect(tile.calls.filter(call => call.checkOnly).map(call => call.launchId)).toEqual(["lease-1"])
-      expect(tile.calls.filter(call => call.name === "read_detail" && !call.checkOnly)).toEqual([])
-    } finally {
-      await act(async () => { launch.resolve({ content: [] }) })
-      await tile.close()
-    }
-  })
+
 
   test("nothing stored answers at once, before there is a lease", async () => {
     const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
@@ -816,67 +799,11 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   })
 
-  test("before access is compared, a stored result waits for a lease and a current check", async () => {
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const launch = Promise.withResolvers<{ content: [] }>()
-    const tile = await savedTile({
-      confirmed: false,
-      resolve: () => discovery.promise,
-      run: async request => request.checkOnly ? { content: [], _meta: checked } : await launch.promise,
-    })
-    try {
-      let answered = false
-      const answer = tile.ask().then(result => { answered = true; return result })
-      await settle()
-      expect(answered).toBe(false)
-      expect(tile.calls).toEqual([])
-      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
-      expect((await answer).content).toEqual([{ type: "text", text: "stored" }])
-    } finally {
-      await act(async () => { launch.resolve({ content: [] }) })
-      await tile.close()
-    }
-  })
 
-  test.each([
-    ["another provider identity", { content: [], _meta: { ...checked, "openwork/providerIdentity": "provider-2" } }],
-    ["a refused check", new OpenworkServerError(403, "tool_denied", "Forbidden")],
-  ])("before access is compared, %s shows nothing and drops the stored result", async (_name, outcome) => {
-    const launch = Promise.withResolvers<{ content: [] }>()
-    const tile = await savedTile({
-      confirmed: false,
-      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
-      run: async request => {
-        if (!request.checkOnly) return await launch.promise
-        if (outcome instanceof Error) throw outcome
-        return outcome
-      },
-    })
-    try {
-      const refused = await tile.ask()
-      expect(refused.content).toEqual([])
-      expect(refused._meta?.["openwork/cached"]).toBe(false)
-      expect(await tile.forgotten()).toBe(true)
-      const checks = tile.calls.filter(call => call.checkOnly).length
-      expect((await tile.ask())._meta?.["openwork/cached"]).toBe(false)
-      expect(tile.calls.filter(call => call.checkOnly)).toHaveLength(checks)
-    } finally {
-      await act(async () => { launch.resolve({ content: [] }) })
-      await tile.close()
-    }
-  })
 
-  test("before access is compared, a launch that fails before its lease never answers from storage", async () => {
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const tile = await savedTile({ confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
-    try {
-      const answer = tile.ask().then(() => "answered", (cause: Error) => cause.message)
-      await settle()
-      await act(async () => { discovery.reject(new OpenworkServerError(403, "tool_denied", "Forbidden")) })
-      expect(await answer).toContain("closed or changed")
-      expect(tile.calls).toEqual([])
-    } finally { await tile.close() }
-  })
+
+
+
 
   test("a launch that fails after its lease stops handing that lease out", async () => {
     const launch = Promise.withResolvers<{ content: [] }>()
@@ -893,80 +820,11 @@ describe("MCP App stored reads on a saved tile", () => {
     } finally { await tile.close() }
   })
 
-  test("once access is compared, a stored result answers before there is any lease, and the check follows", async () => {
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const tile = await savedTile({
-      resolve: () => discovery.promise,
-      run: async request => request.checkOnly ? { content: [], _meta: checked } : { content: [] },
-    })
-    try {
-      const answer = await tile.ask()
-      expect(answer.content).toEqual([{ type: "text", text: "stored" }])
-      expect(answer._meta?.["openwork/cached"]).toBe(true)
-      expect(tile.calls).toEqual([])
-      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
-      await settle()
-      expect(tile.calls.filter(call => call.checkOnly).map(call => call.launchId)).toEqual(["lease-1"])
-      expect(tile.calls.filter(call => call.name === "read_detail" && !call.checkOnly)).toEqual([])
-      expect((await tile.ask())._meta?.["openwork/cached"]).toBe(true)
-    } finally { await tile.close() }
-  })
 
-  test.each([
-    ["another provider identity", { content: [], _meta: { ...checked, "openwork/providerIdentity": "provider-2" } }],
-    ["a refused check", new OpenworkServerError(403, "tool_denied", "Forbidden")],
-  ])("once access is compared, %s drops a stored result that already showed", async (_name, outcome) => {
-    const tile = await savedTile({
-      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
-      run: async request => {
-        if (!request.checkOnly) return { content: [] }
-        if (outcome instanceof Error) throw outcome
-        return outcome
-      },
-    })
-    try {
-      expect((await tile.ask()).content).toEqual([{ type: "text", text: "stored" }])
-      expect(await tile.forgotten()).toBe(true)
-      const checks = tile.calls.filter(call => call.checkOnly).length
-      expect(checks).toBe(1)
-      expect((await tile.ask())._meta?.["openwork/cached"]).toBe(false)
-      expect(tile.calls.filter(call => call.checkOnly)).toHaveLength(checks)
-    } finally { await tile.close() }
-  })
 
-  test("a live App's stored read still waits for its check, even once access is compared", async () => {
-    const check = Promise.withResolvers<{ content: []; _meta: typeof checked }>()
-    const checking = Promise.withResolvers<void>()
-    const tile = await savedTile({
-      starts: false,
-      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-0" }) }),
-      run: async request => {
-        if (!request.checkOnly) return { content: [] }
-        checking.resolve()
-        return await check.promise
-      },
-    })
-    try {
-      await tile.host.renderElement(createElement(WorkspaceProvider, {
-        client: null, openworkServerClient: tile.host.client, workspaceId: "fixture", selectedWorkspaceRoot: "/fixture",
-      }, createElement(McpAppSandboxView, {
-        origin: { client: tile.host.client, workspaceId: "fixture", sessionId: null, readOnly: false },
-        app: fixture({ toolName: "render-0", launchId: "lease-1" }), toolName: "render-0",
-        inputArguments: {}, result: { content: [] }, unavailableNotice: "Unavailable", presentation: "dashboard",
-      })))
-      await tile.host.notify(0, "ui/notifications/sandbox-proxy-ready")
-      const bridges = tile.host.bridges.length
-      expect(bridges).toBeGreaterThan(0)
-      let answered = false
-      const answer = tile.host.bridges[bridges - 1].oncalltool?.(storedRead, actionContext).then(result => { answered = true; return result })
-      await act(async () => { await checking.promise })
-      await settle()
-      expect(answered).toBe(false)
-      expect(tile.calls.filter(call => call.checkOnly).map(call => call.launchId)).toEqual(["lease-1"])
-      await act(async () => { check.resolve({ content: [], _meta: checked }) })
-      expect((await answer)?.content).toEqual([{ type: "text", text: "stored" }])
-    } finally { await tile.close() }
-  })
+
+
+
 
   test("what the App last loaded arrives as it starts, before there is any lease", async () => {
     const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
@@ -982,54 +840,11 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   })
 
-  test("stored data stays hidden until this session has compared the member's access", async () => {
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const tile = await savedTile({ storedRead: true, confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
-    try {
-      await settle()
-      expect(tile.host.resultSpy).toHaveBeenCalled()
-      expect(tile.host.resultSpy.mock.calls.at(-1)?.[0]._meta?.["openwork/initialResults"]).toBeUndefined()
-      expect(tile.host.container.querySelector("iframe")).not.toBeNull()
-    } finally {
-      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
-      await tile.close()
-    }
-  })
 
-  test("a saved tile waits for a check under way, then shows stored data if it passes", async () => {
-    const check = Promise.withResolvers<void>()
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const held = await savedTile({ storedRead: true, confirmed: false, starts: false, checking: check.promise, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
-    try {
-      await settle()
-      expect(held.host.container.querySelector("[data-dashboard-tile]")).toBeNull()
-      reconcileMemberAccess(member, null, { capabilities: { plugins: [] }, connections: [] })
-      await act(async () => { check.resolve() })
-      await settle()
-      await held.start()
-      await settle()
-      expect(held.host.resultSpy.mock.calls.at(-1)?.[0]._meta?.["openwork/initialResults"]).toMatchObject([{ name: "read_detail" }])
-    } finally {
-      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
-      await held.close()
-    }
-  })
 
-  test("a later check never closes a tile that is already open", async () => {
-    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const tile = await savedTile({ storedRead: true, confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
-    const frame = tile.host.frame(0)
-    const check = Promise.withResolvers<void>()
-    try {
-      trackMemberAccessCheck(check.promise)
-      await tile.rerender()
-      await settle()
-      expect(tile.host.frame(0)).toBe(frame)
-    } finally {
-      await act(async () => { check.resolve(); discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
-      await tile.close()
-    }
-  })
+
+
+
 
   test("the live launch replaces stored data, so nothing stale passes as fresh", async () => {
     const launch = Promise.withResolvers<{ content: []; _meta: Record<string, unknown> }>()
@@ -1889,7 +1704,7 @@ describe("MCP App resolution", () => {
       let settled = false
       const resolution = client.resolveMcpApp("fixture", "fixture_render")
         .then(value => { settled = true; return value }, (cause: unknown) => { settled = true; return cause })
-      const config = client.getConnectState().catch((cause: unknown) => cause)
+      const config = client.getConfig("fixture").catch((cause: unknown) => cause)
       expect(requests).toHaveLength(2)
       jest.advanceTimersByTime(10_000)
       expect(await config).toMatchObject({ message: "Request timed out." })
@@ -2003,69 +1818,11 @@ describe("MCP App resolution", () => {
 
   const credentialScope = { serverBaseUrl: "https://server.example", workspaceId: "fixture" }
 
-  test.each([false, true])("recovers a Cloud authentication failure on matching credential refresh (installation before failure: %j)", async early => {
-    const host = resolutionFixture(true)
-    const pending = Promise.withResolvers<{ app: OpenworkMcpAppResource | null }>()
-    const timer = spyOn(window, "setTimeout")
-    host.resolveSpy.mockImplementationOnce(() => pending.promise).mockResolvedValue({ app: fixture() })
-    const reject = () => pending.reject(new OpenworkServerError(401, "mcp_auth_required", "This App's connection needs authentication."))
-    try {
-      await host.render()
-      if (!early) await act(async () => { reject() })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(1)
-      expect(host.container.querySelector("iframe")).toBeNull()
-      expect(timer.mock.calls.some(([, delay]) => delay === 1_000 || delay === 3_000)).toBe(false)
-      await act(async () => {
-        markCloudCredentialRefreshed({ ...credentialScope, workspaceId: "other-workspace" })
-        markCloudCredentialRefreshed({ ...credentialScope, serverBaseUrl: "https://other.example" })
-      })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(1)
-      await act(async () => { markCloudCredentialRefreshed(credentialScope) })
-      if (early) {
-        expect(host.resolveSpy).toHaveBeenCalledTimes(1)
-        await act(async () => { reject() })
-      }
-      expect(host.resolveSpy).toHaveBeenCalledTimes(2)
-      expect(host.resolveSpy.mock.calls[1]).toEqual(host.resolveSpy.mock.calls[0])
-      expect(host.container.querySelector('[role="status"]')).toBeNull()
-      expect(host.container.querySelector("iframe")).not.toBeNull()
-      await act(async () => { markCloudCredentialRefreshed(credentialScope) })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(2)
-      expect(host.callSpy).not.toHaveBeenCalled()
-    } finally { await host.dispose(); timer.mockRestore() }
-  })
 
-  test.each(["access-denied", "other-failure", "local-provider", "healthy", "unmounted"])("credential refresh leaves %s chat views alone", async scenario => {
-    const host = resolutionFixture(scenario !== "local-provider")
-    if (scenario === "healthy") host.resolveSpy.mockResolvedValue({ app: fixture() })
-    else host.resolveSpy.mockRejectedValue(new OpenworkServerError(
-      scenario === "access-denied" ? 403 : 401,
-      scenario === "access-denied" ? "mcp_access_denied" : scenario === "other-failure" ? "unexpected_failure" : "mcp_auth_required",
-      "This view is unavailable.",
-    ))
-    try {
-      await host.render()
-      if (scenario === "unmounted") await host.unmountFrame()
-      await act(async () => { markCloudCredentialRefreshed(credentialScope) })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(1)
-      expect(host.callSpy).not.toHaveBeenCalled()
-    } finally { await host.dispose() }
-  })
 
-  test("a still-rejected chat view waits for another credential installation after one retry", async () => {
-    const host = resolutionFixture(true)
-    host.resolveSpy.mockRejectedValue(new OpenworkServerError(401, "mcp_auth_required", "Sign in to this connection."))
-    try {
-      await host.render()
-      await act(async () => { markCloudCredentialRefreshed(credentialScope) })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(2)
-      await act(async () => { await Promise.resolve() })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(2)
-      await act(async () => { markCloudCredentialRefreshed(credentialScope) })
-      expect(host.resolveSpy).toHaveBeenCalledTimes(3)
-      expect(host.callSpy).not.toHaveBeenCalled()
-    } finally { await host.dispose() }
-  })
+
+
+
 
   test.each([
     new Error("Request timed out."),
@@ -2148,84 +1905,9 @@ describe("MCP App resolution", () => {
     } finally { await host.dispose() }
   })
 
-  test.each(["draft", "snapshot", "preview", "both"].flatMap(mode => [false, true].map(active => ({ mode, active }))))("opens $mode in the existing preview only after a click (active: $active)", async ({ mode, active }) => {
-    const host = resolutionFixture(true)
-    const resourceUri = "ui://openwork/artifacts/arv_fixture/views/avr_fixture/index.html"
-    const toolName = mode === "snapshot" ? "openwork-cloud_render_artifact_fixture"
-      : mode === "preview" ? "openwork-cloud_preview_artifact_fixture" : "openwork-cloud_save_artifact_view"
-    const launch = { toolName, resourceUri, arguments: {} }
-    const part: DynamicToolUIPart = {
-      ...host.part, toolName,
-      callProviderMetadata: { openwork: { mcpResult: {
-        content: [{ type: "text", text: "App result retained" }],
-        structuredContent: { artifact: { title: "Fixture preview", receiptId: "receipt_fixture" } },
-        _meta: {
-          "openwork/mcpApp": launch,
-          ...(mode === "draft" || mode === "both" ? { "openwork/appDraft": { appId: "arv_fixture", revisionId: "avr_fixture", title: "Fixture preview", receiptId: "receipt_fixture" } } : {}),
-          ...(mode !== "draft" ? { artifactViewId: "arv_fixture", viewRevisionId: "avr_fixture", appTitle: "Fixture preview" } : {}),
-        },
-      } } },
-    }
-    const openTab = spyOn(usePanelTabStore.getState(), "openTab").mockImplementation(() => {})
-    const openPanel = spyOn(useUiStateStore.getState(), "setSidePanelState").mockImplementation(() => {})
-    const activity = spyOn(useSessionActivityStore.getState(), "getStatus").mockReturnValue(active ? "responding" : "idle")
-    host.resolveSpy.mockResolvedValue({ app: fixture({ resourceUri }) })
-    try {
-      expect(hasPreservedMcpAppResult(part)).toBe(true)
-      await host.render(part)
-      if (mode === "draft" || mode === "both") expect(host.resolveSpy).not.toHaveBeenCalled()
-      else expect(host.resolveSpy).toHaveBeenCalledWith("fixture", toolName, launch, expect.objectContaining({ sessionId: "session_fixture" }))
-      expect(host.container.querySelector("iframe")).toBeNull()
-      expect(host.container.textContent).toContain("then choose Save")
-      const preview = Array.from(host.container.querySelectorAll("button")).find(button => button.textContent === "Open preview")
-      if (!preview) throw new Error("Missing Open preview")
-      expect(openTab).not.toHaveBeenCalled()
-      expect(openPanel).not.toHaveBeenCalled()
-      await act(async () => preview.click())
-      expect(openTab).toHaveBeenCalledTimes(1)
-      expect(openTab).toHaveBeenCalledWith("session_fixture", {
-        type: "app", id: "app:arv_fixture:avr_fixture:receipt_fixture", label: "Fixture preview",
-        appId: "arv_fixture", revisionId: "avr_fixture", receiptId: "receipt_fixture",
-      })
-      expect(openPanel).toHaveBeenCalledWith("session_fixture", "panel")
-      expect(host.callSpy).not.toHaveBeenCalled()
-      expect(host.errorSpy).not.toHaveBeenCalled()
-    } finally {
-      await host.dispose()
-      openTab.mockRestore()
-      openPanel.mockRestore()
-      activity.mockRestore()
-    }
-  })
 
-  test.each(["mcpResult", "mcpApp"].flatMap(alias => ["save_artifact_view", "preview_artifact_fixture"].map(toolName => ({ alias, toolName }))))("offers $toolName $alias live drafts without pinning a receipt or running the app", async ({ alias, toolName }) => {
-    const host = resolutionFixture(false)
-    const openTab = spyOn(usePanelTabStore.getState(), "openTab").mockImplementation(() => {})
-    const openPanel = spyOn(useUiStateStore.getState(), "setSidePanelState").mockImplementation(() => {})
-    try {
-      await host.render({
-        ...host.part, toolName: `openwork-cloud_${toolName}`,
-        callProviderMetadata: { openwork: { [alias]: {
-          content: [], structuredContent: { artifact: { receiptId: "live-receipt" } },
-          _meta: { "openwork/appDraft": { appId: "arv_fixture", revisionId: "avr_fixture", title: "Draft" } },
-        } } },
-      })
-      expect(host.resolveSpy).not.toHaveBeenCalled()
-      expect(host.container.textContent).toContain("Open preview")
-      expect(host.container.querySelector("iframe")).toBeNull()
-      expect(openTab).not.toHaveBeenCalled()
-      expect(openPanel).not.toHaveBeenCalled()
-      const preview = host.container.querySelector("button")
-      if (!preview) throw new Error("Missing Open preview")
-      await act(async () => preview.click())
-      expect(openTab).toHaveBeenCalledWith("session_fixture", {
-        type: "app", id: "app:arv_fixture:avr_fixture:latest", label: "Draft",
-        appId: "arv_fixture", revisionId: "avr_fixture", receiptId: undefined,
-      })
-      expect(openPanel).toHaveBeenCalledWith("session_fixture", "panel")
-      expect(host.callSpy).not.toHaveBeenCalled()
-    } finally { await host.dispose(); openTab.mockRestore(); openPanel.mockRestore() }
-  })
+
+
 
   test.each(["skill-created", "plugin-flow"].flatMap(resource =>
     ["openwork_", "openwork-cloud_"].flatMap(prefix =>
@@ -2725,29 +2407,7 @@ describe("MCP App iframe policy", () => {
     expect(McpAppFrame({ part: { ...part, toolName: "other_execute_capability" } })).not.toBeNull()
   })
 
-  test("accepts a namespaced gateway launch reference without exposing credentials", () => {
-    expect(gatewayMcpAppLaunch({
-      source: "provider",
-      "openwork/mcpApp": {
-        connectionId: "emc_01atlas",
-        toolName: "open_project_atlas",
-        resourceUri: "ui://atlas/1/index.html",
-        arguments: { query: "migration" },
-      },
-    })).toEqual({
-      connectionId: "emc_01atlas",
-      toolName: "open_project_atlas",
-      resourceUri: "ui://atlas/1/index.html",
-      arguments: { query: "migration" },
-    })
-    expect(gatewayMcpAppLaunch({
-      "openwork/mcpApp": {
-        connectionId: "emc_01atlas",
-        toolName: "open_project_atlas",
-        resourceUri: "ui://atlas/1/index.html",
-      },
-    })).toBeNull()
-  })
+
 
   test("accepts a same-server generated App launch without a connection reference", () => {
     expect(gatewayMcpAppLaunch({

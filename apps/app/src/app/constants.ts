@@ -1,6 +1,5 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
-import { getDenMcpUrl } from "./lib/den";
 import { canonicalMcpServerName } from "./mcp";
 import {
   BUILT_IN_OPENWORK_EXTENSION_MANIFESTS,
@@ -39,8 +38,6 @@ export type McpDirectoryInfo = {
   oauth: boolean;
   /** Route OAuth through the local OpenWork gateway instead of delegating it to OpenCode. */
   managedOAuth?: boolean;
-  /** Identifies MCP entries owned by OpenWork Connect instead of workspace configuration. */
-  managedBy?: "openwork-connect";
   oauthConfig?: {
     clientId?: string;
     clientSecret?: string;
@@ -150,32 +147,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
     iconSlug: "semanticscholar",
     iconSrc: "/ext-context7.svg",
-  },
-  {
-    get name() { return t("mcp.quick_connect_openwork_cloud_title"); },
-    serverName: "openwork-cloud",
-    get description() { return t("mcp.quick_connect_openwork_cloud_desc"); },
-    get url() {
-      // The desktop app connects to the minimal, harness-facing surface
-      // (/mcp/agent: search_capabilities + execute_capability only), not the
-      // full catalog at bare /mcp. getDenMcpUrl heals stale web-app origins;
-      // never at the web app's root (see
-      // packages/docs/cloud/run-in-the-cloud/cloud-mcp.mdx).
-      try {
-        return `${getDenMcpUrl()}/agent`;
-      } catch {
-        return "https://api.app.openworklabs.com/mcp/agent";
-      }
-    },
-    type: "remote",
-    oauth: true,
-    managedBy: "openwork-connect",
-    kind: "mcp",
-    iconSrc: "/aiopc-mark.svg",
-    // Auto-managed by the signed-in cloud reconciler (syncCloudControlMcp):
-    // configured + enabled while signed in to OpenWork Cloud. Hidden from the
-    // default catalog; "Show hidden" reveals it.
-    defaultHidden: true,
   },
   {
     get name() { return t("mcp.quick_connect_openwork_ui_title"); },

@@ -1,12 +1,9 @@
 /** @jsxImportSource react */
 import { useChatEngineClient } from "@/react-app/domains/models/use-chat-engine-client";
-import { useAutoAccess } from "@/react-app/domains/cloud/auto-access-ui";
-import { freeAutoSwitchedOff } from "@/app/lib/inference-access";
 import { openNewSessionDraft } from "@/react-app/domains/session/chat/new-session-destination";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "@/components/ui/sonner";
-import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import {
   SUGGESTED_PLUGINS,
@@ -19,17 +16,10 @@ import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
   readOpenworkServerSettings,
-  type OpenworkCloudMcpHealth,
-  type OpenworkCloudMcpProviderModelContext,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
-  type DesktopFreePreferences,
 } from "@/app/lib/openwork-server";
 import { buildOpenworkEnvRuntimeKey } from "@/app/lib/openwork-env-runtime";
-import {
-  collectAgentContextDiagnosticObservations,
-  resolveOrganizationConnectionsProbe,
-} from "@/app/lib/agent-context-diagnostics";
 import {
   getInitialThemeMode,
   setThemeMode as setAppThemeMode,
@@ -44,7 +34,6 @@ import type {
   } from "@/app/types";
 import { currentLocale, t, setLocale, type Language } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
-import { GatewayModelAccessProvider } from "@/react-app/domains/connections/provider-auth/gateway-model-access";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -65,21 +54,7 @@ import {
   routeWorkspaceSelectionCommitter,
 } from "@/react-app/shell/route-refresh-control";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
-import { cleanupOpenworkCloudMcpAfterSignOut } from "@/react-app/domains/connections/cloud-mcp-reconciler";
-import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "@/react-app/domains/connections/openwork-server-store";
-import {
-  connectGatewayProvider,
-  GATEWAY_CONNECT_TIMEOUT_MESSAGE,
-  gatewayConnectProviderKey,
-  isGatewaySetConnected,
-  isLiveGatewaySetConnected,
-  type GatewayConnectProvider,
-  resolveGatewayConnectProviders,
-  resolveGatewayProviderIds,
-  resolveLiveGatewayConnectProviders,
-  resolveLiveGatewayImportedProviders,
-} from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal, { PROVIDER_LABELS } from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import { keylessProviderIds } from "@/react-app/domains/connections/provider-auth/provider-policy";
@@ -102,20 +77,6 @@ import { ClaudeImportView } from "@/react-app/domains/settings/pages/claude-impo
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { KeyboardShortcutsView } from "@/react-app/domains/settings/pages/keyboard-shortcuts-view";
 import { ComputerUseView } from "@/react-app/domains/settings/pages/computer-use-view";
-import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
-import {
-  connectPluginsForComposer,
-  EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  type ConnectCapabilityInventory,
-} from "@/react-app/domains/session/surface/connect-capability-inventory";
-import {
-  CLOUD_INVENTORY_CHANGED_EVENT,
-  loadConnectCapabilities,
-  readCachedConnectCapabilities,
-} from "@/react-app/domains/connections/cloud-inventory-cache";
-import { createOpaqueDiagnosticsScopeKey } from "@/react-app/domains/settings/pages/agent-context-diagnostics-section";
-import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
-import { GatewayUsageSettingsView } from "@/react-app/domains/cloud/gateway-usage-panel";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView, sectionForFilter, type ExtensionsSection } from "@/react-app/domains/settings/pages/extensions-view";
@@ -124,8 +85,6 @@ import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useDesktopUpdater } from "@/react-app/domains/settings/state/desktop-updater-provider";
-import { CloudSessionProvider, useCloudSession } from "@/react-app/domains/settings/cloud/cloud-session-provider";
-import { useDenSession } from "@/react-app/domains/settings/cloud/use-den-session";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
@@ -144,20 +103,7 @@ import {
   type WorkspaceList,
   revealDesktopItemInDir,
 } from "@/app/lib/desktop";
-import {
-  SETTINGS_TAB_WITHOUT_CONTROL,
-  desktopRestrictionNotice,
-  isDesktopProviderBlocked,
-  isSettingsTabAllowed,
-} from "@/app/cloud/desktop-app-restrictions";
 import { useDesktopFeature } from "@/react-app/domains/session/status/use-desktop-feature";
-import { useCheckDesktopRestriction, useDesktopConfig } from "@/react-app/domains/cloud/desktop-config-provider";
-import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
-import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
-import {
-  hasOpenWorkModelsAvailable,
-  shouldShowOpenWorkModelsSyncing,
-} from "@/react-app/domains/cloud/openwork-models-promo";
 import {
   isDesktopRuntime,
   isElectronRuntime,
@@ -185,8 +131,6 @@ import { applyDefaultModelPreference } from "./command-palette-models";
 import { buildCommandPaletteSessions } from "./command-palette-sessions";
 import { useCommandPaletteShortcut } from "./use-shell-shortcuts";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
-import { readDenSettings, type DenSettings } from "@/app/lib/den";
-import { denDashboardUrl } from "@/app/lib/den-dashboard-links";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { useUiStateStore } from "./ui-state-store";
 import {
@@ -234,16 +178,6 @@ async function reloadEngineOrRestartDesktop(
   if (restartedEngine) {
     await afterRestart?.();
   }
-}
-
-function isOpenWorkCloudProvider(provider: {
-  providerId?: string | null;
-  source?: string | null;
-  sourceProviderId?: string | null;
-}) {
-  return [provider.providerId, provider.source, provider.sourceProviderId].some(
-    (value) => value?.trim().toLowerCase() === "openwork",
-  );
 }
 
 function reconcileSelectedWorkspaceId(
@@ -309,13 +243,6 @@ export function parseSettingsPath(pathname: string): {
       return { tab: head, redirectPath: null };
     case "advanced":
       return { tab: "advanced", redirectPath: null, advancedSection: tail };
-    // AIOPC has no cloud account: every cloud tab lands on the settings overview.
-    case "cloud-account":
-    case "cloud-providers":
-    case "usage":
-    case "den":
-    case "cloud-workers":
-      return { tab: "general", redirectPath: "general" };
     case "connect":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "recovery":
@@ -324,8 +251,6 @@ export function parseSettingsPath(pathname: string): {
       return { tab: "extensions", redirectPath: "extensions/skills", extensionsSection: "skills" };
     case "mcp":
       return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
-    case "cloud-marketplaces":
-      return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
       if (
@@ -459,12 +384,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   routeWorkspaceIdRef.current = routeWorkspaceId;
   const local = useLocal();
   const platform = usePlatform();
-  const checkDesktopRestriction = useCheckDesktopRestriction();
   const claudeAgentEnabled = useDesktopFeature("claudeAgentProvider");
   const claudeAgentEnabledRef = useRef(claudeAgentEnabled);
   claudeAgentEnabledRef.current = claudeAgentEnabled;
-  const restrictionNotice = useRestrictionNotice();
-  const desktopConfig = useDesktopConfig();
   const reloadCoordinator = useReloadCoordinator();
   const [embeddedPath, setEmbeddedPath] = useState(props.initialPath ?? "general");
   const route = props.embedded
@@ -482,10 +404,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
-  // The standalone Library takeover is not a settings surface; the
-  // `allowControlSettings` policy only governs the settings shell.
-  const settingsTabBlocked = !props.standaloneExtensions
-    && !isSettingsTabAllowed({ tab: route.tab, checkRestriction: checkDesktopRestriction });
 
   useEffect(() => {
     if (!props.embedded) return;
@@ -493,8 +411,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setEmbeddedPath(route.redirectPath);
       return;
     }
-    if (settingsTabBlocked) setEmbeddedPath(SETTINGS_TAB_WITHOUT_CONTROL);
-  }, [props.embedded, route.redirectPath, settingsTabBlocked]);
+  }, [props.embedded, route.redirectPath]);
 
   const navigateSettingsPath = useCallback((path: string) => {
     if (props.embedded) {
@@ -563,10 +480,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
   const [extensionStateVersion, setExtensionStateVersion] = useState(0);
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
-  const [cloudMcpHealthResult, setCloudMcpHealthResult] = useState<{
-    workspaceId: string;
-    health: OpenworkCloudMcpHealth;
-  } | null>(null);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
       id: "",
@@ -579,7 +492,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
 
   const routeStateRef = useRef({
-    checkDesktopRestriction,
     activeClient: null as Client | null,
     providerBaseUrl: "",
     selectedWorkspaceId: "",
@@ -651,7 +563,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? engineRootEndpoint?.opencodeBaseUrl ?? "";
 
   routeStateRef.current = {
-    checkDesktopRestriction,
     activeClient,
     providerBaseUrl: opencodeBaseUrl,
     selectedWorkspaceId,
@@ -709,7 +620,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const connectionsStore = useMemo(
     () =>
       createConnectionsStore({
-        checkDesktopAppRestriction: (input) => routeStateRef.current.checkDesktopRestriction(input),
         client: () => routeStateRef.current.activeClient,
         setClient: setActiveClient,
         projectDir: () => routeStateRef.current.selectedWorkspaceRoot,
@@ -748,7 +658,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         providerDefaults: () => routeStateRef.current.providerDefaults,
         providerConnectedIds: () => routeStateRef.current.providerConnectedIds,
         disabledProviders: () => routeStateRef.current.disabledProviders,
-        checkDesktopAppRestriction: checkDesktopRestriction,
         providerBaseUrl: () => routeStateRef.current.providerBaseUrl,
         selectedWorkspaceDisplay: () => routeStateRef.current.selectedWorkspaceDisplay,
         selectedWorkspaceRoot: () => routeStateRef.current.selectedWorkspaceRoot,
@@ -771,12 +680,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           });
         },
       }),
-    [checkDesktopRestriction, openworkServerStore, reloadCoordinator.markReloadRequired],
+    [openworkServerStore, reloadCoordinator.markReloadRequired],
   );
   const extensionsStore = useMemo(
     () =>
       createExtensionsStore({
-        checkDesktopAppRestriction: (input) => routeStateRef.current.checkDesktopRestriction(input),
         client: () => routeStateRef.current.activeClient,
         projectDir: () => routeStateRef.current.selectedWorkspaceRoot,
         selectedWorkspaceId: () => routeStateRef.current.selectedWorkspaceId,
@@ -809,85 +717,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const connectionsSnapshot = useConnectionsStoreSnapshot(connectionsStore);
   const providerAuthSnapshot = useProviderAuthStoreSnapshot(providerAuthStore);
   useEffect(() => { providerAuthStore.syncFromOptions(); }, [providerAuthStore, claudeAgentEnabled]);
-  const cloudSession = useCloudSession();
-  // With live provider sync the engine delivers Gateway providers and the
-  // server sync stops reporting them, so Settings lists them from Den instead.
-  const liveGatewayProviders = cloudSession.isSignedIn ? providerAuthSnapshot.liveGatewayProviders : null;
-  const settingsImportedCloudProviders = useMemo(
-    () => liveGatewayProviders === null
-      ? providerAuthSnapshot.importedCloudProviders
-      : { ...resolveLiveGatewayImportedProviders(liveGatewayProviders), ...providerAuthSnapshot.importedCloudProviders },
-    [liveGatewayProviders, providerAuthSnapshot.importedCloudProviders],
-  );
-  const gatewayProviderIds = useMemo(
-    () => resolveGatewayProviderIds(settingsImportedCloudProviders),
-    [settingsImportedCloudProviders],
-  );
-  const gatewayConnectProviders = useMemo(
-    () => !cloudSession.isSignedIn
-      ? []
-      : liveGatewayProviders !== null
-        ? resolveLiveGatewayConnectProviders(liveGatewayProviders)
-        : resolveGatewayConnectProviders(providerAuthSnapshot.cloudProviderServerSync?.skippedProviders),
-    [cloudSession.isSignedIn, liveGatewayProviders, providerAuthSnapshot.cloudProviderServerSync?.skippedProviders],
-  );
-  const [connectingGatewayProviderId, setConnectingGatewayProviderId] = useState<string | null>(null);
-  const gatewayConnectAbort = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const cancel = () => {
-      gatewayConnectAbort.current?.abort();
-      setConnectingGatewayProviderId(null);
-    };
-    window.addEventListener(denSessionUpdatedEvent, cancel);
-    window.addEventListener(denSettingsChangedEvent, cancel);
-    return () => {
-      gatewayConnectAbort.current?.abort();
-      window.removeEventListener(denSessionUpdatedEvent, cancel);
-      window.removeEventListener(denSettingsChangedEvent, cancel);
-    };
-  }, []);
-  const handleConnectGatewayProvider = useCallback(async function connect(provider: GatewayConnectProvider, request?: { signal: AbortSignal; model: ModelRef }) {
-    gatewayConnectAbort.current?.abort();
-    const controller = new AbortController();
-    gatewayConnectAbort.current = controller;
-    const signal = request ? AbortSignal.any([controller.signal, request.signal]) : controller.signal;
-    let synced = false;
-    setConnectingGatewayProviderId(gatewayConnectProviderKey(provider));
-    try {
-      const connected = await connectGatewayProvider({
-        provider,
-        signal,
-        startOAuth: providerAuthStore.startGatewayProviderOAuth,
-        openUrl: (url) => platform.openLink(url),
-        resync: async () => {
-          synced = false;
-          const result = await providerAuthStore.runCloudProviderSync("manual");
-          synced = result?.outcome === "handled_server_side" || result?.outcome === "handled_live";
-        },
-        isConnected: () => {
-          if (!synced) return false;
-          if (request) return providerAuthStore.isGatewayModelAvailable(provider, request.model);
-          const snapshot = providerAuthStore.getSnapshot();
-          return snapshot.liveGatewayProviders === null
-            ? isGatewaySetConnected(provider, snapshot.importedCloudProviders)
-            : isLiveGatewaySetConnected(provider, snapshot.liveGatewayProviders);
-        },
-      });
-      if (!connected && !signal.aborted && !request) {
-        toast.error(GATEWAY_CONNECT_TIMEOUT_MESSAGE, { action: { label: "Retry sign-in", onClick: () => {
-          if (!signal.aborted) void connect(provider);
-        } } });
-      }
-      return connected && !signal.aborted;
-    } catch (error) {
-      if (!signal.aborted && !request) toast.error(describeRouteError(error));
-      return false;
-    } finally {
-      if (gatewayConnectAbort.current === controller) setConnectingGatewayProviderId(null);
-    }
-  }, [platform, providerAuthStore]);
   const extensionsSnapshot = useExtensionsStoreSnapshot(extensionsStore);
-  const orgMcpConnections = useOrgMcpConnections();
 
   const openworkServerStatusForMcp = openworkServerSnapshot.openworkServerStatus;
   useEffect(() => {
@@ -900,202 +730,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     // the entries are configured and healthy.
     void connectionsStore.refreshMcpServers();
   }, [connectionsStore, openworkServerStatusForMcp]);
-
-  useEffect(() => {
-    if (openworkServerStatusForMcp !== "connected") return;
-    // Same race for the Cloud Providers rows: the provider-auth store's
-    // start() read fires while this store still reports "disconnected", so
-    // it takes the legacy (empty) config read and the rows sit on "Syncing"
-    // even though the server's /cloud-provider-sync/status already lists the
-    // providers as synced. Re-derive from the server once it is reachable.
-    void providerAuthStore.refreshImportedCloudProviders();
-  }, [openworkServerStatusForMcp, providerAuthStore]);
-
-  const cleanupCloudMcpForSignOut = useCallback(async (settings: DenSettings) => {
-    const client = routeStateRef.current.selectedWorkspaceOpenworkClient;
-    const workspaceId = routeStateRef.current.runtimeWorkspaceId?.trim() ?? "";
-    const orgId = settings.activeOrgId?.trim() ?? "";
-    if (!client || !workspaceId || !orgId) return;
-    // Settings only has a safe, exact OpenCode client/directory for the active
-    // workspace here, so sign-out cleanup is intentionally scoped to that
-    // workspace instead of guessing across every configured worker.
-    await cleanupOpenworkCloudMcpAfterSignOut({
-      context: {
-        denBaseUrl: settings.baseUrl,
-        serverBaseUrl: client.baseUrl,
-        workspaceId,
-        orgId,
-      },
-      openworkClient: client,
-      opencodeClient: routeStateRef.current.activeClient,
-      directory: routeStateRef.current.selectedWorkspaceRoot,
-    });
-    setCloudMcpHealthResult(null);
-    await refreshMcpServersRef.current?.();
-  }, []);
-  const denSession = useDenSession({
-    developerMode,
-    onBeforeSignedOut: cleanupCloudMcpForSignOut,
-    openLink: (url) => platform.openLink(url),
-  });
-  const connectScope = useMemo(
-    () => ({
-      baseUrl: cloudSession.baseUrl,
-      organizationId: cloudSession.activeOrganization?.id?.trim() ?? "",
-    }),
-    [cloudSession.activeOrganization?.id, cloudSession.baseUrl],
-  );
-  const [connectCapabilities, setConnectCapabilities] = useState<ConnectCapabilityInventory>(
-    () => readCachedConnectCapabilities(connectScope) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  );
-  const [connectCapabilitiesLoading, setConnectCapabilitiesLoading] = useState(false);
-  const [connectCapabilitiesError, setConnectCapabilitiesError] = useState<string | null>(null);
-  const connectCapabilitiesRequestRef = useRef(0);
-  const refreshConnectCapabilities = useCallback(async (options?: { force?: boolean }) => {
-    const requestId = connectCapabilitiesRequestRef.current + 1;
-    connectCapabilitiesRequestRef.current = requestId;
-    if (!cloudSession.isSignedIn || !connectScope.organizationId) {
-      setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
-      setConnectCapabilitiesLoading(false);
-      setConnectCapabilitiesError(null);
-      return;
-    }
-    // Paint what the app already fetched, then revalidate behind it.
-    const cached = readCachedConnectCapabilities(connectScope);
-    if (cached) setConnectCapabilities(cached);
-    setConnectCapabilitiesLoading(!cached);
-    setConnectCapabilitiesError(null);
-    try {
-      const inventory = await loadConnectCapabilities({
-        client: cloudSession.client,
-        scope: connectScope,
-        maxAgeMs: options?.force ? 0 : undefined,
-      });
-      if (connectCapabilitiesRequestRef.current === requestId) {
-        setConnectCapabilities(inventory);
-      }
-    } catch {
-      if (connectCapabilitiesRequestRef.current === requestId) {
-        if (!cached) setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
-        setConnectCapabilitiesError(t("extensions.cloud_unavailable"));
-      }
-    } finally {
-      if (connectCapabilitiesRequestRef.current === requestId) setConnectCapabilitiesLoading(false);
-    }
-  }, [cloudSession.client, cloudSession.isSignedIn, connectScope]);
-
-  // Not gated on the Extensions tab: the inventory should be warm before the
-  // user gets there, and the fetch is deduped by the shared cloud cache.
-  useEffect(() => {
-    void refreshConnectCapabilities({ force: true });
-  }, [refreshConnectCapabilities]);
-  // Deleting or restoring a Library plugin can retire the connections it owns;
-  // re-read them so a deleted plugin's connector does not linger as its own row.
-  const refreshOrgMcpConnections = orgMcpConnections.refresh;
-  useEffect(() => {
-    const refresh = () => {
-      void refreshConnectCapabilities({ force: true });
-      void refreshOrgMcpConnections();
-    };
-    window.addEventListener(CLOUD_INVENTORY_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(CLOUD_INVENTORY_CHANGED_EVENT, refresh);
-  }, [refreshConnectCapabilities, refreshOrgMcpConnections]);
-
-  const hasOpenWorkCloudProvider = useMemo(
-    () =>
-      providerAuthSnapshot.cloudOrgProviders.some(isOpenWorkCloudProvider) ||
-      Object.values(providerAuthSnapshot.importedCloudProviders ?? {}).some(isOpenWorkCloudProvider),
-    [providerAuthSnapshot.cloudOrgProviders, providerAuthSnapshot.importedCloudProviders],
-  );
-  // Entitled = Den/import says OpenWork Models is included. Available = local
-  // engine actually exposes selectable openwork models.
-  const openWorkModelsEntitled = cloudSession.isSignedIn && hasOpenWorkCloudProvider;
-  const openWorkModelsAvailable = hasOpenWorkModelsAvailable({
-    providerConnectedIds,
-    providers,
-  });
-  const showOpenWorkModelsSyncing = shouldShowOpenWorkModelsSyncing({
-    entitled: openWorkModelsEntitled,
-    available: openWorkModelsAvailable,
-    workspaceReady: Boolean(selectedWorkspaceId && activeClient),
-    reloadPending: providerAuthSnapshot.cloudProviderServerSync?.reloadPending === true,
-  });
-  const openProvidersInDen = useCallback(() => {
-    platform.openLink(denDashboardUrl(cloudSession.baseUrl, "gatewayProviders"));
-  }, [cloudSession.baseUrl, platform]);
-  const autoClient = isDesktopRuntime() && openworkServerSnapshot.openworkServerClient && isLoopbackOpenworkServerUrl(openworkServerSnapshot.openworkServerClient.baseUrl) ? openworkServerSnapshot.openworkServerClient : null;
-  const [autoPreferences, setAutoPreferences] = useState<DesktopFreePreferences | null>(null);
-  // Until an operator switches free Auto on, Settings shows no OpenWork Models row for it.
-  // Settings has no workspace context: read status from the same local client as preferences.
-  const { query: autoAccessQuery } = useAutoAccess(Boolean(autoPreferences), {
-    openworkServerClient: autoClient, workspaceId: selectedWorkspaceId ?? "",
-  });
-  const autoSwitchedOff = (autoAccessQuery.isPending && autoAccessQuery.fetchStatus !== "idle") || freeAutoSwitchedOff(autoAccessQuery.data);
-  const visibleAutoPreferences = autoSwitchedOff ? null : autoPreferences;
-  const [autoBusy, setAutoBusy] = useState(false);
-  const [autoError, setAutoError] = useState<string | null>(null);
-  const autoGeneration = useRef(0);
-  useEffect(() => {
-    const generation = ++autoGeneration.current;
-    setAutoPreferences(null);
-    setAutoBusy(false);
-    setAutoError(null);
-    if (autoClient) void autoClient.desktopFreePreferences().then((value) => {
-      if (generation === autoGeneration.current) setAutoPreferences(value);
-    }).catch(() => {
-      if (generation === autoGeneration.current) setAutoError("Could not verify OpenWork Free on this device. Reopen settings to retry.");
-    });
-    return () => { autoGeneration.current++; };
-  }, [autoClient]);
-  const setAutoEnabled = useCallback(async (enabled: boolean) => {
-    if (!autoClient || autoBusy) return;
-    const generation = autoGeneration.current;
-    setAutoBusy(true);
-    setAutoError(null);
-    try {
-      const value = await autoClient.setDesktopFreeEnabled(enabled);
-      if (generation !== autoGeneration.current) return;
-      setAutoPreferences(value);
-      setDisabledProviders((current) => [...current.filter((id) => id !== "openwork-free"), ...(value.enabled ? [] : ["openwork-free"])]);
-      await providerAuthStore.refreshProviders({ force: true });
-      if (generation === autoGeneration.current && value.refresh === "deferred") setAutoError("Preference saved. Models will refresh when the current work finishes.");
-    } catch {
-      if (generation !== autoGeneration.current) return;
-      setAutoPreferences(null);
-      setAutoError("Could not verify the change to OpenWork Free. Check its state before retrying.");
-      try { const value = await autoClient.desktopFreePreferences(); if (generation === autoGeneration.current) setAutoPreferences(value); } catch {}
-    } finally {
-      if (generation === autoGeneration.current) setAutoBusy(false);
-    }
-  }, [autoClient, autoBusy, providerAuthStore]);
-  const organizationProviderIds = useMemo(() => new Set([
-    ...Object.values(settingsImportedCloudProviders).map((provider) => provider.sourceProviderId),
-    ...providerAuthSnapshot.cloudOrgProviders.map((provider) => provider.providerId),
-  ]), [settingsImportedCloudProviders, providerAuthSnapshot.cloudOrgProviders]);
-
-  const handleOpenProviderAuth = useCallback((preferredProviderId?: string) => {
-    if (providerAuthStore.isProviderAddRestricted()) {
-      restrictionNotice.show({
-        title: t("restrictions.add_custom_providers_disabled_title"),
-        message: t("restrictions.add_custom_providers_disabled_message"),
-      });
-      return;
-    }
-
-    void providerAuthStore.openProviderAuthModal(preferredProviderId ? { preferredProviderId } : undefined);
-  }, [providerAuthStore, restrictionNotice]);
-
-  useEffect(() => {
-    if (!activeClient || !selectedWorkspaceId) return;
-    // Org policy may force Zen off. Never force it back on — that races user Disconnect.
-    if (!checkDesktopRestriction({ restriction: "allowZenModel" })) return;
-
-    void providerAuthStore
-      .ensureProjectProviderDisabledState("opencode", true)
-      .catch((error) => {
-        console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
-      });
-  }, [activeClient, checkDesktopRestriction, providerAuthStore, selectedWorkspaceId, selectedWorkspaceRoot]);
+  const handleOpenProviderAuth = useCallback((preferredProviderId?: string) => { void providerAuthStore.openProviderAuthModal(preferredProviderId ? { preferredProviderId } : undefined); }, [providerAuthStore]);
 
   const debugViewProps = useDebugViewModel({
     developerMode,
@@ -1122,14 +757,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const runtimeWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspace?.id ?? null;
   routeStateRef.current.runtimeWorkspaceId = runtimeWorkspaceId;
   routeStateRef.current.selectedWorkspaceOpenworkClient = selectedWorkspaceEndpoint?.client ?? openworkClient;
-  const cloudMcpHealth = cloudMcpHealthResult?.workspaceId === runtimeWorkspaceId
-    ? cloudMcpHealthResult.health
-    : null;
-  const handleCloudMcpHealthChange = useCallback((health: OpenworkCloudMcpHealth | null) => {
-    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
-    if ((routeStateRef.current.runtimeWorkspaceId?.trim() ?? "") !== workspaceId) return;
-    setCloudMcpHealthResult(health && workspaceId ? { workspaceId, health } : null);
-  }, [runtimeWorkspaceId]);
 
   const opencodeClient = useMemo(() => {
     if (!selectedWorkspaceEndpoint) {
@@ -1173,8 +800,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setLibraryCommands([]);
       setLibraryAgents([]);
     }
-    await refreshConnectCapabilities({ force: true });
-  }, [opencodeClient, refreshConnectCapabilities, selectedWorkspaceRoot]);
+  }, [opencodeClient, selectedWorkspaceRoot]);
   useEffect(() => {
     void loadLibraryLists();
   }, [loadLibraryLists]);
@@ -1182,9 +808,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleModelPickerLoadError = useCallback((error: unknown) => {
     toast.error(error instanceof Error ? error.message : t("app.unknown_error"));
   }, []);
-  const handleModelPickerOpen = useCallback(() => {
-    void providerAuthStore.runCloudProviderSync("model_picker_open");
-  }, [providerAuthStore]);
   // Model lists here come from the engine chat runs on, so they match the chat's picker.
   const chatEngine = useChatEngineClient({
     endpoint: selectedWorkspaceEndpoint,
@@ -1195,33 +818,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     client: chatEngine.client,
     baseUrl: chatEngine.baseUrl,
     workspaceRoot: selectedWorkspaceRoot,
-    onOpen: handleModelPickerOpen,
     onLoadError: handleModelPickerLoadError,
-    pendingProviders: gatewayConnectProviders,
     disabledProviders,
-    gatewayProviderIds,
-    cloudProvidersEnabled: cloudSession.isSignedIn,
-    importedProviders: providerAuthSnapshot.importedCloudProviders,
   });
-  const currentCloudMcpModel = useMemo<OpenworkCloudMcpProviderModelContext | null>(() => {
-    const provider = local.prefs.defaultModel?.providerID.trim() ?? "";
-    const model = local.prefs.defaultModel?.modelID.trim() ?? "";
-    return provider && model ? { provider, model } : null;
-  }, [local.prefs.defaultModel]);
-  const refreshCloudMcpHealth = useCallback(async () => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
-    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
-    if (!client || !workspaceId) {
-      setCloudMcpHealthResult(null);
-      return null;
-    }
-    // probe: the Advanced page refresh should verify the Cloud endpoint
-    // directly (outside the engine), not just report the engine's cached state.
-    const health = await client.getOpenworkCloudMcpHealth(workspaceId, currentCloudMcpModel ?? undefined, { probe: true });
-    if (routeStateRef.current.runtimeWorkspaceId?.trim() !== workspaceId) return null;
-    setCloudMcpHealthResult({ workspaceId, health });
-    return health;
-  }, [currentCloudMcpModel, openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
   const { commandPaletteOpen, setCommandPaletteOpen } = useCommandPaletteShortcut(!props.embedded);
   const developerModePaletteItem = useMemo(
     () => settingsDeveloperModePaletteItem(developerMode, () => {
@@ -1733,32 +1332,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     };
   }, [connectionsStore, extensionsStore, openworkServerStore, providerAuthStore]);
 
-  const refreshMarketplaceAction = useMemo<OpenworkControlAction>(() => ({
-    id: "extensions.refresh-marketplace",
-    label: "Refresh marketplace extensions",
-    description: "Force a fresh sync of organization marketplace plugins from the cloud.",
-    sideEffect: "mutation",
-    execute: async () => {
-      await extensionsStore.refreshCloudOrgMarketplaces({ force: true });
-      return { marketplaceCount: extensionsStore.cloudOrgMarketplaces().length };
-    },
-  }), [extensionsStore]);
-  useControlAction(refreshMarketplaceAction);
-
-  // Periodically reconcile workspace-imported cloud providers from Den while
-  // signed in (dev #1509 "auto-sync cloud providers"). Mounted here because
-  // the settings route owns the provider-auth store.
-  useCloudProviderAutoSync(providerAuthStore.runCloudProviderSync);
-
-  // Keep the Den cloud MCP configured with a fresh first-party token while
-  // signed in: connects on sign-in, re-mints on org switch and before expiry.
-  useCloudProviderAutoSync(() => connectionsStore.syncCloudControlMcp());
-
-  useEffect(() => {
-    if (route.tab !== "cloud-providers" && route.tab !== "ai") return;
-    void providerAuthStore.runCloudProviderSync("settings_cloud_opened");
-  }, [providerAuthStore, route.tab]);
-
   useEffect(() => {
     providerAuthStore.syncFromOptions();
   }, [
@@ -1854,13 +1427,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // Disconnect hides built-in/config providers through disabled_providers, and
   // the engine then omits them everywhere. List them so they can come back.
   const hiddenProviders = [...new Set(disabledProviders.map((id) => id.trim()).filter(Boolean))].flatMap((id) =>
-    isDesktopProviderBlocked({ providerId: id, checkRestriction: checkDesktopRestriction })
-      ? []
-      : [{ id, name: providers.find((provider) => provider.id === id)?.name ?? PROVIDER_LABELS[id.toLowerCase()] ?? id }],
+    [{ id, name: providers.find((provider) => provider.id === id)?.name ?? PROVIDER_LABELS[id.toLowerCase()] ?? id }],
   );
-  const openworkCloudMcpUrl = connectionsSnapshot.mcpServers.find(
-    (server) => server.name === "openwork-cloud",
-  )?.config.url ?? null;
 
   // Build enablement context from all available runtime state.
   const enablementContext = useMemo<EnablementContext>(() => {
@@ -1881,8 +1449,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       },
     };
   }, [connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
-  const allowManageExtensions = !checkDesktopRestriction({ restriction: "allowManageExtensions" });
-  const builtInExtensionsDisabled = checkDesktopRestriction({ restriction: "allowBuiltInExtensions" });
+  const allowManageExtensions = !false;
+  const builtInExtensionsDisabled = false;
   const restartExtensionLocalServer = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -1917,103 +1485,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       quickConnect: quickConnectCatalog,
       mcpServers: connectionsSnapshot.mcpServers,
       installedSkills: extensionsStore.skills(),
-      importedCloudPlugins: extensionsSnapshot.importedCloudPlugins,
-      pendingCloudPluginChanges: extensionsSnapshot.pendingCloudPluginChanges,
-      cloudMarketplaces: extensionsSnapshot.cloudOrgMarketplaces,
-      orgMcpConnections: orgMcpConnections.connections,
       enablementContext,
       isBuiltInConnected: extensionController.isConnected,
     }),
-    [connectionsSnapshot.mcpServers, enablementContext, extensionController.isConnected, extensionsSnapshot, extensionsStore, orgMcpConnections.connections, quickConnectCatalog],
-  );
-  // Every connection the organization provisioned for this member, connected
-  // or not: one that still needs the member's sign-in is the whole reason the
-  // "Needs your attention" group exists, so it must not be filtered out here.
-  const orgMcpConnectionItems = extensionItems.orgMcpConnectionItems;
-  const librarySkills = useMemo(
-    () => [
-      ...extensionItems.installedSkills,
-      ...connectCapabilities.skills.filter(
-        (skill) => !extensionItems.installedSkills.some(
-          (installed) => installed.name.toLowerCase() === skill.name.toLowerCase(),
-        ),
-      ),
-    ],
-    [connectCapabilities.skills, extensionItems.installedSkills],
-  );
-  const libraryConnectMcpServers = useMemo(
-    () => connectCapabilities.mcpServers.filter(
-      (entry) => !orgMcpConnectionItems.some((item) =>
-        item.name.localeCompare(entry.name, undefined, { sensitivity: "accent" }) === 0
-      ),
-    ),
-    [connectCapabilities.mcpServers, orgMcpConnectionItems],
-  );
-  const libraryConnectPlugins = useMemo(
-    () => connectPluginsForComposer(connectCapabilities.plugins),
-    [connectCapabilities.plugins],
+    [connectionsSnapshot.mcpServers, enablementContext, extensionController.isConnected, extensionsSnapshot, extensionsStore, quickConnectCatalog],
   );
   const readLibrarySkill = useCallback(
     (name: string) => extensionsStore.readSkill(name),
     [extensionsStore],
   );
-  const organizationConnectionsProbe = resolveOrganizationConnectionsProbe({
-    signedIn: cloudSession.isSignedIn,
-    activeOrganizationId: cloudSession.activeOrganization?.id,
-    loading: orgMcpConnections.loading,
-    loaded: orgMcpConnections.loaded,
-    error: orgMcpConnections.error,
-  });
-  const diagnosticsClient = selectedWorkspaceEndpoint?.client ?? openworkClient;
-  const diagnosticsAvailable = Boolean(
-    diagnosticsClient
-    && runtimeWorkspaceId?.trim()
-    && selectedWorkspace,
-  );
-  const diagnosticsScopeKey = useMemo(() => createOpaqueDiagnosticsScopeKey({
-    client: diagnosticsClient,
-    workspaceCredential: selectedWorkspaceEndpoint?.token ?? token,
-    workspaceId: runtimeWorkspaceId?.trim() ?? "",
-    workspaceType: "local",
-    denBaseUrl: cloudSession.baseUrl,
-    denCredential: cloudSession.authToken,
-    denSignedIn: cloudSession.isSignedIn,
-    organizationId: cloudSession.activeOrganization?.id ?? "signed-out",
-    principalId: cloudSession.user?.id ?? "signed-out",
-  }), [
-    cloudSession.activeOrganization?.id,
-    cloudSession.authToken,
-    cloudSession.baseUrl,
-    cloudSession.isSignedIn,
-    cloudSession.user?.id,
-    diagnosticsClient,
-    runtimeWorkspaceId,
-    selectedWorkspaceEndpoint?.token,
-    token,
-  ]);
-  const runAgentContextDiagnostics = useCallback(async () => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
-    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
-    if (
-      !client
-      || !workspaceId
-      || !selectedWorkspace
-    ) {
-      throw new Error("Agent diagnostics require a connected workspace.");
-    }
-    const observations = await collectAgentContextDiagnosticObservations({
-      organizationConnections: orgMcpConnections.connections,
-      organizationConnectionsProbe,
-    });
-    return client.runAgentContextDiagnostics(workspaceId, observations);
-  }, [
-    openworkClient,
-    organizationConnectionsProbe,
-    orgMcpConnections.connections,
-    runtimeWorkspaceId,
-    selectedWorkspace,
-    selectedWorkspaceEndpoint,
-  ]);
   const routeOpenworkStatus = openworkClient ? "connected" : "disconnected";
   const notFoundRouteError = !loading && routeWorkspaceId && !selectedWorkspace
     ? "Workspace was not found. Select a new workspace from the sidebar."
@@ -2168,24 +1648,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return <Navigate to={target} replace state={location.state} />;
   }
 
-  if (!props.embedded && settingsTabBlocked) {
-    // Organization policy hides desktop settings. Library deep links keep
-    // working through the standalone Library surface; everything else lands on
-    // the Cloud account tab, which explains the active policy.
-    const target = route.tab === "extensions"
-      ? selectedWorkspaceId
-        ? workspaceExtensionsRoute(selectedWorkspaceId, extensionsPathForRoute(route))
-        : globalExtensionsRoute(extensionsPathForRoute(route))
-      : selectedWorkspaceId
-        ? workspaceSettingsRoute(selectedWorkspaceId, SETTINGS_TAB_WITHOUT_CONTROL)
-        : `/settings/${SETTINGS_TAB_WITHOUT_CONTROL}`;
-    return <Navigate to={target} replace state={location.state} />;
-  }
-
-  const openCloudAccountSettings = () => {
-    navigateSettingsPath("cloud-account");
-  };
-
   const settingsView = (() => {
     switch (route.tab) {
       case "general":
@@ -2258,57 +1720,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 setEnablingProviderId(null);
               }
             }}
-            canAddProviders={!providerAuthStore.isProviderAddRestricted()}
-            signedIn={cloudSession.isSignedIn}
-            organizationName={cloudSession.activeOrgName}
+            canAddProviders={true}
             localProviderStates={localProviderStates}
-            cloudProviderIds={new Set([
-              ...Object.values(settingsImportedCloudProviders).map((p) => p.providerId),
-              ...(openWorkModelsEntitled || openWorkModelsAvailable ? ["openwork"] : []),
-            ])}
-            gatewayProviderIds={gatewayProviderIds}
-            gatewayConnectProviders={gatewayConnectProviders}
-            connectingGatewayProviderId={connectingGatewayProviderId}
-            onCancelGatewayConnect={() => {
-              gatewayConnectAbort.current?.abort();
-              setConnectingGatewayProviderId(null);
-              toast.info("Stopped waiting. Browser sign-in was not revoked. Refresh AI Providers after finishing, or Connect again to retry.");
-            }}
-            onConnectGatewayProvider={(provider) => { void handleConnectGatewayProvider(provider); }}
-            showOpenWorkModelsSyncing={showOpenWorkModelsSyncing}
-            autoPreferences={visibleAutoPreferences}
-            autoSwitchedOff={autoSwitchedOff}
-            autoBusy={autoBusy}
-            autoError={autoError}
-            onSetAutoEnabled={autoClient ? setAutoEnabled : undefined}
-            organizationProviderIds={organizationProviderIds}
-            onOpenDen={openProvidersInDen}
-            cloudProvidersView={
-              <CloudProvidersView
-                runtimeWorkspaceId={runtimeWorkspaceId}
-                key={`${cloudSession.baseUrl}:${cloudSession.activeOrganization?.id ?? "signed-out"}`}
-                embedded
-                onOpenDen={openProvidersInDen}
-                onOpenModelConnections={() => { void platform.openLink(denDashboardUrl(readDenSettings().baseUrl, "modelConnections")); }}
-                gatewayConnectProviders={gatewayConnectProviders}
-                connectingGatewayProviderId={connectingGatewayProviderId}
-                onConnectGatewayProvider={(provider) => { void handleConnectGatewayProvider(provider); }}
-                checkDesktopAppRestriction={checkDesktopRestriction}
-                cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
-                connectCloudProvider={providerAuthStore.connectCloudProvider}
-                importedCloudProviders={settingsImportedCloudProviders}
-                importsUnavailable={
-                  openworkServerSnapshot.openworkServerCapabilities?.config?.read === false ||
-                  openworkServerSnapshot.openworkServerCapabilities?.config?.write === false
-                }
-                lastSyncError={providerAuthSnapshot.lastSyncError}
-                openworkServerAvailable={Boolean(openworkServerSnapshot.openworkServerClient)}
-                onOpenAccount={openCloudAccountSettings}
-                refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
-                runCloudProviderSync={providerAuthStore.runCloudProviderSync}
-                serverSync={providerAuthSnapshot.cloudProviderServerSync}
-              />
-            }
           />
         );
       case "ollama":
@@ -2358,7 +1771,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             canEditPlugins={allowManageExtensions}
             canUseGlobalScope
-            accessHint={allowManageExtensions ? null : desktopRestrictionNotice("allowManageExtensions")}
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             initialSection={route.extensionsSection}
@@ -2372,22 +1784,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               navigateSettingsPath(path);
             }}
             onRefresh={() => {
-              // Force-sync the cloud MCP first (re-mint token + rewrite
-              // config, bypassing the freshness marker) so Refresh really
-              // means "make everything current now", then refresh the rest.
-              void connectionsStore.syncCloudControlMcp({ force: true }).then(() => {
-                void connectionsStore.refreshMcpServers();
-              });
+              void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
-              void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
-              void orgMcpConnections.refresh();
-              void refreshConnectCapabilities({ force: true });
+              void extensionsStore.refreshSkills();
+              void loadLibraryLists();
             }}
             mcpView={({ initialFilter, onFilterChange, initialState, pluginsContent, detailId, onDetailIdChange, onRefresh }) => (
               <McpView
                 headerActionsTarget={props.libraryHeaderActionsTarget}
                 pluginsContent={pluginsContent}
-                onOpenCloudAccount={() => navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, "cloud-account") : "/settings/cloud-account")}
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
                     mcpServers={connectionsSnapshot.mcpServers}
@@ -2399,7 +1804,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 allowManageExtensions={allowManageExtensions}
                 quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
-                builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={(entry) => {
                   return connectionsStore.connectMcp(entry);
                 }}
@@ -2418,25 +1822,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     : undefined
                 }
                 readConfigFile={readMcpConfigFile}
-                installedSkills={librarySkills}
+                installedSkills={extensionItems.installedSkills}
                 installedCommands={libraryCommands}
                 installedAgents={libraryAgents}
-                availableConnectMcpServers={libraryConnectMcpServers}
-                availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
-                inventoryLoading={connectCapabilitiesLoading || (orgMcpConnections.loading && !orgMcpConnections.loaded)}
-                inventoryError={connectCapabilitiesError}
-                installedPlugins={libraryConnectPlugins}
-                orgMcpItems={orgMcpConnectionItems}
-                organizationName={cloudSession.activeOrgName}
-                orgMcpError={orgMcpConnections.error}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
-                removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
-                hasLocalPluginCopy={(pluginId) => Boolean(extensionsSnapshot.importedCloudPlugins[pluginId])}
-                orgMcpConnectingId={orgMcpConnections.connectingId}
-                connectOrgMcp={(connectionId, options) => { void orgMcpConnections.connect(connectionId, options); }}
-                reconnectOrgMcp={(connectionId, options) => { void orgMcpConnections.connect(connectionId, { ...options, forceFreshAuthorization: true }); }}
-                orgMcpDisconnectingId={orgMcpConnections.disconnectingId}
-                disconnectOrgMcp={(connectionId) => { void orgMcpConnections.disconnect(connectionId); }}
                 readSkill={readLibrarySkill}
                 createLibraryItem={(kind, input) => extensionsStore.createLibraryItem(kind, input)}
                 onLibraryListsRefresh={loadLibraryLists}
@@ -2449,35 +1838,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             )}
 
-          />
-        );
-      case "cloud-account":
-        return (
-          <CloudAccountView
-            developerMode={developerMode}
-            session={denSession}
-          />
-        );
-      case "usage":
-        return <GatewayUsageSettingsView onOpenAccount={openCloudAccountSettings} />;
-      case "cloud-providers":
-        return (
-          <CloudProvidersView
-            runtimeWorkspaceId={runtimeWorkspaceId}
-            checkDesktopAppRestriction={checkDesktopRestriction}
-            cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
-            connectCloudProvider={providerAuthStore.connectCloudProvider}
-            importedCloudProviders={settingsImportedCloudProviders}
-            importsUnavailable={
-              openworkServerSnapshot.openworkServerCapabilities?.config?.read === false ||
-              openworkServerSnapshot.openworkServerCapabilities?.config?.write === false
-            }
-            lastSyncError={providerAuthSnapshot.lastSyncError}
-            openworkServerAvailable={Boolean(openworkServerSnapshot.openworkServerClient)}
-            onOpenAccount={openCloudAccountSettings}
-            refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
-            runCloudProviderSync={providerAuthStore.runCloudProviderSync}
-            serverSync={providerAuthSnapshot.cloudProviderServerSync}
           />
         );
       case "import":
@@ -2505,7 +1865,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               toggleDeveloperMode={toggleDeveloperMode}
               opencodeDevModeEnabled={false}
               openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
-              cloudMcpUrl={openworkCloudMcpUrl}
               canInspectRuntimeConfig={Boolean(openworkClient && selectedWorkspaceId)}
               getRuntimeConfigStatus={async () => {
                 if (!openworkClient || !selectedWorkspaceId) {
@@ -2513,9 +1872,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }
                 return openworkClient.getRuntimeConfigStatus(selectedWorkspaceId);
               }}
-              cloudMcpHealth={cloudMcpHealth}
-              refreshCloudMcpHealth={refreshCloudMcpHealth}
-              organizationServer={denSession}
               engineClient={openworkClient}
             />
             {platform.capabilities.localRuntimeControl ? (
@@ -2587,8 +1943,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             alphaChannelSupported={
               isElectronRuntime() &&
               isMacPlatform() &&
-              readDesktopDistributionInfo().flavor === "public" &&
-              desktopConfig.config.allowAlphaUpdates !== false
+              true
             }
           />
         );
@@ -2611,17 +1966,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <DebugView
             key={runtimeWorkspaceId ?? selectedWorkspaceId}
             {...debugViewProps}
-            agentAccess={{
-              client: selectedWorkspaceEndpoint?.client ?? openworkClient,
-              workspaceId: runtimeWorkspaceId,
-              currentModel: currentCloudMcpModel,
-              onHealthChange: handleCloudMcpHealthChange,
-            }}
-            agentContextDiagnostics={{
-              scopeKey: diagnosticsScopeKey,
-              available: diagnosticsAvailable,
-              onRun: runAgentContextDiagnostics,
-            }}
           />
         );
       default:
@@ -2630,12 +1974,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   })();
 
   return (
-    <GatewayModelAccessProvider
-      providers={gatewayConnectProviders}
-      disabledProviders={disabledProviders}
-      scopeKey={JSON.stringify([selectedWorkspaceRoot, opencodeBaseUrl, cloudSession.activeOrganization?.id, cloudSession.isSignedIn])}
-      login={(provider, signal, model) => handleConnectGatewayProvider(provider, { signal, model })}
-    >
+    <>
       {props.standaloneExtensions ? (
         <div data-extensions-main-surface className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">{settingsView}</div>
@@ -2669,7 +2008,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onClose={() => setCommandPaletteOpen(false)}
         developerMode={developerMode}
         onToggleSidebar={toggleSidebar}
-        onOpenAutomations={() => navigate(automationsRoute())}
         onCreateNewSession={() => void handleCreatePaletteSession()}
         onOpenSession={(workspaceId, sessionId) => {
           navigate(workspaceSessionRoute(workspaceId, sessionId));
@@ -2702,7 +2040,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         selectedModelBehavior={local.prefs.modelVariant ?? null}
         onSelectModel={(next, behavior) => local.setPrefs((prev) => applyDefaultModelPreference(prev, next, behavior))}
         sessions={paletteSessionOptions}
-        extraItems={checkDesktopRestriction({ restriction: "allowControlSettings" }) ? [] : [developerModePaletteItem]}
+        extraItems={[developerModePaletteItem]}
       />
 
       <ProviderAuthModal
@@ -2710,32 +2048,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         loading={false}
         submitting={providerAuthSnapshot.providerAuthBusy}
         error={providerAuthSnapshot.providerAuthError}
-        preferredProviderId={providerAuthSnapshot.providerAuthPreferredProviderId}
-        // Hide any provider the org blocks at the desktop layer so users
-        // can't connect a forbidden one (dev #1505). Same helper covers
-        // opencode-provider gating via the `allowZenModel` restriction.
-        // We also strip the matching key from `authMethods` because the
-        // modal builds its entry list from `Object.keys(authMethods)`,
-        // not from `providers`.
-        providers={providerAuthSnapshot.providerAuthProviders.filter(
-          (provider) =>
-            !isDesktopProviderBlocked({
-              providerId: provider.id,
-              checkRestriction: checkDesktopRestriction,
-            }),
-        )}
+        preferredProviderId={providerAuthSnapshot.providerAuthPreferredProviderId} providers={providerAuthSnapshot.providerAuthProviders}
         connectedProviderIds={providerConnectedIds}
-        keylessProviderIds={keylessProviderIds(providers)}
-        gatewayProviderIds={gatewayProviderIds}
-        authMethods={Object.fromEntries(
-          Object.entries(providerAuthSnapshot.providerAuthMethods).filter(
-            ([providerId]) =>
-              !isDesktopProviderBlocked({
-                providerId,
-                checkRestriction: checkDesktopRestriction,
-              }),
-          ),
-        )}
+        keylessProviderIds={keylessProviderIds(providers)} authMethods={providerAuthSnapshot.providerAuthMethods}
         claudeAgent={providerAuthSnapshot.claudeAgent}
         onConnectClaudeAgent={providerAuthStore.connectClaudeAgent}
         onSignInClaudeAgent={providerAuthStore.signInClaudeAgent}
@@ -2745,11 +2060,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}
-        openWorkModelsState={visibleAutoPreferences ? !visibleAutoPreferences.enabled ? "off" : visibleAutoPreferences.available ? "included" : "unavailable" : undefined}
-        organizationName={cloudSession.activeOrgName}
-        organizationProviderIds={organizationProviderIds}
-        organizationProviderCount={cloudSession.isSignedIn ? new Set([...providerAuthSnapshot.cloudOrgProviders.map((provider) => provider.id), ...Object.keys(settingsImportedCloudProviders), ...gatewayConnectProviders.map((provider) => provider.cloudProviderId)]).size : undefined}
-        onOpenDen={cloudSession.isSignedIn ? openProvidersInDen : undefined}
         onClose={() => providerAuthStore.closeProviderAuthModal()}
       />
       <RenameWorkspaceModal
@@ -2793,9 +2103,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         options={modelPicker.options}
         knownOptions={modelPicker.knownOptions}
         disabledProviders={disabledProviders}
-        gatewayProviderIds={gatewayProviderIds}
-        gatewayConnectProviders={gatewayConnectProviders}
-        onConnectGatewayProvider={(provider) => { void handleConnectGatewayProvider(provider); }}
         query={modelPicker.query}
         setQuery={modelPicker.setQuery}
         target="default"
@@ -2809,12 +2116,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }}
         onBehaviorChange={(_model, value) => local.setPrefs((previous) => ({ ...previous, modelVariant: value }))}
         catalogState={modelPicker.catalogState}
-        onRefreshOrganizationModels={async () => { await providerAuthStore.refreshCloudOrgProviders({ force: true }); }}
         onOpenSettings={() => { modelPicker.setOpen(false); navigateSettingsPath("ai"); }}
         onOpenProviderSettings={() => navigateSettingsPath("ai")}
         onClose={() => modelPicker.setOpen(false)}
       />
-    </GatewayModelAccessProvider>
+    </>
   );
 }
 
@@ -2824,8 +2130,6 @@ export function SettingsRoute() {
 
 export function SettingsSurface(props: SettingsSurfaceProps) {
   return (
-    <CloudSessionProvider>
-      <SettingsRouteContent {...props} />
-    </CloudSessionProvider>
+    <SettingsRouteContent {...props} />
   );
 }

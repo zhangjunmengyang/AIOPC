@@ -3,31 +3,11 @@ import { claudeCodeSignInSchema, parseClaudeAgentIntegrationList } from "./claud
 import type { McpStatusMap } from "../types";
 import type { ConnectionActionIntent } from "@openwork/types/connection-action-app";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
-import type { GatewayDesktopOauthStartRequest, GatewayDesktopOauthStartResponse, GatewayUsableModel } from "@openwork/types/den/gateway";
-import {
-  agentContextDiagnosticsReportSchema,
-  agentContextDiagnosticsRequestSchema,
-  type AgentContextDiagnosticsReport,
-  type AgentContextDiagnosticsRequest,
-} from "@openwork/types/agent-context-diagnostics";
 import { normalizeBaseUrl } from "@openwork/types/url";
-import {
-  AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
-  requestAgentContextDiagnosticsPayload,
-} from "./agent-context-diagnostics-transport";
-import { desktopFetch, desktopFetchViaMain, desktopFetchAgentContextDiagnostics } from "./desktop";
-import { isOpenworkGatewayRuntime } from "./gateway-runtime";
-import { parseGatewayUsableModel } from "./gateway-usable-model";
+import { desktopFetch, desktopFetchViaMain } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
-import type { DenResourceSnapshot } from "./den-types";
-import type { CloudImportedMarketplace, CloudImportedPlugin, CloudImportedProvider } from "../cloud/import-state";
-import { desktopFreeAccessStatusSchema } from "./inference-access";
 import { claudeImportItemsSchema, claudeImportResultsSchema } from "./claude-import";
-
-const desktopFreePreferencesSchema = z.object({ enabled: z.boolean(), available: z.boolean(), canEnable: z.boolean(), refresh: z.enum(["reloaded", "deferred"]).optional() });
-export type DesktopFreePreferences = z.infer<typeof desktopFreePreferencesSchema>;
-const desktopFreeAnalyticsSchema = z.object({ enabled: z.boolean() });
 
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
@@ -53,33 +33,6 @@ export type OpenworkServerCapabilities = {
       maxBytes: number;
     };
   };
-};
-
-export type OpenworkCloudProviderSyncRun = {
-  status: "applied" | "noop" | "failed" | "no_session";
-  message?: string;
-};
-
-export type OpenworkCloudProviderSyncSkippedProvider = {
-  cloudProviderId: string;
-  credentialSetId?: string;
-  models?: GatewayUsableModel[];
-  providerId: string;
-  name: string;
-  /** Machine-readable skip reason, e.g. "missing_credentials". */
-  reason: string;
-  /** `member_auth_required` gateway providers: Den URL that starts the member's OAuth grant. */
-  authUrl?: string | null;
-};
-
-export type OpenworkCloudProviderSyncStatus = {
-  hasSession: boolean;
-  lastRun: { at: string | number; status: OpenworkCloudProviderSyncRun["status"]; message?: string } | null;
-  providers: CloudImportedProvider[];
-  /** A managed engine reload is still owed: materialized providers are not served yet. */
-  reloadPending: boolean;
-  /** Den-granted providers the server sync skipped, each with a reason. */
-  skippedProviders: OpenworkCloudProviderSyncSkippedProvider[];
 };
 
 /** Work an engine switch would interrupt, as counts only. */
@@ -220,91 +173,6 @@ function parseEngineV2PreviewStatus(value: unknown): EngineV2PreviewStatus {
     lastMirroredAt: "lastMirroredAt" in value && typeof value.lastMirroredAt === "string" ? value.lastMirroredAt : undefined,
     lastError: "lastError" in value && typeof value.lastError === "string" ? value.lastError : undefined,
   };
-}
-
-function parseCloudProviderSyncRun(value: unknown): OpenworkCloudProviderSyncRun {
-  if (!value || typeof value !== "object" || !("status" in value)) throw new Error("Invalid cloud provider sync response.");
-  const status = value.status;
-  if (status !== "applied" && status !== "noop" && status !== "failed" && status !== "no_session") {
-    throw new Error("Invalid cloud provider sync status.");
-  }
-  const message = "message" in value && typeof value.message === "string" ? value.message : undefined;
-  return { status, message };
-}
-
-function parseCloudImportedProvider(value: unknown): CloudImportedProvider | null {
-  if (!value || typeof value !== "object") return null;
-  if (
-    !("cloudProviderId" in value) || typeof value.cloudProviderId !== "string" ||
-    !("providerId" in value) || typeof value.providerId !== "string" ||
-    !("sourceProviderId" in value) || typeof value.sourceProviderId !== "string" ||
-    !("name" in value) || typeof value.name !== "string" ||
-    !("modelIds" in value) || !Array.isArray(value.modelIds) || !value.modelIds.every((item) => typeof item === "string")
-  ) return null;
-  const modelIds = value.modelIds;
-  return {
-    cloudProviderId: value.cloudProviderId,
-    providerId: value.providerId,
-    sourceProviderId: value.sourceProviderId,
-    name: value.name,
-    source: "source" in value && typeof value.source === "string" ? value.source : null,
-    updatedAt: "updatedAt" in value && typeof value.updatedAt === "string" ? value.updatedAt : null,
-    modelIds: value.modelIds,
-    pinnedModelIds: "pinnedModelIds" in value && Array.isArray(value.pinnedModelIds)
-      ? [...new Set(value.pinnedModelIds.filter((id): id is string => typeof id === "string"))].filter((id) => modelIds.includes(id)) : [],
-    ...("modelConfigVersion" in value && typeof value.modelConfigVersion === "number"
-      ? { modelConfigVersion: value.modelConfigVersion } : {}),
-    importedAt: "importedAt" in value && typeof value.importedAt === "number" ? value.importedAt : null,
-  };
-}
-
-function parseCloudProviderSyncStatus(value: unknown): OpenworkCloudProviderSyncStatus {
-  if (!value || typeof value !== "object" || !("hasSession" in value) || typeof value.hasSession !== "boolean" || !("providers" in value) || !Array.isArray(value.providers)) {
-    throw new Error("Invalid cloud provider sync status response.");
-  }
-  const providers: CloudImportedProvider[] = [];
-  for (const rawProvider of value.providers) {
-    const provider = parseCloudImportedProvider(rawProvider);
-    if (!provider) throw new Error("Invalid cloud provider sync provider response.");
-    providers.push(provider);
-  }
-  let lastRun: OpenworkCloudProviderSyncStatus["lastRun"] = null;
-  if ("lastRun" in value && value.lastRun !== null) {
-    if (!value.lastRun || typeof value.lastRun !== "object" || !("at" in value.lastRun) || (typeof value.lastRun.at !== "string" && typeof value.lastRun.at !== "number")) {
-      throw new Error("Invalid cloud provider sync last-run response.");
-    }
-    const run = parseCloudProviderSyncRun(value.lastRun);
-    lastRun = { at: value.lastRun.at, status: run.status, message: run.message };
-  }
-  // Additive fields (older servers omit them): tolerate absence and malformed
-  // entries instead of failing the whole status read.
-  const reloadPending = "reloadPending" in value && value.reloadPending === true;
-  const skippedProviders: OpenworkCloudProviderSyncSkippedProvider[] = [];
-  if ("skippedProviders" in value && Array.isArray(value.skippedProviders)) {
-    for (const raw of value.skippedProviders) {
-      if (!raw || typeof raw !== "object") continue;
-      if (
-        !("cloudProviderId" in raw) || typeof raw.cloudProviderId !== "string" ||
-        !("providerId" in raw) || typeof raw.providerId !== "string" ||
-        !("name" in raw) || typeof raw.name !== "string" ||
-        !("reason" in raw) || typeof raw.reason !== "string"
-      ) continue;
-      skippedProviders.push({
-        cloudProviderId: raw.cloudProviderId,
-        providerId: raw.providerId,
-        name: raw.name,
-        reason: raw.reason,
-        ...("credentialSetId" in raw && typeof raw.credentialSetId === "string" ? { credentialSetId: raw.credentialSetId } : {}),
-        ...("authUrl" in raw && typeof raw.authUrl === "string" ? { authUrl: raw.authUrl } : {}),
-        ...(raw.reason === "member_auth_required" && "credentialSetId" in raw && "models" in raw && Array.isArray(raw.models)
-          ? { models: raw.models.flatMap((value: unknown) => {
-            const model = parseGatewayUsableModel(value, raw.credentialSetId);
-            return model ? [model] : [];
-          }) } : {}),
-      });
-    }
-  }
-  return { hasSession: value.hasSession, lastRun, providers, reloadPending, skippedProviders };
 }
 
 export type OpenworkServerStatus = "connected" | "disconnected" | "limited";
@@ -512,38 +380,6 @@ export type OpenworkRuntimeConfigStatus = {
   };
 };
 
-export type OpenworkDesktopCloudSyncChange = {
-  id: string;
-  kind: "new" | "modified" | "removed";
-  resourceKind: "llmProvider" | "marketplace" | "plugin" | "configItem";
-  marketplaceId?: string;
-  pluginId?: string;
-  previousLastUpdatedAt: string | null;
-  nextLastUpdatedAt: string | null;
-  queuedAt: number;
-};
-
-export type OpenworkDesktopCloudSyncState = {
-  entries: Record<string, unknown>;
-  updatedAt: number;
-  version: 1;
-};
-
-export type OpenworkDesktopCloudSyncResult = {
-  changes: OpenworkDesktopCloudSyncChange[];
-  state: OpenworkDesktopCloudSyncState;
-};
-
-export type OpenworkCloudPluginRemoveResult = {
-  item: CloudImportedPlugin;
-  warnings: string[];
-};
-
-export type OpenworkCloudPluginsResult = {
-  marketplaces: Record<string, CloudImportedMarketplace>;
-  plugins: Record<string, CloudImportedPlugin>;
-};
-
 function arrayBufferToBase64(data: ArrayBuffer): string {
   const bytes = new Uint8Array(data);
   let binary = "";
@@ -665,288 +501,6 @@ export type OpenworkMcpEngineSync = {
   failures: Array<{ name: string; status?: number; message?: string }>;
 };
 
-export type OpenworkCloudMcpProviderModelContext = {
-  provider: string;
-  model: string;
-};
-
-export type OpenworkCloudMcpFailureStage =
-  | "prerequisites"
-  | "token_mint"
-  | "desired_config"
-  | "engine_delivery"
-  | "transport_auth"
-  | "tool_registration"
-  | "provider_projection"
-  | "plugin_load"
-  | "steering"
-  | "desired"
-  | "workspace"
-  | "configuration"
-  | "registration"
-  | "engine_status"
-  | "tool_ids"
-  | "plugin_canary";
-
-export type OpenworkCloudMcpFailureCode =
-  | "cloud_desired_missing"
-  | "cloud_mcp_missing"
-  | "cloud_mcp_disabled"
-  | "cloud_endpoint_invalid"
-  | "cloud_token_org_mismatch"
-  | "cloud_mcp_needs_auth"
-  | "invalid_mcp_token"
-  | "mcp_session_revoked"
-  | "mcp_membership_revoked"
-  | "insufficient_mcp_scope"
-  | "wrong_mcp_resource"
-  | "workspace_directory_ambiguous"
-  | "opencode_unconfigured"
-  | "opencode_engine_unreachable"
-  | "opencode_unreachable"
-  | "cloud_status_missing"
-  | "cloud_disabled"
-  | "openwork_cloud_auth_required"
-  | "openwork_cloud_auth_invalid"
-  | "openwork_cloud_token_expired"
-  | "openwork_cloud_membership_required"
-  | "openwork_cloud_scope_missing"
-  | "openwork_cloud_resource_forbidden"
-  | "openwork_cloud_resource_not_found"
-  | "openwork_cloud_client_registration_required"
-  | "cloud_connection_failed"
-  | "cloud_registration_failed"
-  | "cloud_tools_denied"
-  | "opencode_tool_ids_unsupported"
-  | "opencode_tool_ids_unavailable"
-  | "cloud_tools_missing"
-  | "provider_projection_unavailable"
-  | "provider_projection_missing"
-  | "extensions_plugin_missing"
-  | string;
-
-export type OpenworkCloudMcpFailure = {
-  code: OpenworkCloudMcpFailureCode;
-  stage: OpenworkCloudMcpFailureStage | string;
-  retryable: boolean;
-  recommendedAction: string;
-  message: string;
-  aliases?: string[];
-  requestId?: string;
-  referenceId?: string;
-  details?: unknown;
-};
-
-export type OpenworkCloudMcpCompatibility = {
-  openwork: {
-    serverVersion: string | null;
-    app: Record<string, string | number | boolean | null> | null;
-  };
-  opencode: {
-    expectedVersion: string | null;
-    actualVersion: string | null;
-    probe: "ok" | "unavailable" | "not_checked" | string;
-    error?: unknown;
-  };
-  pluginFileHashes: Array<{
-    name: string;
-    sha256: string | null;
-    error?: string;
-  }>;
-  supportedFeatures: {
-    dynamicMcp: boolean;
-    directoryScoping: boolean;
-    toolIds: boolean;
-    providerToolProjection: boolean;
-    pluginCanaries: boolean;
-  };
-  experimentalToolIds: {
-    checked: boolean;
-    expected: string[];
-    present: string[];
-    missing: string[];
-    includesMcpTools: boolean | null;
-    limitation?: string;
-    error?: unknown;
-  };
-  experimentalProviderTools: {
-    checked: boolean;
-    provider?: string;
-    model?: string;
-    expected: string[];
-    present: string[];
-    missing: string[];
-    includesMcpTools: boolean | null;
-    limitation?: string;
-    error?: unknown;
-  };
-};
-
-export type OpenworkCloudMcpHealthPhase =
-  | "missing_desired"
-  | "workspace_ambiguous"
-  | "engine_unconfigured"
-  | "engine_unreachable"
-  | "engine_missing"
-  | "engine_disabled"
-  | "engine_needs_auth"
-  | "engine_needs_client_registration"
-  | "engine_failed"
-  | "registration_failed"
-  | "denied_by_tools"
-  | "tool_ids_unsupported"
-  | "cloud_tools_missing"
-  | "provider_projection_missing"
-  | "extensions_plugin_missing"
-  | "ready"
-  | string;
-
-export type OpenworkCloudMcpDeliverySnapshot = {
-  state: "not_desired" | "pending" | "registering" | "ready" | "failed" | "stale" | string;
-  desiredRevision: string | null;
-  appliedRevision: string | null;
-  updatedAt: number | null;
-  appliedAt: number | null;
-  lastAttemptAt: number | null;
-  trigger?: string;
-  failure?: OpenworkCloudMcpFailure;
-};
-
-export type OpenworkCloudMcpProbeStep = {
-  step: "initialize" | "initialized_notice" | "tools_list" | string;
-  ok: boolean;
-  httpStatus?: number;
-  latencyMs: number;
-  error?: unknown;
-};
-
-export type OpenworkCloudMcpProbeTrace = {
-  endpoint: string | null;
-  startedAt: string;
-  latencyMs: number;
-  protocolVersion: string | null;
-  serverInfo: { name: string | null; version: string | null } | null;
-  steps: OpenworkCloudMcpProbeStep[];
-};
-
-export type OpenworkCloudMcpEngineRefreshStep = {
-  step: "engine_disconnect" | "reapply" | string;
-  ok: boolean;
-  latencyMs: number;
-  detail?: unknown;
-};
-
-export type OpenworkCloudMcpEngineRefresh = {
-  performed: boolean;
-  reason?: "desired_missing" | string;
-  trigger: string;
-  startedAt: string;
-  finishedAt: string;
-  steps: OpenworkCloudMcpEngineRefreshStep[];
-};
-
-export type OpenworkCloudMcpEngineRefreshResult = {
-  refresh: OpenworkCloudMcpEngineRefresh;
-  health: OpenworkCloudMcpHealth;
-};
-
-export type OpenworkCloudMcpHealth = {
-  schemaVersion: 1;
-  phase: OpenworkCloudMcpHealthPhase;
-  usable: boolean;
-  usableByCurrentModel: boolean | null;
-  connectCatalogEnabled: boolean;
-  /** Local private credential readiness, not provider health. Older servers omit it. */
-  appHostAuthorizationReady?: boolean | null;
-  connectCatalogDiagnostic?: "ready" | "empty" | "missing_app_host_auth" | "untrusted_origin"
-    | "invalid_catalog" | "invalid_proxy_descriptor" | "discovery_unavailable";
-  workspace: {
-    id: string;
-    type: string;
-    directory: string | null;
-    path: string;
-  };
-  desired: {
-    present: boolean;
-    name: "openwork-cloud";
-    revision: string | null;
-    config: Record<string, unknown> | null;
-    token: {
-      present: boolean;
-      metadata: Record<string, string | number | boolean | null>;
-    };
-    org?: Record<string, string | number | boolean | null>;
-    app?: Record<string, string | number | boolean | null>;
-    updatedAt?: number;
-  };
-  delivery: OpenworkCloudMcpDeliverySnapshot;
-  engine: {
-    status: "not_checked" | "missing" | "connected" | "disabled" | "failed" | "needs_auth" | "needs_client_registration" | "unreachable" | "unknown" | string;
-    error?: unknown;
-  };
-  /** The engine's own view of every MCP server it tracks (older servers omit this). */
-  engineInspection?: {
-    checked: boolean;
-    cloudPresent?: boolean;
-    serverCount?: number;
-    servers?: Array<{ name: string; status: string; error?: string }>;
-  };
-  tools: {
-    expected: string[];
-    present: string[];
-    missing: string[];
-    direct: {
-      checked: boolean;
-      source: "mcp_tools_list" | string;
-      expected: string[];
-      present: string[];
-      missing: string[];
-      trace?: OpenworkCloudMcpProbeTrace;
-      error?: unknown;
-      failure?: OpenworkCloudMcpFailure;
-    };
-    providerProjection: {
-      checked: boolean;
-      provider?: string;
-      model?: string;
-      source?: "experimental_tool" | "provider_capability" | string;
-      limitation?: string;
-      modelExists?: boolean;
-      toolCalling?: boolean | null;
-      present: string[];
-      missing: string[];
-      error?: unknown;
-    };
-  };
-  pluginCanaries: {
-    expected: string[];
-    present: string[];
-    missing: string[];
-  };
-  compatibility: OpenworkCloudMcpCompatibility;
-  toolDenies: unknown[];
-  firstFailure: OpenworkCloudMcpFailure | null;
-  checkedAt: string;
-  durationMs?: number;
-};
-
-export type OpenworkCloudMcpReconcilePayload = {
-  workspaceId: string;
-  name: "openwork-cloud";
-  config: Record<string, unknown>;
-  /** Desktop-private credential; the local server must never project it into OpenCode. */
-  appHostAuthorization?: string;
-  tokenMetadata?: Record<string, string | number | boolean | null>;
-  org?: Record<string, string | number | boolean | null>;
-  app?: Record<string, string | number | boolean | null>;
-  appVersion?: string;
-  buildSha?: string;
-  connectCatalogEnabled?: boolean;
-  trigger?: string;
-  provider?: string;
-  model?: string;
-};
-
 export type OpenworkWorkspaceExport = {
   workspaceId: string;
   exportedAt: number;
@@ -963,14 +517,6 @@ export type OpenworkWorkspaceExportWarning = {
   id: string;
   label: string;
   detail: string;
-};
-
-export type OpenworkConnectState = {
-  ok: true;
-  schemaVersion: 1;
-  status: "available" | "missing" | "invalid" | "unreadable";
-  connectEnabled: boolean;
-  cloudMcpPresent: boolean;
 };
 
 export type OpenworkExtensionActionCall = {
@@ -1276,7 +822,6 @@ function readForceEnvSettingsFlag(): boolean {
 
 export function hydrateOpenworkServerSettingsFromEnv() {
   if (typeof window === "undefined") return;
-  if (isOpenworkGatewayRuntime()) return;
 
   const envUrl = typeof import.meta.env?.VITE_OPENWORK_URL === "string"
     ? import.meta.env.VITE_OPENWORK_URL.trim()
@@ -1502,47 +1047,6 @@ async function requestJson<T>(
   return json as T;
 }
 
-async function requestAgentContextDiagnosticsJson(
-  baseUrl: string,
-  path: string,
-  options: {
-    token?: string;
-    hostToken?: string;
-    body: AgentContextDiagnosticsRequest;
-    timeoutMs: number;
-  },
-): Promise<unknown> {
-  const url = `${baseUrl}${path}`;
-  const result = await requestAgentContextDiagnosticsPayload({
-    url,
-    init: {
-      method: "POST",
-      headers: buildHeaders(options.token, options.hostToken),
-      body: JSON.stringify(options.body),
-    },
-    timeoutMs: options.timeoutMs,
-    fetchImpl: (input, init, deadlineAtMs) => isDesktopRuntime()
-      ? desktopFetchAgentContextDiagnostics(input, init, deadlineAtMs)
-      : globalThis.fetch(input, init),
-  });
-
-  if (!result.response.ok) {
-    const payload = result.payload;
-    const code = payload && typeof payload === "object" && "code" in payload && typeof payload.code === "string"
-      ? payload.code
-      : "request_failed";
-    const message = payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string"
-      ? payload.message
-      : result.response.statusText;
-    const details = payload && typeof payload === "object" && "details" in payload
-      ? payload.details
-      : undefined;
-    throw new OpenworkServerError(result.response.status, code, message, details);
-  }
-
-  return result.payload;
-}
-
 async function requestUploadRaw(
   baseUrl: string,
   path: string,
@@ -1630,11 +1134,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     deleteWorkspace: 10_000,
     sessionRead: 12_000,
     status: 6_000,
-    diagnostics: AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
     config: 10_000,
-    cloudMcpHealth: 12_000,
-    cloudMcpProbeHealth: 30_000,
-    cloudMcpReconcile: 60_000,
     workspaceExport: 30_000,
     binary: 60_000,
   };
@@ -1662,14 +1162,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       hostToken, method: action === "start" ? "POST" : action === "cancel" ? "DELETE" : "GET", timeoutMs: timeouts.config,
       ...(action === "start" ? { body: { force: options?.force === true } } : {}),
     })),
-    cloudComputerStatus: () => requestJson<{ ready: boolean; paused: boolean; busy: boolean; sessionId: string | null }>(baseUrl, "/cloud-computer/status", { token, timeoutMs: 15_000 }),
-    cloudComputerFrame: () => requestJson<{ dataUrl: string; width: number; height: number; screenWidth: number; screenHeight: number; generation: number }>(baseUrl, "/cloud-computer/frame", { token, timeoutMs: 15_000 }),
-    cloudComputerInteract: (body: Record<string, unknown>) => requestJson<unknown>(baseUrl, "/cloud-computer/interact", { token, method: "POST", body, timeoutMs: 15_000 }),
-    desktopFreePreferences: async () => desktopFreePreferencesSchema.parse(await requestJson<unknown>(baseUrl, "/anonymous-inference/preferences", { hostToken, timeoutMs: timeouts.config })),
-    setDesktopFreeEnabled: async (enabled: boolean) => desktopFreePreferencesSchema.parse(await requestJson<unknown>(baseUrl, "/anonymous-inference/preferences", { hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.cloudMcpReconcile })),
-    setDesktopFreeAnalytics: async (enabled: boolean) => desktopFreeAnalyticsSchema.parse(await requestJson<unknown>(baseUrl, "/anonymous-inference/analytics", { hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config })),
-    desktopFreeStatus: async () => desktopFreeAccessStatusSchema.parse(await requestJson<unknown>(baseUrl, "/anonymous-inference/status", { token, timeoutMs: 15_000 })),
-    desktopFreePreflight: async () => desktopFreeAccessStatusSchema.parse(await requestJson<unknown>(baseUrl, "/anonymous-inference/preflight", { token, method: "POST", timeoutMs: 15_000 })),
     token,
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
@@ -1677,42 +1169,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestJson<OpenworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
-    getConnectState: (workspaceId?: string | null) => {
-      const query = new URLSearchParams();
-      if (workspaceId?.trim()) query.set("workspaceId", workspaceId.trim());
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<OpenworkConnectState>(baseUrl, `/experimental/connect/state${suffix}`, { token, hostToken, timeoutMs: timeouts.config });
-    },
-    /** Has the server read the member's organization policy from Den again, as it does at sign-in. */
-    refreshManagedPolicy: async () => {
-      await requestJson<unknown>(baseUrl, "/managed-policy", { token, hostToken, timeoutMs: timeouts.config });
-    },
-    putDenIdentity: async (body: { baseUrl: string; token: string; orgId: string }, signal?: AbortSignal) => {
-      await requestJson<unknown>(baseUrl, "/den-session/identity", { hostToken, method: "PUT", body, signal, timeoutMs: timeouts.config });
-    },
-    putDenSession: async (body: { baseUrl: string; token: string; orgId: string }, signal?: AbortSignal) => {
-      await requestJson<unknown>(baseUrl, "/den-session", { hostToken, method: "PUT", body, signal, timeoutMs: timeouts.config });
-    },
-    deleteDenSession: async () => {
-      await requestJson<unknown>(baseUrl, "/den-session", { hostToken, method: "DELETE", timeoutMs: timeouts.config });
-    },
-    startGatewayProviderOAuth: (providerId: string, orgId: string, credentialSetId?: string, signal?: AbortSignal) =>
-      requestJson<GatewayDesktopOauthStartResponse>(baseUrl, `/cloud-provider-sync/providers/${encodeURIComponent(providerId)}/oauth/start`, {
-        hostToken, signal, method: "POST", body: { orgId, ...(credentialSetId !== undefined ? { credentialSetId } : {}) } satisfies GatewayDesktopOauthStartRequest, timeoutMs: timeouts.config,
-      }),
-    runCloudProviderSyncNow: async (reason?: string, signal?: AbortSignal) =>
-      parseCloudProviderSyncRun(await requestJson<unknown>(baseUrl, "/cloud-provider-sync/run", {
-        hostToken,
-        method: "POST",
-        body: reason ? { reason } : {},
-        signal,
-        timeoutMs: timeouts.cloudMcpReconcile,
-      })),
-    getCloudProviderSyncStatus: async () =>
-      parseCloudProviderSyncStatus(await requestJson<unknown>(baseUrl, "/cloud-provider-sync/status", {
-        token,
-        timeoutMs: timeouts.config,
-      })),
     getEngineV2PreviewStatus: async (): Promise<EngineV2PreviewStatus> =>
       parseEngineV2PreviewStatus(await requestJson<unknown>(baseUrl, "/experimental/engine-v2-preview/status", {
         token,
@@ -1758,7 +1214,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         body: { chatRouting },
         timeoutMs: timeouts.config,
       })),
-    setConnectState: (connectEnabled: boolean) => requestJson<OpenworkConnectState>(baseUrl, "/experimental/connect/state", { token, hostToken, method: "PUT", body: { connectEnabled }, timeoutMs: timeouts.config }),
     callExtensionAction: (payload: OpenworkExtensionActionCall) =>
       requestJson<OpenworkExtensionActionResult>(baseUrl, "/experimental/extensions/call", {
         token,
@@ -1932,33 +1387,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "PATCH",
         body: payload,
-      }),
-    getDesktopCloudSync: (workspaceId: string) =>
-      requestJson<OpenworkDesktopCloudSyncState>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
-        token,
-        hostToken,
-        timeoutMs: timeouts.config,
-      }),
-    syncDesktopCloud: (workspaceId: string, snapshot: DenResourceSnapshot) =>
-      requestJson<OpenworkDesktopCloudSyncResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
-        token,
-        hostToken,
-        method: "POST",
-        body: { snapshot },
-        timeoutMs: timeouts.config,
-      }),
-    listCloudPlugins: (workspaceId: string) =>
-      requestJson<OpenworkCloudPluginsResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins`, {
-        token,
-        hostToken,
-        timeoutMs: timeouts.config,
-      }),
-    removeCloudPlugin: (workspaceId: string, pluginId: string) =>
-      requestJson<OpenworkCloudPluginRemoveResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}`, {
-        token,
-        hostToken,
-        method: "DELETE",
-        timeoutMs: timeouts.config,
       }),
     readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {
       const query = `?scope=${scope}`;
@@ -2143,76 +1571,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/release`,
       { token, hostToken, method: "POST", body: { launchId } },
     ),
-    getOpenworkCloudMcpHealth: (
-      workspaceId: string,
-      providerModel?: OpenworkCloudMcpProviderModelContext,
-      options?: { probe?: boolean },
-    ) => {
-      const query = new URLSearchParams();
-      if (providerModel?.provider.trim() && providerModel.model.trim()) {
-        query.set("provider", providerModel.provider.trim());
-        query.set("model", providerModel.model.trim());
-      }
-      // probe=1 verifies the Cloud endpoint directly from the OpenWork server
-      // (initialize + tools/list), independent of the engine's own connection.
-      if (options?.probe) query.set("probe", "1");
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<OpenworkCloudMcpHealth>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/health${suffix}`,
-        { token, hostToken, timeoutMs: options?.probe ? timeouts.cloudMcpProbeHealth : timeouts.cloudMcpHealth },
-      );
-    },
-    reconcileOpenworkCloudMcp: (workspaceId: string, payload: OpenworkCloudMcpReconcilePayload) =>
-      requestJson<OpenworkCloudMcpHealth>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/reconcile`,
-        {
-          token,
-          hostToken,
-          method: "POST",
-          body: payload,
-          timeoutMs: timeouts.cloudMcpReconcile,
-        },
-      ),
-    refreshOpenworkCloudMcpCatalog: (workspaceId: string, providerModel?: OpenworkCloudMcpProviderModelContext) =>
-      requestJson<OpenworkCloudMcpHealth>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/reconcile`,
-        { token, hostToken, method: "POST", body: { mode: "refresh_catalog", ...providerModel }, timeoutMs: timeouts.cloudMcpReconcile },
-      ),
-    refreshOpenworkCloudMcpEngine: (
-      workspaceId: string,
-      payload?: { provider?: string; model?: string; trigger?: string },
-    ) =>
-      requestJson<OpenworkCloudMcpEngineRefreshResult>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/engine-refresh`,
-        {
-          token,
-          hostToken,
-          method: "POST",
-          body: payload ?? {},
-          timeoutMs: timeouts.cloudMcpReconcile,
-        },
-      ),
-    runAgentContextDiagnostics: async (
-      workspaceId: string,
-      input: AgentContextDiagnosticsRequest,
-    ): Promise<AgentContextDiagnosticsReport> => {
-      const body = agentContextDiagnosticsRequestSchema.parse(input);
-      const payload = await requestAgentContextDiagnosticsJson(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/diagnostics/agent-context`,
-        {
-          token,
-          hostToken,
-          body,
-          timeoutMs: timeouts.diagnostics,
-        },
-      );
-      return agentContextDiagnosticsReportSchema.parse(payload);
-    },
     addMcp: (workspaceId: string, payload: { name: string; config: Record<string, unknown> }) =>
       requestJson<{ items: OpenworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,

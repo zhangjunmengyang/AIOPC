@@ -1,9 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-
-import type { CloudImportedPlugin } from "@/app/cloud/import-state";
-import { createDenClient, readDenSettings } from "@/app/lib/den";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelOption, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
 import { t } from "@/i18n";
@@ -25,12 +22,6 @@ import {
   resolvePastedTextPlaceholders,
   type PastedTextChip,
 } from "@/react-app/domains/session/surface/composer/pasted-text";
-import {
-  loadSessionConnectCapabilities,
-  readCachedConnectCapabilities,
-  readCloudInventoryScope,
-} from "@/react-app/domains/connections/cloud-inventory-cache";
-import { connectPluginsForComposer, EMPTY_CONNECT_CAPABILITY_INVENTORY } from "@/react-app/domains/session/surface/connect-capability-inventory";
 import { resolveAttachmentFileMetadata } from "@/react-app/domains/session/sync/attachment-file-part";
 import type { NewSessionDestination } from "./new-session-destination";
 import { draftHasWorkspaceFiles, draftWorkspaceChangeBlocked, newSessionDraftSlot } from "./new-session-destination";
@@ -63,13 +54,9 @@ export type NewTaskComposerContext = {
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
   modelRecoveryScope?: string;
-  organizationModelsEmpty?: boolean;
-  onRefreshOrganizationModels?: () => void | Promise<void>;
   modelPickerOpen: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef, variant?: string | null) => void;
-  openWorkModelsEntitled?: boolean;
-  openWorkModelsSyncing?: boolean;
   modelVariantLabel: string;
   modelVariant: string | null;
   modelBehaviorOptions?: { value: string | null; label: string }[];
@@ -146,7 +133,6 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<McpStatusMap>({});
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
-  const [importedPlugins, setImportedPlugins] = useState<CloudImportedPlugin[]>([]);
   const [pastedText, setPastedText] = useState<PastedTextChip[]>(initialState?.pasteParts ?? []);
   const submittingRef = useRef(false);
   const draftRevisionRef = useRef(0);
@@ -262,76 +248,21 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
     setPastedText(restored.pasteParts);
   };
 
-  const listSkills = workspaceClient && workspaceId
-    ? async (): Promise<SkillCard[]> => {
-        const pushId = ++skillsConnectPushRef.current;
-        // Paint cached Connect inventory instantly; the fresh fan-out lands live.
-        const scope = readCloudInventoryScope();
-        const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
-        const connectPromise = loadSessionConnectCapabilities();
-        const response = await workspaceClient.listSkills(workspaceId, { includeGlobal: true });
-        const localSkills = (response.items ?? []).map((skill) => ({
-          name: skill.name,
-          path: skill.path,
-          description: skill.description,
-          trigger: skill.trigger,
-          scope: skill.scope,
-          origin: "local",
-        } satisfies SkillCard));
-        void connectPromise.then((connect) => {
-          if (skillsConnectPushRef.current !== pushId) return;
-          setSkills([...localSkills, ...connect.skills]);
-        });
-        const next = [...localSkills, ...cachedConnect.skills];
-        setSkills(next);
-        return next;
-      }
-    : undefined;
-
-  const listMcp = workspaceClient && workspaceId
-    ? async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
-        const pushId = ++mcpConnectPushRef.current;
-        const scope = readCloudInventoryScope();
-        const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
-        const connectPromise = loadSessionConnectCapabilities();
-        const response = await workspaceClient.listMcp(workspaceId);
-        const localServers = (response.items ?? []).map((entry) => ({
-          name: entry.name,
-          config: entry.config as McpServerEntry["config"],
-          source: entry.source,
-          origin: entry.name === "openwork-cloud" ? "openwork-connect" : "local",
-        } satisfies McpServerEntry));
-        void connectPromise.then((connect) => {
-          if (mcpConnectPushRef.current !== pushId) return;
-          const freshServers = [...localServers, ...connect.mcpServers];
-          const freshStatus = freshServers.length ? null : "No MCP servers loaded.";
-          setMcpServers(freshServers);
-          setMcpStatuses(connect.mcpStatuses);
-          setMcpStatus(freshStatus);
-        });
-        const servers = [...localServers, ...cachedConnect.mcpServers];
-        const statuses = cachedConnect.mcpStatuses;
-        const status = servers.length ? null : "No MCP servers loaded.";
-        setMcpServers(servers);
-        setMcpStatuses(statuses);
-        setMcpStatus(status);
-        return { servers, statuses, status };
-      }
-    : undefined;
-
-  const listImportedPlugins = async (): Promise<CloudImportedPlugin[]> => {
-    const pushId = ++pluginConnectPushRef.current;
-    const scope = readCloudInventoryScope();
-    const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
-    const connectPromise = loadSessionConnectCapabilities();
-    void connectPromise.then((connect) => {
-      if (pluginConnectPushRef.current !== pushId) return;
-      setImportedPlugins(connectPluginsForComposer(connect.plugins));
-    });
-    const plugins = connectPluginsForComposer(cachedConnect.plugins);
-    setImportedPlugins(plugins);
-    return plugins;
-  };
+  const listSkills = workspaceClient && workspaceId ? async (): Promise<SkillCard[]> => {
+    const response = await workspaceClient.listSkills(workspaceId, { includeGlobal: true });
+    const values = (response.items ?? []).map(skill => ({ name: skill.name, path: skill.path, description: skill.description, trigger: skill.trigger, scope: skill.scope, origin: "local" } satisfies SkillCard));
+    setSkills(values);
+    return values;
+  } : undefined;
+  const listMcp = workspaceClient && workspaceId ? async () => {
+    const response = await workspaceClient.listMcp(workspaceId);
+    const servers: McpServerEntry[] = (response.items ?? []).map(entry => ({ name: entry.name, config: entry.config as McpServerEntry["config"], source: entry.source, origin: "local" }));
+    setMcpServers(servers);
+    const statuses: McpStatusMap = {};
+    const status = servers.length ? null : "No MCP servers loaded.";
+    setMcpStatuses(statuses); setMcpStatus(status);
+    return { servers, statuses, status };
+  } : undefined;
 
   const handleInsertMention = (kind: ComposerMentionKind, value: string, nextDraft?: string) => {
     // @agent mentions switch the pending task's agent instead of inserting a
@@ -505,8 +436,7 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   }, [moveTargetKey, context?.destination]);
 
   const displayedSubmissionError = submissionError;
-  const isGatewayProviderAuthFailure = displayedSubmissionError?.kind === "gateway-provider-authentication-failed"
-    || displayedSubmissionError?.kind === "gateway-provider-permission-denied";
+  const isGatewayProviderAuthFailure = displayedSubmissionError?.kind === "provider-credentials";
 
   return (
     <div>
@@ -556,14 +486,10 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       modelUnavailable={context?.modelUnavailable}
       modelUnavailableMessage={context?.modelUnavailableMessage}
       modelRecoveryScope={context?.modelRecoveryScope}
-      organizationModelsEmpty={context?.organizationModelsEmpty}
       statusLabel=""
       modelPickerOpen={context?.modelPickerOpen ?? false}
       selectedModel={context?.selectedModel ?? FALLBACK_MODEL}
       modelOptions={context?.modelOptions}
-      openWorkModelsEntitled={context?.openWorkModelsEntitled}
-      openWorkModelsSyncing={context?.openWorkModelsSyncing}
-      onRefreshOrganizationModels={context?.onRefreshOrganizationModels}
       onModelPickerOpenChange={context?.onModelPickerOpenChange ?? noop}
       onModelChange={context?.onModelChange ?? noop}
       attachments={attachments}
@@ -586,8 +512,6 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       mcpServers={mcpServers}
       mcpStatus={mcpStatus}
       mcpStatuses={mcpStatuses}
-      listImportedPlugins={listImportedPlugins}
-      importedPlugins={importedPlugins}
       onOpenSettingsSection={context?.onOpenSettingsSection}
       recentFiles={[]}
       searchFiles={context?.searchFiles ?? emptyFiles}

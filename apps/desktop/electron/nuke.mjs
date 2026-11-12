@@ -6,9 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  desktopBootstrapPath as resolveDesktopBootstrapPath,
   globalOpencodeConfigDir,
-  legacyDesktopBootstrapPath as resolveLegacyDesktopBootstrapPath,
   openworkEnvStorePath,
   openworkServerConfigPath as resolveOpenworkServerConfigPath,
   opencodeCacheDirs as resolveOpencodeCacheDirs,
@@ -177,14 +175,6 @@ function runtimeDbPath(env, serverConfigPath, homedir, paths) {
   return paths.join(configDir, "runtime.sqlite");
 }
 
-function desktopBootstrapPath(env, homedir, platform, paths, userDataPath) {
-  return resolveDesktopBootstrapPath({ env, homeDir: homedir, platform, userDataDir: userDataPath });
-}
-
-function legacyDesktopBootstrapPath(homedir, platform) {
-  return resolveLegacyDesktopBootstrapPath({ env: {}, homeDir: homedir, platform });
-}
-
 function opencodeDataDirs(env, homedir, platform, paths) {
   return resolveOpencodeDataDirs({ env, homeDir: homedir, platform });
 }
@@ -250,9 +240,8 @@ function sameOrInside(candidate, parent, paths, platform) {
   return relative === "" || (!!relative && !relative.startsWith("..") && !paths.isAbsolute(relative));
 }
 
-function shouldSkipDeletePath(targetPath, preserveBootstrapPath, homedir, paths, platform) {
+function shouldSkipDeletePath(targetPath, homedir, paths, platform) {
   if (!targetPath) return true;
-  if (preserveBootstrapPath && paths.resolve(targetPath) === paths.resolve(preserveBootstrapPath)) return true;
   const opencodeBin = paths.join(homedir, ".opencode", "bin");
   return sameOrInside(targetPath, opencodeBin, paths, platform) || paths.resolve(targetPath) === paths.dirname(paths.resolve(opencodeBin));
 }
@@ -304,9 +293,6 @@ function addOpenworkConfigFiles(deletePaths, roots, paths) {
 function resolveNukePlan(input) {
   const resolved = resolveNukeEnvironment(input);
   const { env, homedir, platform, paths, userDataPath } = resolved;
-  const bootstrapPath = desktopBootstrapPath(env, homedir, platform, paths, userDataPath);
-  const preserveBootstrapPath = input.preserveBootstrap === false ? null : bootstrapPath;
-  const legacyBootstrapPath = legacyDesktopBootstrapPath(homedir, platform);
   const serverConfig = openworkServerConfigPath(env, homedir, platform, paths);
   const runtimeDb = runtimeDbPath(env, serverConfig, homedir, paths);
   const envStore = envStorePath(env, homedir, platform, paths);
@@ -322,8 +308,6 @@ function resolveNukePlan(input) {
     runtimeConfig,
     tokens,
     envStore,
-    bootstrapPath,
-    legacyBootstrapPath,
     ...dataDirs,
     ...opencodeDbOverridePaths(env, dataDirs, paths),
     ...opencodeConfigDirs(env, homedir, platform, paths),
@@ -353,7 +337,7 @@ function resolveNukePlan(input) {
   }
 
   const filteredDeletePaths = deletePaths.filter(
-    (targetPath) => !shouldSkipDeletePath(targetPath, preserveBootstrapPath, homedir, paths, platform),
+    (targetPath) => !shouldSkipDeletePath(targetPath, homedir, paths, platform),
   );
   const scopeToProfile = input.scopeToProfile !== false && isIsolatedProfile(input.env ?? {});
   const sharedPaths = scopeToProfile ? defaultProfileDeletePaths(input) : [];
@@ -363,8 +347,6 @@ function resolveNukePlan(input) {
       : candidates;
   const manifest = {
     deletePaths: uniquePaths(scopeDeletePaths(filteredDeletePaths), paths, platform),
-    bootstrapPath,
-    preserveBootstrapPath: preserveBootstrapPath || null,
     partitions: [...NUKE_PARTITIONS],
   };
   // Isolated profiles keep the sentinel in their own userData so another
@@ -378,8 +360,7 @@ function resolveNukePlan(input) {
     pendingPath,
     scopeToProfile,
     scopeDeletePaths,
-    preservePaths: uniquePaths([preserveBootstrapPath, paths.join(homedir, ".opencode", "bin")], paths, platform),
-    legacyBootstrapPath: paths.resolve(legacyBootstrapPath) === paths.resolve(bootstrapPath) ? null : legacyBootstrapPath,
+    preservePaths: uniquePaths([paths.join(homedir, ".opencode", "bin")], paths, platform),
     platform,
   };
 }
@@ -398,7 +379,6 @@ export function buildNukeWorkerNukeInput(input) {
     env,
     homedir: String(input.homedir ?? ""),
     platform: normalizePlatform(input.platform),
-    preserveBootstrap: input.preserveBootstrap !== false,
     userDataPath: String(input.userDataPath ?? ""),
     workspacePaths: (Array.isArray(input.workspacePaths) ? input.workspacePaths : [])
       .map((entry) => String(entry ?? "").trim())
@@ -477,25 +457,6 @@ export async function scheduleNukeCleanupWorker({ app, input, plan, spawnFn, exe
   }
 }
 
-export function sanitizeDesktopBootstrapConfig(input, writtenAt = new Date().toISOString()) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-  const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
-  if (!baseUrl) return null;
-  const apiBaseUrl = typeof input.apiBaseUrl === "string" ? input.apiBaseUrl.trim() : "";
-  const brandAppName = typeof input.brandAppName === "string" ? input.brandAppName.trim().slice(0, 64) : "";
-  const brandLogoUrl = typeof input.brandLogoUrl === "string" ? input.brandLogoUrl.trim() : "";
-  const brandIconUrl = typeof input.brandIconUrl === "string" ? input.brandIconUrl.trim() : "";
-  return {
-    baseUrl,
-    ...(apiBaseUrl ? { apiBaseUrl } : {}),
-    requireSignin: input.requireSignin === true,
-    ...(brandAppName ? { brandAppName } : {}),
-    ...(brandLogoUrl ? { brandLogoUrl } : {}),
-    ...(brandIconUrl ? { brandIconUrl } : {}),
-    writtenAt,
-  };
-}
-
 async function readJsonIfPresent(targetPath) {
   try {
     const raw = await readFile(targetPath, "utf8");
@@ -510,33 +471,6 @@ async function readJsonIfPresent(targetPath) {
 async function writeJsonFile(targetPath, value) {
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-export async function sanitizeDesktopBootstrapFiles({ canonicalPath, legacyPath }) {
-  const canonical = await readJsonIfPresent(canonicalPath);
-  const legacy = legacyPath ? await readJsonIfPresent(legacyPath) : { exists: false, ok: false, value: null };
-  const canonicalSanitized = canonical.ok ? sanitizeDesktopBootstrapConfig(canonical.value) : null;
-  const legacySanitized = legacy.ok ? sanitizeDesktopBootstrapConfig(legacy.value) : null;
-  const sanitized = canonicalSanitized ?? legacySanitized;
-
-  if (sanitized) {
-    await writeJsonFile(canonicalPath, sanitized);
-    if (legacyPath) await rm(legacyPath, { force: true });
-    return true;
-  }
-
-  if (canonical.exists) await rm(canonicalPath, { force: true });
-  if (legacyPath && legacy.exists) await rm(legacyPath, { force: true });
-  return false;
-}
-
-async function sanitizeDesktopBootstrapOnDisk(plan) {
-  const preservePath = plan.manifest.preserveBootstrapPath;
-  if (!preservePath) return false;
-  return sanitizeDesktopBootstrapFiles({
-    canonicalPath: preservePath,
-    legacyPath: plan.legacyBootstrapPath,
-  });
 }
 
 function errorCode(error) {
@@ -689,9 +623,6 @@ async function writePendingNukeFile(pendingPath, paths, pending = null, options 
   const attemptedAt = nukeNowIso(options);
   await writeJsonFile(pendingPath, {
     paths,
-    preserveBootstrap: typeof pending?.preserveBootstrap === "boolean"
-      ? pending.preserveBootstrap
-      : options.preserveBootstrap !== false,
     createdAt: pendingCreatedAt(pending, attemptedAt),
     attemptedAt,
   });
@@ -756,13 +687,6 @@ function nukeReceiptRelaunchMode(workerScheduled) {
   return workerScheduled ? "cleanup_worker" : "direct";
 }
 
-function preservePathsWithoutBootstrap(plan) {
-  const bootstrapPath = plan.manifest.preserveBootstrapPath;
-  if (!bootstrapPath) return plan.preservePaths;
-  const resolvedBootstrapPath = path.resolve(bootstrapPath);
-  return plan.preservePaths.filter((preservePath) => path.resolve(preservePath) !== resolvedBootstrapPath);
-}
-
 export async function runPendingNukeCleanup(input, options = {}) {
   const initialPlan = resolveNukePlan(input);
   const pendingFile = await readJsonIfPresent(initialPlan.pendingPath);
@@ -772,7 +696,7 @@ export async function runPendingNukeCleanup(input, options = {}) {
     return pendingCleanupResult({ ran: false, invalid: true });
   }
   const pending = pendingFile.ok ? pendingFile.value : null;
-  const plan = resolveNukePlan({ ...input, preserveBootstrap: pending?.preserveBootstrap !== false });
+  const plan = resolveNukePlan(input);
   // Re-scope on replay: a sentinel written by a different profile (or an older
   // build) must not be able to reach outside this profile's own storage.
   const paths = plan.scopeDeletePaths(
@@ -806,7 +730,6 @@ export async function executeNukeFreshStart({ app, session, runtimeManager, uiCo
       platform: process.platform,
       userDataPath: app.getPath("userData"),
     }),
-    preserveBootstrap: options.preserveBootstrap ?? options.input?.preserveBootstrap ?? true,
   };
   const plan = resolveNukePlan(input);
   const phaseErrors = [];
@@ -815,19 +738,11 @@ export async function executeNukeFreshStart({ app, session, runtimeManager, uiCo
     scopeToProfile: plan.scopeToProfile,
   });
   await bestEffort(phaseErrors, "chromium-storage", () => clearChromiumStorage(session), 8000);
-  const preservedBootstrap = await sanitizeDesktopBootstrapOnDisk(plan).catch((error) => {
-    phaseErrors.push(receiptError(plan.manifest.preserveBootstrapPath ?? "desktop-bootstrap", error));
-    return false;
-  });
-  const preservePaths = preservedBootstrap
-    ? plan.preservePaths
-    : preservePathsWithoutBootstrap(plan);
+  const preservePaths = plan.preservePaths;
   const deletionErrors = await deleteManifestPaths(plan.manifest, plan.platform, preservePaths, options);
   const verified = await verifyManifestDeletion(plan.manifest, [...phaseErrors, ...deletionErrors], preservePaths);
   if (verified.pendingRetry.length > 0) {
-    await writePendingNukeFile(plan.pendingPath, verified.pendingRetry, null, {
-      preserveBootstrap: input.preserveBootstrap,
-    }).catch((error) => {
+    await writePendingNukeFile(plan.pendingPath, verified.pendingRetry).catch((error) => {
       verified.errors.push(receiptError(plan.pendingPath, error));
     });
   }
@@ -847,7 +762,6 @@ export async function executeNukeFreshStart({ app, session, runtimeManager, uiCo
     deleted: verified.deleted,
     pendingRetry: verified.pendingRetry,
     errors: verified.errors,
-    preservedBootstrap,
     relaunchMode: nukeReceiptRelaunchMode(workerScheduled),
     workerScheduled,
   };

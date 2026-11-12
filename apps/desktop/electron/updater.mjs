@@ -49,7 +49,6 @@ const ELECTRON_UPDATER_FEEDS = Object.freeze({
 });
 
 function normalizeElectronUpdaterChannel(value, manifestChannel = "latest") {
-  if (manifestChannel !== "latest") return "stable";
   if (value === "alpha" && process.platform === "darwin") return "alpha";
   return "stable";
 }
@@ -240,16 +239,10 @@ async function applyElectronUpdaterFeed(
   // Moving from alpha back to stable can be a semver downgrade; still show
   // the latest stable so users can return to the stable channel deliberately.
   updater.allowDowngrade = state.channel === "stable" && (!targetVersion || allowOlder);
-  // Select the manifest through the generic provider's own `channel` option
-  // rather than AppUpdater#channel: that setter is a no-op unless the instance
-  // was constructed with a channel, which would silently leave a custom
-  // distribution reading latest*.yml and updating itself into the public app.
-  // Public builds pass no channel and keep the provider's `latest` default.
   if (updater?.setFeedURL) {
     updater.setFeedURL({
       provider: "generic",
       url: state.feedUrl,
-      ...(manifestChannel !== "latest" ? { channel: manifestChannel } : {}),
     });
   }
   return state;
@@ -325,15 +318,11 @@ export function registerUpdaterIpc({
   nativeStagingTimeoutMs = 120_000,
   electronNet = null,
   shell = null,
-  distribution = "public",
   platform = process.platform,
   arch = process.arch,
   env = process.env,
-  // Throws while the installation still has to be activated. Until then no Den
-  // is known, so the organization's allowed-versions policy cannot be honoured
-  // and the renderer must not be able to check for, stage, or install updates.
-  assertActivation = () => {},
 }) {
+  const distribution = "public";
   let autoUpdaterInstance = null;
   let autoUpdaterLoadPromise = null;
   let checkedUpdateVersion = null;
@@ -576,7 +565,7 @@ export function registerUpdaterIpc({
     return recordHealthyVersion(app, distribution, resolveAppVersion(app));
   });
 
-  ipcMain.handle("openwork:recovery:list", async (_event, policy = {}) => {
+  ipcMain.handle("openwork:recovery:list", async (_event, options = {}) => {
     const evalReleases = evalRecoveryReleases();
     if (evalReleases) {
       recoveryReleases = evalReleases;
@@ -589,7 +578,7 @@ export function registerUpdaterIpc({
     const installedVersion = resolveAppVersion(app);
     const markers = recoveryVersionMarkers(installedVersion, state);
     const cached = await readCachedRecoveryArtifact(app, { platform, arch, distribution });
-    const catalogVersions = Array.isArray(policy?.versions) ? policy.versions : [];
+    const catalogVersions = Array.isArray(options?.versions) ? options.versions : [];
     const localOnly = catalogVersions.length === 0;
     recoveryReleases = await compatibleRecoveryReleases({
       versions: [
@@ -601,8 +590,6 @@ export function registerUpdaterIpc({
       ],
       currentVersion: markers.currentVersion,
       previousVersion: markers.previousVersion,
-      minimumVersion: policy?.minimumVersion,
-      allowedVersions: policy?.allowedVersions,
       resolveArtifact: async (version) =>
         cached?.artifact.version === version
           ? { ...cached.artifact, cachedFilePath: cached.filePath }
@@ -713,7 +700,7 @@ export function registerUpdaterIpc({
     if (updater) {
       // A channel change invalidates any previously downloaded update. This
       // also prevents an Alpha build from installing automatically on quit
-      // after an organization policy moves the desktop back to Stable.
+      // after the user moves the desktop back to Stable.
       preventPendingUpdaterInstall(updater);
       return applyElectronUpdaterFeed(app, updater, null, manifestChannel, false, channel);
     }
@@ -721,7 +708,6 @@ export function registerUpdaterIpc({
   }));
 
   ipcMain.handle("openwork:updater:check", async (_event, rawChannel, rawTargetVersion, options) => queueUpdaterOperation(async () => {
-    assertActivation();
     // A check selects a feed for this operation only. The persisted preference
     // belongs exclusively to setChannel so a stale check cannot undo a choice.
     const channel = rawChannel === undefined
@@ -799,7 +785,6 @@ export function registerUpdaterIpc({
   }));
 
   ipcMain.handle("openwork:updater:download", async () => queueUpdaterOperation(async () => {
-    assertActivation();
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     try {
@@ -848,7 +833,6 @@ export function registerUpdaterIpc({
   }));
 
   ipcMain.handle("openwork:updater:installAndRestart", async () => queueUpdaterOperation(async () => {
-    assertActivation();
     if (!updateDownloaded) return { ok: false, reason: "update-not-downloaded" };
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };

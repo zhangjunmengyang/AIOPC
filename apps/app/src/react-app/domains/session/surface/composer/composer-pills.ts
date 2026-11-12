@@ -1,8 +1,6 @@
 import type { TextPartInput } from "@opencode-ai/sdk/v2/client";
 
 import type { ComposerPart } from "@/app/types";
-import { computerMentionInstruction, isComputerTarget, searchFirstComputerMentionInstruction, type ComputerTarget } from "./computer-mentions";
-import { connectSkillPrompt, encodeConnectSkillToken, parseConnectSkillToken } from "./connect-skill-token";
 import { CONNECTOR_PROMPT_HISTORY, connectorPrompt, encodeConnectorToken, parseConnectorToken } from "./connector-token";
 import {
   encodeSessionReferenceToken,
@@ -12,8 +10,7 @@ import {
 } from "./session-reference-token";
 
 /**
- * One source of truth for composer pills: the skills, connectors and
- * computers picked from the composer `+` menu or `@` mentions, and the tasks
+ * One source of truth for composer pills: the skills and connectors picked from the composer `+` menu or `@` mentions, and the tasks
  * referenced from the `#` menu.
  *
  * A pill has three faces, and each is owned here:
@@ -28,28 +25,24 @@ import {
  */
 export type ComposerPill =
   | { kind: "skill"; name: string }
-  | { kind: "connect-skill"; slug: string; name: string; marketplace: string; capability: string }
   | { kind: "connector"; name: string }
-  | { kind: "computer"; target: ComputerTarget }
   | { kind: "session"; workspaceId: string; sessionId: string; title: string };
 
-type ComposerPillPart = Extract<ComposerPart, { type: "skill" | "connect-skill" | "connector" | "computer" | "session" }>;
+type ComposerPillPart = Extract<ComposerPart, { type: "skill" | "connector" | "session" }>;
 
 /** Splits a draft into text and token segments (one capture group, keep it for `split`). */
-export const COMPOSER_DRAFT_TOKEN_RE = /(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\]|\[connector [^\]]+\]|\[session [^\]\n]+\]|@[^\s@]+)/;
+export const COMPOSER_DRAFT_TOKEN_RE = /(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|\[connector [^\]]+\]|\[session [^\]\n]+\]|@[^\s@]+)/;
 
 /** Pill tokens whose visible text replaces them in the resolved draft. */
-export const COMPOSER_PILL_TOKEN_GLOBAL_RE = /\[connect-skill [^\]]+\]|\[skill [^\]]+\]|\[connector [^\]]+\]|\[session [^\]\n]+\]/g;
+export const COMPOSER_PILL_TOKEN_GLOBAL_RE = /\[skill [^\]]+\]|\[connector [^\]]+\]|\[session [^\]\n]+\]/g;
 
 const SKILL_TOKEN_RE = /^\[skill (.+)\]$/;
 
 /** Neutral chip for slash commands; pills and mentions use composer-chips badges. */
 export const COMPOSER_TOKEN_CLASS = "inline-flex items-center rounded-md bg-gray-3 px-1.5 py-0.5 text-xs font-medium text-gray-12";
 
-/** The pill a `[skill …]`, `[connect-skill …]` or `[connector …]` draft segment stands for. */
+/** The pill a `[skill …]` or `[connector …]` draft segment stands for. */
 export function parseComposerPillToken(segment: string): ComposerPill | null {
-  const connectSkill = parseConnectSkillToken(segment);
-  if (connectSkill) return { kind: "connect-skill", ...connectSkill };
   const connector = parseConnectorToken(segment);
   if (connector) return { kind: "connector", name: connector };
   const session = parseSessionReferenceToken(segment);
@@ -62,12 +55,8 @@ export function composerPillFromPart(part: ComposerPillPart): ComposerPill {
   switch (part.type) {
     case "skill":
       return { kind: "skill", name: part.name };
-    case "connect-skill":
-      return { kind: "connect-skill", slug: part.slug, name: part.name, marketplace: part.marketplace, capability: part.capability };
     case "connector":
       return { kind: "connector", name: part.name };
-    case "computer":
-      return { kind: "computer", target: part.target };
     case "session":
       return { kind: "session", workspaceId: part.workspaceId, sessionId: part.sessionId, title: part.title };
   }
@@ -78,12 +67,8 @@ export function composerPillToken(pill: ComposerPill): string {
   switch (pill.kind) {
     case "skill":
       return `[skill ${pill.name}]`;
-    case "connect-skill":
-      return encodeConnectSkillToken(pill);
     case "connector":
       return encodeConnectorToken(pill.name);
-    case "computer":
-      return `@${pill.target}`;
     case "session":
       // Ids are validated when the pill is created or parsed.
       return encodeSessionReferenceToken(pill) ?? "";
@@ -97,8 +82,6 @@ export function composerPillToken(pill: ComposerPill): string {
  */
 export function composerPillText(pill: ComposerPill): string {
   switch (pill.kind) {
-    case "connect-skill":
-      return `/${pill.slug}`;
     case "session":
       return sessionReferenceText(pill);
     default:
@@ -110,12 +93,8 @@ export function composerPillTitle(pill: ComposerPill): string {
   switch (pill.kind) {
     case "skill":
       return `Skill: ${pill.name}`;
-    case "connect-skill":
-      return `Skill: ${pill.name}`;
     case "connector":
       return `Connector: ${pill.name}`;
-    case "computer":
-      return `@${pill.target}`;
     case "session":
       return `Task: ${pill.title || pill.sessionId}`;
   }
@@ -126,12 +105,8 @@ export function composerPillInstruction(pill: ComposerPill): string {
   switch (pill.kind) {
     case "skill":
       return skillInstruction(pill.name);
-    case "connect-skill":
-      return connectSkillPrompt(pill);
     case "connector":
       return connectorPrompt(pill.name);
-    case "computer":
-      return computerMentionInstruction(pill.target);
     case "session":
       return sessionReferencePrompt(pill);
   }
@@ -150,8 +125,7 @@ function skillInstruction(name: string) {
 export function composerPillTextMetadata(pill: ComposerPill): Record<string, unknown> {
   return {
     openworkComposerPill: pill,
-    // Prompt history recalls a Connect skill or task reference from its durable token.
-    ...(pill.kind === "connect-skill" ? { openworkComposerToken: encodeConnectSkillToken(pill) } : {}),
+    // Prompt history recalls a task reference from its durable token.
     ...(pill.kind === "session" ? { openworkComposerToken: composerPillToken(pill) } : {}),
   };
 }
@@ -188,17 +162,6 @@ export function readComposerPill(value: unknown): ComposerPill | null {
   if (kind === "skill" || kind === "connector") {
     const name = stringField(value, "name");
     return name ? { kind, name } : null;
-  }
-  if (kind === "computer") {
-    const target = stringField(value, "target");
-    return target && isComputerTarget(target) ? { kind, target } : null;
-  }
-  if (kind === "connect-skill") {
-    const slug = stringField(value, "slug");
-    const name = stringField(value, "name");
-    const marketplace = stringField(value, "marketplace");
-    const capability = stringField(value, "capability");
-    return slug && name && marketplace && capability ? { kind, slug, name, marketplace, capability } : null;
   }
   if (kind === "session") {
     const workspaceId = stringField(value, "workspaceId");
@@ -239,7 +202,6 @@ function getPillMatchers(): PillMatcher[] {
   if (pillMatchers) return pillMatchers;
   pillMatchers = [
     // Draft tokens that reached the transcript as text.
-    { re: /\[connect-skill [^\]]+\]/g, toPill: (match) => parseComposerPillToken(match[0]) },
     { re: /\[connector [^\]\n]+\]/g, toPill: (match) => parseComposerPillToken(match[0]) },
     { re: /\[skill [^\]\n]+\]/g, toPill: (match) => parseComposerPillToken(match[0]) },
     { re: /\[session [^\]\n]+\]/g, toPill: (match) => parseComposerPillToken(match[0]) },
@@ -250,31 +212,11 @@ function getPillMatchers(): PillMatcher[] {
       re: templateRegExp(render),
       toPill: (match) => match[1] ? { kind: "connector", name: match[1] } : null,
     })),
-    ...(["cloud", "desktop"] as const).flatMap((target) => computerInstructionHistory(target).map((instruction): PillMatcher => ({
-      re: new RegExp(escapeRegExp(instruction), "g"),
-      toPill: () => ({ kind: "computer", target }),
-    }))),
   ];
   return pillMatchers;
 }
 
-/** Decode exact historical sends without offering a retired instruction on new sends. */
-export function computerInstructionHistory(target: "cloud" | "desktop"): string[] {
-  const searchFirst = searchFirstComputerMentionInstruction(target);
-  const pollingEnding = target === "cloud"
-    ? "Return the session link and use remote-session:read to check replies."
-    : "Use remote-session:read with commandId to check delivery. A delivered receipt means the task was started, not that it finished; return the desktop session reference.";
-  return [
-    computerMentionInstruction(target),
-    searchFirst,
-    searchFirst.replace(/OpenWork shows the started task.*(?=\]$)/, pollingEnding),
-  ];
-}
-
 function isInstructionMatch(pill: ComposerPill, text: string) {
-  if (pill.kind === "computer") {
-    return computerInstructionHistory(pill.target).includes(text);
-  }
   if (pill.kind === "connector") {
     return CONNECTOR_PROMPT_HISTORY.some((render) => render(pill.name) === text);
   }

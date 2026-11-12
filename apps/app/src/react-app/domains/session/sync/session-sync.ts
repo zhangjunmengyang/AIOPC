@@ -3,20 +3,15 @@ import { create } from "zustand";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
-import { readGatewayUsageScope } from "@/app/lib/gateway-usage-scope";
-import { refreshGatewayUsageAfterCompletion } from "../../cloud/gateway-usage-refresh";
-import { gatewayUsageQueryPrefix } from "../../cloud/gateway-usage-state";
 import { mergeReplyMetadata, replyModelFromInfo } from "./reply-model";
 import { providerCredentialScope, useProviderCredentialHealth } from "../../connections/provider-auth/credential-health";
 import { isProviderCredentialRejection } from "./session-error";
 import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
-import { trackTaskCompleted, trackTaskFailed } from "@/app/lib/den-telemetry";
-import { noteActivationRunCompleted } from "../../cloud/activation/use-activation";
 import { observeModelsTaskEvent } from "@/app/lib/models-task-analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { AUTO_ROUTES_EVENT, createClientV2, isOpencodeV2BaseUrl } from "@/app/lib/opencode-v2-adapter";
 import { useAutoRouteStore } from "./auto-route-store";
-import { autoRouterReplyRoutes } from "@openwork/types/den/auto-router";
+import { autoRouterReplyRoutes } from "@openwork/types/auto-router";
 import { perfNow, recordPerfLog } from "@/app/lib/perf-log";
 import { isGeneratedSessionTitle } from "@/app/lib/session-title";
 import { normalizeEvent } from "@/app/utils";
@@ -143,7 +138,7 @@ type SyncEntry = {
   statusReconcileFailures: number;
   runActiveObservedAt: Map<string, number>;
   assistantMessageCompletedAt: Map<string, number>;
-  gatewayUsageRuns: Map<string, { scope: number; key: string; providerId: string | null; completed: boolean; startedAt: number; failed: boolean; responseCompleted: boolean }>;
+  providerCredentialRuns: Map<string, { scope: number; key: string; providerId: string | null; completed: boolean; startedAt: number; failed: boolean; responseCompleted: boolean }>;
   nativeSequenceBySession: Map<string, { sequence: number; revision: number }>;
   nativeSequenceRevision: number;
   nativeTerminalSessions: Set<string>;
@@ -162,12 +157,12 @@ type DeltaFlushScheduler = (
   run: () => void,
 ) => () => void;
 
-let gatewayUsageRunSequence = 0;
-function newGatewayUsageRun(key: string): { scope: number; key: string; providerId: string | null; completed: boolean; startedAt: number; failed: boolean; responseCompleted: boolean } {
-  return { scope: readGatewayUsageScope().generation, key, providerId: null, completed: false, startedAt: 0, failed: false, responseCompleted: false };
+let providerCredentialRunSequence = 0;
+function newProviderCredentialRun(key: string): { scope: number; key: string; providerId: string | null; completed: boolean; startedAt: number; failed: boolean; responseCompleted: boolean } {
+  return { scope: 0, key, providerId: null, completed: false, startedAt: 0, failed: false, responseCompleted: false };
 }
 
-function gatewayUsageProviderId(value: unknown): string | null {
+function credentialProviderId(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   if ("providerID" in value && typeof value.providerID === "string") return value.providerID;
   if ("model" in value && value.model && typeof value.model === "object" && "providerID" in value.model && typeof value.model.providerID === "string") return value.model.providerID;
@@ -611,7 +606,7 @@ function clearTrackedSession(input: SyncOptions, entry: SyncEntry, sessionId: st
   entry.retainedSessionTimers.delete(sessionId);
   entry.runActiveObservedAt.delete(sessionId);
   entry.assistantMessageCompletedAt.delete(sessionId);
-  entry.gatewayUsageRuns.delete(sessionId);
+  entry.providerCredentialRuns.delete(sessionId);
   cancelMessageReconciles(entry, sessionId);
   for (const [key, pending] of entry.pendingDeltas) {
     if (pending.sessionId === sessionId) entry.pendingDeltas.delete(key);
@@ -685,7 +680,7 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   entry.liveSessionIds.clear();
   entry.runActiveObservedAt.clear();
   entry.assistantMessageCompletedAt.clear();
-  entry.gatewayUsageRuns.clear();
+  entry.providerCredentialRuns.clear();
   entry.titleRecovery?.dispose();
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
@@ -1218,9 +1213,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (event.type === "session.execution.started") {
       entry.nativeTerminalSessions.delete(sessionId);
       applySessionRunStatus(entry, workspaceId, sessionId, { type: "busy" });
-      const usageRun = entry.gatewayUsageRuns.get(sessionId);
+      const usageRun = entry.providerCredentialRuns.get(sessionId);
       if (usageRun) {
-        usageRun.providerId = gatewayUsageProviderId(event.properties);
+        usageRun.providerId = credentialProviderId(event.properties);
         const props = event.properties;
         const timestamp = props && typeof props === "object" && "timestamp" in props ? props.timestamp : undefined;
         // Receiving/reconciling a busy run is not its start time. Unknown or
@@ -1341,21 +1336,19 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (sessionId) {
       const sessionError = sessionErrorFromProperties(event.properties);
       const errorPresentation = presentOpencodeSessionError(sessionError);
-      const credentialRun = entry.gatewayUsageRuns.get(sessionId);
+      const credentialRun = entry.providerCredentialRuns.get(sessionId);
       if (credentialRun) {
         credentialRun.failed = true;
         if (credentialRun.providerId && isProviderCredentialRejection(sessionError)) {
           useProviderCredentialHealth.getState().observe(workspaceId, credentialRun.providerId, "rejected", credentialRun.startedAt);
         }
       }
-      if (errorPresentation.gatewayUsage) void queryClient.invalidateQueries({ queryKey: gatewayUsageQueryPrefix });
       const errorText = describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
           duration_ms: Date.now() - runStartedAt,
         });
-        trackTaskFailed(sessionId, Date.now() - runStartedAt);
       }
       notifyDesktopEvent({ type: "task.failed", sessionId, errorText });
       useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
@@ -1513,9 +1506,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
       return;
     }
-    const usageRun = entry.gatewayUsageRuns.get(info.sessionID);
+    const usageRun = entry.providerCredentialRuns.get(info.sessionID);
     if (usageRun && info.role === "assistant") {
-      usageRun.providerId = gatewayUsageProviderId(info) ?? usageRun.providerId;
+      usageRun.providerId = credentialProviderId(info) ?? usageRun.providerId;
       if (usageRun.startedAt === 0 && typeof info.time?.created === "number" && info.time.created > 0) usageRun.startedAt = info.time.created;
     }
     useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
@@ -1887,9 +1880,9 @@ function applySessionRunStatus(
   }
 
   const live = isLiveStatus(status);
-  if (live && (!wasLive || !entry.gatewayUsageRuns.has(sessionId))) {
+  if (live && (!wasLive || !entry.providerCredentialRuns.has(sessionId))) {
     useProviderCredentialHealth.getState().bindWorkspace(workspaceId, providerCredentialScope(entry.input.baseUrl));
-    entry.gatewayUsageRuns.set(sessionId, newGatewayUsageRun(`${workspaceId}:${sessionId}:run:${++gatewayUsageRunSequence}`));
+    entry.providerCredentialRuns.set(sessionId, newProviderCredentialRun(`${workspaceId}:${sessionId}:run:${++providerCredentialRunSequence}`));
   }
   if (v2 && !live) {
     store.replaceWaitingRequests(workspaceId, sessionId, "permission",
@@ -1914,23 +1907,18 @@ function applySessionRunStatus(
       captureAnalyticsEvent("task_run_completed", {
         duration_ms: Date.now() - runStartedAt,
       });
-      trackTaskCompleted(sessionId, Date.now() - runStartedAt);
-      noteActivationRunCompleted(sessionId, Date.now() - runStartedAt);
       notifyDesktopEvent({ type: "task.completed", sessionId });
       entry.titleRecovery?.observe(sessionId);
     }
     const shouldRecordTerminal = wasLive || runStartedAt !== null;
     const shouldConvergeTerminal = shouldRecordTerminal || options.terminalEvent === true;
     if (shouldConvergeTerminal && (options.completed ?? !v2)) {
-      const usageRun = entry.gatewayUsageRuns.get(sessionId) ?? newGatewayUsageRun(`${workspaceId}:${sessionId}:terminal:${entry.nativeSequenceBySession.get(sessionId)?.sequence ?? "unknown"}`);
-      entry.gatewayUsageRuns.set(sessionId, usageRun);
+      const usageRun = entry.providerCredentialRuns.get(sessionId) ?? newProviderCredentialRun(`${workspaceId}:${sessionId}:terminal:${entry.nativeSequenceBySession.get(sessionId)?.sequence ?? "unknown"}`);
+      entry.providerCredentialRuns.set(sessionId, usageRun);
       if (!usageRun.completed) {
         usageRun.completed = true;
         if (usageRun.providerId && !usageRun.failed && (options.completed === true || usageRun.responseCompleted)) {
           useProviderCredentialHealth.getState().observe(workspaceId, usageRun.providerId, "verified", usageRun.startedAt);
-        }
-        if (usageRun.providerId === null || usageRun.providerId.startsWith("ipr_")) {
-          refreshGatewayUsageAfterCompletion(usageRun.scope, usageRun.key);
         }
       }
     }
@@ -2319,7 +2307,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     statusReconcileFailures: 0,
     runActiveObservedAt: new Map(),
     assistantMessageCompletedAt: new Map(),
-    gatewayUsageRuns: new Map(),
+    providerCredentialRuns: new Map(),
     nativeSequenceBySession: new Map(),
     nativeSequenceRevision: 0,
     nativeTerminalSessions: new Set(),
@@ -2707,7 +2695,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     statusReconcileFailures: 0,
     runActiveObservedAt: new Map(),
     assistantMessageCompletedAt: new Map(),
-    gatewayUsageRuns: new Map(),
+    providerCredentialRuns: new Map(),
     nativeSequenceBySession: new Map(),
     nativeSequenceRevision: 0,
     nativeTerminalSessions: new Set(),

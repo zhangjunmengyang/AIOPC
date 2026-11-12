@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { DynamicToolUIPart } from "ai";
-import { isAppGuidePart } from "../src/react-app/domains/apps/app-creation-progress";
+import { isAppGuidePart } from "../src/react-app/domains/mcp-apps/app-creation-progress";
 
 const part = (toolName: string, input: unknown) => ({
   type: "dynamic-tool",

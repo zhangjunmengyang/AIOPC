@@ -27,3 +27,20 @@ test("AIOPC's instructions follow the base prompt", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("AIOPC configures the same local scheduler MCP for either engine without forwarding secrets", () => {
+  const schedulerEnv = {
+    AIOPC_SCHEDULER_NODE: "/Applications/AIOPC.app/Contents/MacOS/AIOPC",
+    AIOPC_SCHEDULER_ENTRY: "/home/.aiopc/scheduler/scheduler-mcp.mjs",
+    OPENCODE_SCHEDULER_OPENCODE_PATH: "/home/.aiopc/scheduler/launcher",
+    AIOPC_SCHEDULER_SDK: "/app/node_modules/@modelcontextprotocol/sdk",
+    AIOPC_HOME: "/home/.aiopc",
+  };
+  const servers = aiopcMcpServers({ ...schedulerEnv, SECRET: "never-forwarded" });
+  assert.deepEqual(servers.scheduler, {
+    type: "local", enabled: true,
+    command: [schedulerEnv.AIOPC_SCHEDULER_NODE, schedulerEnv.AIOPC_SCHEDULER_ENTRY],
+    environment: { ...schedulerEnv, ELECTRON_RUN_AS_NODE: "1" },
+  });
+  assert.deepEqual(aiopcMcpServers({ ...schedulerEnv, AIOPC_SCHEDULER_SDK: "" }), {});
+});

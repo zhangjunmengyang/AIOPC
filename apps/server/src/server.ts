@@ -1,10 +1,9 @@
-import { cloudComputerCall, cloudComputerFor, cloudComputerJson, startCloudComputerBridge } from "./cloud-computer.js";
+import { createLocalProviderReload } from "./local-provider-reload.js";
+
 import { createV2SessionHomes, nativeSession, nativeSessionDirectory } from "./opencode-v2-session-home.js";
-import { createNativeCloudMcpResolver, createRoutedCloudMcpRegistrar } from "./cloud-mcp-v2.js";
 import { managedDesktopPolicy } from "./managed-desktop-policy.js";
 import { readHostResponse } from "./host-response.js";
 import { createTaskRecovery, setTaskRecovery } from "./task-recovery.js";
-import { managedPolicyActionSchema } from "./managed-policy-rules.js";
 import { enterEngineMutation, withEngineSwitchFence } from "./engine-switch-fence.js";
 import { originalHistoryUsesV2 } from "./opencode-history.js";
 import { beginOpencodeStop, opencodeSessionIsStopping } from "./opencode-stop-fence.js";
@@ -14,9 +13,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { resolveGlobalOpencodeConfigPath } from "@openwork/paths";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
-import { agentContextDiagnosticsRequestSchema } from "./agent-context-diagnostics-schema.js";
 import { ApprovalService } from "./approvals.js";
-import { attachApprovedDriveUpload, createDriveUploadPreflight, type PreparedDriveUploadFile } from "./extensions/approved-drive-upload.js";
 import {
   BoundedSseFrameBuffer,
   EnginePool,
@@ -63,7 +60,6 @@ import {
   releaseMcpAppLaunch,
   type McpAppLaunchContext,
 } from "./mcp-app-host.js";
-import { CONNECT_MCP_SERVER_NAME_PREFIX } from "./connect-mcp-server-catalog.js";
 import {
   MCP_APP_SANDBOX_PROXY_CSS,
   MCP_APP_SANDBOX_PROXY_HTML,
@@ -94,14 +90,6 @@ import { sanitizeCommandName, validateMcpName, validateUserMcpName, validateUser
 import { TokenService } from "./tokens.js";
 import { resetManagedProviderAuthCache, syncManagedProviderAuth } from "./managed-provider-auth.js";
 import { EnvService } from "./env-file.js";
-import {
-  normalizeResourceSnapshot,
-  readDesktopCloudSyncState,
-  readWorkspaceCloudImports,
-  syncDesktopCloudResources,
-} from "./desktop-cloud-sync.js";
-import { readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
-import { AnonymousInferenceService } from "./anonymous-inference.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import { listPortableFiles } from "./portable-files.js";
 import {
@@ -124,7 +112,6 @@ import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
 import { registerUiControlRoutes } from "./routes/ui-control.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
-import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
 import { UiControlMailbox } from "./ui-control.js";
 import { captureServerException, isExpectedRequestCancellation } from "./telemetry.js";
 import {
@@ -139,15 +126,6 @@ import {
   setLocalManagedMcpEnabled,
   startLocalManagedMcpAuthorization,
 } from "./local-managed-mcp.js";
-import {
-  markOpenworkCloudMcpStale,
-  migrateOpenworkCloudMcpRuntimeConfig,
-  OPENWORK_CLOUD_MCP_NAME,
-  reconcilePersistedOpenworkCloudMcp,
-  removeOpenworkCloudMcpDesiredConfig,
-  type CloudMcpHealth,
-} from "./cloud-mcp-health.js";
-import { runAgentContextDiagnostics } from "./agent-context-diagnostics.js";
 import { createAgentDiagnosticsEngineFetch, validateEffectiveEngineSnapshot } from "./agent-context-engine-inspection.js";
 import { selectGoverningAgent, summarizeEffectivePermissions } from "./effective-permissions.js";
 import { readWorkspaceRunMode, setWorkspaceRunMode, type WorkspaceRunModeState } from "./workspace-run-mode.js";
@@ -176,8 +154,7 @@ import {
 import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import { findManagedEngineWorkspace, hasExternalOpencode, managedEngineRootWorkspace } from "./workspaces.js";
 import { startThreadApprovalReplayer, type ThreadApprovalReplayer } from "./thread-approvals.js";
-import { CloudProviderSync, parseCloudProviderDenSession } from "./cloud-provider-sync.js";
-import { createEngineV2Preview, shouldSyncLiveProviderOwnerTransition, type EngineV2Preview } from "./engine-v2-preview.js";
+import { createEngineV2Preview, type EngineV2Preview } from "./engine-v2-preview.js";
 import { MACHINE_PROVIDER_TEMPLATE_OWNERSHIP, providerConfigFingerprint } from "./provider-config-templates.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
@@ -191,15 +168,7 @@ export {
 const SERVER_VERSION = pkg.version;
 const OPENCODE_VERSION = constants.opencodeVersion.trim().replace(/^v/, "");
 
-let desktopCloudSyncQueue: Promise<void> = Promise.resolve();
-const agentDiagnosticsLastRunByServer = new WeakMap<ServerConfig, Map<string, number>>();
-const agentDiagnosticsInFlightByServer = new WeakMap<ServerConfig, Set<string>>();
 const commandAdmissionsByServer = new WeakMap<ServerConfig, Map<string, { fingerprint: string; admittedAt: number }>>();
-const AGENT_DIAGNOSTICS_RATE_LIMIT_CAPACITY = 1_000;
-const AGENT_DIAGNOSTICS_MAX_IN_FLIGHT_PER_SERVER = 16;
-const AGENT_DIAGNOSTICS_MAX_REQUEST_BYTES = 256 * 1024;
-const AGENT_DIAGNOSTICS_DEFAULT_BODY_DEADLINE_MS = 2_000;
-const AGENT_DIAGNOSTICS_ERROR_FLUSH_MS = 25;
 const COMMAND_ADMISSION_CAPACITY = 10_000;
 const COMMAND_ADMISSION_TTL_MS = 24 * 60 * 60 * 1_000;
 
@@ -217,61 +186,6 @@ function rethrowMcpAppHostError(error: unknown): never {
         ? 502
         : 422;
   throw new ApiError(status, error.code, error.message);
-}
-
-function agentDiagnosticsActorWorkspaceKey(actor: Actor | undefined, workspaceId: string): string {
-  const actorKey = actor?.tokenHash ?? actor?.clientId ?? actor?.type ?? "unknown";
-  return hashToken(actorKey + "\0" + workspaceId);
-}
-
-function requireAgentDiagnosticsRateLimit(config: ServerConfig, actor: Actor | undefined, workspaceId: string): void {
-  const now = Date.now();
-  const configured = Number(process.env.OPENWORK_AGENT_DIAGNOSTICS_COOLDOWN_MS ?? "3000");
-  const cooldownMs = Number.isFinite(configured) && configured >= 0 ? configured : 3_000;
-  const key = agentDiagnosticsActorWorkspaceKey(actor, workspaceId);
-  const agentDiagnosticsLastRun = agentDiagnosticsLastRunByServer.get(config) ?? new Map<string, number>();
-  agentDiagnosticsLastRunByServer.set(config, agentDiagnosticsLastRun);
-  const previous = agentDiagnosticsLastRun.get(key);
-  if (previous !== undefined && now - previous < cooldownMs) {
-    throw new ApiError(429, "agent_diagnostics_rate_limited", "Agent diagnostics were run too recently");
-  }
-  for (const [candidate, at] of agentDiagnosticsLastRun) {
-    if (now - at > Math.max(cooldownMs, 60_000)) agentDiagnosticsLastRun.delete(candidate);
-  }
-  if (agentDiagnosticsLastRun.size >= AGENT_DIAGNOSTICS_RATE_LIMIT_CAPACITY) {
-    const oldest = agentDiagnosticsLastRun.keys().next().value;
-    if (oldest) agentDiagnosticsLastRun.delete(oldest);
-  }
-  agentDiagnosticsLastRun.set(key, now);
-}
-
-function reserveAgentDiagnosticsRun(
-  config: ServerConfig,
-  actor: Actor | undefined,
-  workspaceId: string,
-): () => void {
-  const key = agentDiagnosticsActorWorkspaceKey(actor, workspaceId);
-  const inFlight = agentDiagnosticsInFlightByServer.get(config) ?? new Set<string>();
-  agentDiagnosticsInFlightByServer.set(config, inFlight);
-  // Preserve the existing cooldown response for ordinary repeated attempts.
-  // A zero/expired cooldown still cannot bypass the in-flight reservation.
-  requireAgentDiagnosticsRateLimit(config, actor, workspaceId);
-  if (inFlight.has(key)) {
-    throw new ApiError(429, "agent_diagnostics_in_progress", "Agent diagnostics are already in progress");
-  }
-  if (inFlight.size >= AGENT_DIAGNOSTICS_MAX_IN_FLIGHT_PER_SERVER) {
-    throw new ApiError(429, "agent_diagnostics_busy", "Agent diagnostics are temporarily busy");
-  }
-
-  // The cooldown charge and reservation are synchronous, so no second request
-  // for this actor/workspace can slip in between them.
-  inFlight.add(key);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    inFlight.delete(key);
-  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -384,15 +298,6 @@ async function readManagedRuntimeConfigDebug(config: ServerConfig): Promise<{
 
 function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
   return Object.keys(config).filter((key) => key !== "$schema").sort();
-}
-
-function enqueueDesktopCloudSync<T>(operation: () => Promise<T>): Promise<T> {
-  const run = desktopCloudSyncQueue.then(operation);
-  desktopCloudSyncQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
 }
 
 const reloadBaselineRefreshers = new WeakMap<
@@ -836,59 +741,32 @@ export async function startServer(
     logger,
   });
   setEngineInstanceReaperForConfig(config, engineInstanceReaper);
-  const hostReadRequest = async (path: string, init?: RequestInit, approvedDriveFile?: PreparedDriveUploadFile) => {
+  const hostReadRequest = async (path: string, init?: RequestInit) => {
     // Internal dispatch retains credentials and exact-file capabilities in this
     // process. Neither is serialized to the native plugin or accepted over HTTP.
     const request = new Request(`http://127.0.0.1${path}`, {
       ...init, headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
     });
-    if (approvedDriveFile) attachApprovedDriveUpload(request, approvedDriveFile);
     const response = await serverOptions.fetch(request);
     return readHostResponse(response);
   };
   const engineV2Preview: EngineV2Preview = createEngineV2Preview({ config, env, deferStart: true,
     autoUpgradeIdle: async () => (await describeV1EngineActivity(config)).verdict === "idle",
     autoUpgradeError: (error) => logger.log("warn", "Automatic engine upgrade failed; keeping v1", { error }),
-    providerSession: () => cloudProviderSync.providerBridgeSession(),
     hostReadRequest,
-    prepareDriveUpload: createDriveUploadPreflight(config, hostReadRequest),
   });
-  const cloudProviderSync = new CloudProviderSync({
-    config,
-    env,
-    liveProviderSync: async () => engineV2Preview.status().liveProviderSync,
-    reloadEngine: async () => {
+  const providerReload = createLocalProviderReload({
+    reload: async () => {
       if (engineV2Preview.status().chatRouting) {
         await engineV2Preview.refreshProviders();
-        return { action: "updated_live" };
+        return true;
       }
-      return reloadOpencodeEngine(config, resolveEngineRuntimeWorkspace(config), engineMcpServerState,
-        { forceStandby: true, reason: "cloud_provider_sync" });
+      const workspace = resolveEngineRuntimeWorkspace(config);
+      if (await shouldDeferInPlaceEngineReload(config, workspace, engineHasActiveSessions)) return false;
+      return rolloverOutcomeApplied(await reloadOpencodeEngine(config, workspace, engineMcpServerState,
+        { forceStandby: true, reason: "local_provider_update" }));
     },
-    engineBusy: () => {
-      if (engineV2Preview.status().chatRouting) return Promise.resolve(false);
-      const pool = enginePoolForConfig(config);
-      return pool
-        ? Promise.resolve(pool.hasDrainingGeneration())
-        : engineHasActiveSessions(config, resolveEngineRuntimeWorkspace(config));
-    },
-    logger: toManagedProviderAuthLogger(logger),
   });
-  const anonymousInference = new AnonymousInferenceService(config, logger);
-  anonymousInference.onEngineConfigChanged = () => { if (config.workspaces.length > 0 || enginePoolForConfig(config)) cloudProviderSync.markReloadPending(); };
-  managedDesktopPolicy(config).onV2OnlyChange = (enabled) => {
-    void engineV2Preview.setV2Only(enabled).catch(() => undefined);
-  };
-  managedDesktopPolicy(config).onChange = () => {
-    void anonymousInference.initialize(config.port).then((changed) => {
-      if (changed && config.workspaces.length > 0) cloudProviderSync.markReloadPending();
-    }).catch(() => undefined);
-    // Sign-in can precede the first workspace. A managed engine is already
-    // running then and must pick up the policy; an attached server with no
-    // workspace has no engine to reload.
-    if (config.workspaces.length > 0 || enginePoolForConfig(config)) cloudProviderSync.markReloadPending();
-  };
-  const stopCloudComputer = await startCloudComputerBridge(config);
   const routes = createRoutes(
     config,
     approvals,
@@ -897,10 +775,9 @@ export async function startServer(
     restartReloadWatchers,
     engineMcpServerState,
     logger,
-    cloudProviderSync,
+    providerReload,
     engineV2Preview,
     () => managedEngineReady,
-    anonymousInference,
   );
 
   const serverOptions: {
@@ -972,7 +849,6 @@ export async function startServer(
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
           await validateEngineRequestBody(request);
           await managedDesktopPolicy(config).assertRequest(request, mount.restPath, true);
-          await anonymousInference.assertTaskAccess(request, mount.restPath);
           const workspace = await resolveWorkspaceWithoutBootstrap(config, mount.workspaceId);
           const ownership = assertWorkspaceOwnsProxiedSessionRead(config, workspace, request.method, mount.restPath, false,
             request.method === "GET" || request.method === "HEAD" ? request.signal : undefined);
@@ -1028,7 +904,6 @@ export async function startServer(
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
           await validateEngineRequestBody(request);
           await managedDesktopPolicy(config).assertRequest(request, mount.restPath, true);
-          await anonymousInference.assertTaskAccess(request, mount.restPath);
           const workspace = await resolveWorkspaceWithoutBootstrap(config, mount.workspaceId);
           const connection = engineV2Preview.connection();
           if (!connection) {
@@ -1136,7 +1011,6 @@ export async function startServer(
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
           await validateEngineRequestBody(request);
           await managedDesktopPolicy(config).assertRequest(request, url.pathname, true);
-          await anonymousInference.assertTaskAccess(request, url.pathname);
           proxyService = "opencode";
           const workspace = config.workspaces[0];
           const ownership = workspace
@@ -1208,21 +1082,7 @@ export async function startServer(
             : new ApiError(500, "internal_error", "Unexpected server error");
         recordApiError(apiError);
         const response = jsonResponse(formatError(apiError), apiError.status);
-        const isAgentDiagnosticsRequest =
-          request.method === "POST" && /^\/workspace\/[^/]+\/diagnostics\/agent-context$/.test(url.pathname);
-        if (isAgentDiagnosticsRequest) {
-          // Every diagnostics error closes the connection because failures such
-          // as cooldown or in-flight rejection happen before body consumption.
-          // Abort after a short flush window so the stable JSON error reaches the
-          // client before unread bytes and drip streams are actively terminated.
-          response.headers.set("Connection", "close");
-          const requestBody = request.body;
-          if (requestBody) {
-            setTimeout(() => {
-              void requestBody.cancel(new Error("Agent diagnostics request was rejected")).catch(() => undefined);
-            }, AGENT_DIAGNOSTICS_ERROR_FLUSH_MS);
-          }
-        }
+
         return finalize(response);
       }
     },
@@ -1243,10 +1103,8 @@ export async function startServer(
   } catch (error) {
     await taskRecovery?.stop().catch(() => undefined);
     captureServerException(error, { method: "START", route: "startServer" });
-    anonymousInference.stop();
-    cloudProviderSync.stop();
+    providerReload.stop();
     await engineV2Preview.stop().catch(() => undefined);
-    await stopCloudComputer();
     engineInstanceReaper.close();
     clearEngineInstanceReaperForConfig(config);
     invalidateEngineMcpServerState(config, engineMcpServerState);
@@ -1265,14 +1123,6 @@ export async function startServer(
       });
     }
   }
-  try {
-    if (await anonymousInference.initialize(server.port)) await writeOpenworkRuntimeConfigFile(config);
-  } catch {
-    anonymousInference.stop();
-    logger.log("warn", "Desktop free access could not be initialized.");
-  }
-  // Policy hooks must receive the listener that actually bound, including
-  // ephemeral ports and retries after a port collision.
   engineV2Preview.start();
 
   // Deliver server-managed provider credentials to the engine on startup. The
@@ -1286,7 +1136,7 @@ export async function startServer(
     void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) })
       .then((result) => {
         if (result.delivered.length > 0 || result.removed.length > 0) {
-          cloudProviderSync.markReloadPending();
+          providerReload.request();
         }
       })
       .catch(() => undefined);
@@ -1308,7 +1158,7 @@ export async function startServer(
       void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) })
         .then((result) => {
           if (result.delivered.length > 0 || result.removed.length > 0) {
-            cloudProviderSync.markReloadPending();
+            providerReload.request();
           }
           if (result.failed.length > 0) scheduleStartupProviderAuthRetry(attempt + 1);
         })
@@ -1360,16 +1210,13 @@ export async function startServer(
       if (startupAuthRetryTimer) clearTimeout(startupAuthRetryTimer);
       let recoveryError: unknown;
       try { await taskRecovery?.stop(); } catch (error) { recoveryError = error; }
-      managedDesktopPolicy(config).onChange = undefined;
-      anonymousInference.stop();
-      cloudProviderSync.stop();
+      providerReload.stop();
       await engineV2Preview.stop().catch(() => undefined);
       engineInstanceReaper.close();
       clearEngineInstanceReaperForConfig(config);
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
-      await stopCloudComputer();
       await server.stop();
       if (recoveryError) throw recoveryError;
     },
@@ -1556,18 +1403,8 @@ async function forwardOpencodeV2Request(input: {
     await input.prepareExecution?.(executionDirectory);
     // Session ownership was verified above. Replace one native instruction
     // entry immediately before admission; never append to conversation text.
-    const mcpUrl = new URL(target);
-    mcpUrl.pathname = "/api/mcp";
     const internalHeaders = new Headers({ authorization: headers.get("authorization") ?? "", "content-type": "application/json" });
-    const mcpResponse = await engineFetch(mcpUrl.toString(), { headers: internalHeaders, signal: AbortSignal.timeout(10_000) });
-    const mcpPayload: unknown = mcpResponse.ok ? await mcpResponse.json() : null;
-    const connectReady = isRecord(mcpPayload) && Array.isArray(mcpPayload.data) && mcpPayload.data.some((entry) =>
-      isRecord(entry) && entry.name === "openwork-cloud" && isRecord(entry.status) && entry.status.status === "connected");
-    // Keep organization skill discovery on demand through Connect. The full
-    // catalog can exceed the engine's instruction-entry request limit.
-    // The organization's Prompts arrive with the cloud provider sync.
-    const organizationPrompts = (await readGlobalRuntimeOpencodeConfig(input.config)).managedPrompt;
-    const value = buildOpenWorkV2Instructions(connectReady, organizationPrompts);
+    const value = buildOpenWorkV2Instructions();
     // The pinned engine never loads the config's `instructions` files, so send
     // them as their own entry, and clear it once the engine does. Best effort:
     // a failure leaves the entry as it was and never blocks the turn.
@@ -1611,23 +1448,6 @@ async function forwardOpencodeV2Request(input: {
     headers.set("content-type", "application/json");
   }
   const response = await engineFetch(target.toString(), { method, headers, body, signal });
-  if (method === "GET" && /^\/api\/skill(?:\/|$)/.test(decodeURIComponent(forwardedPath))
-    && input.actor.scope !== "owner" && response.ok) {
-    // A shared client token is not authorization to bulk-read the owner's Cloud
-    // instructions. Keep metadata for selection, just like the Connect catalog;
-    // bodies and private materialization paths stay on the owner/engine side.
-    // Internal watcher/admission reads above deliberately do not use this projection.
-    const payload: unknown = await response.json();
-    const raw = isRecord(payload) && "data" in payload ? payload.data : payload;
-    const publicSkill = (value: unknown) => {
-      if (!isRecord(value) || typeof value.id !== "string") {
-        throw new ApiError(502, "invalid_engine_response", "Invalid skill metadata");
-      }
-      if (!value.id.startsWith("openwork-cloud-")) return value;
-      return Object.fromEntries(Object.entries(value).filter(([key]) => ["id", "name", "description", "slash"].includes(key)));
-    };
-    return jsonResponse({ data: Array.isArray(raw) ? raw.map(publicSkill) : publicSkill(raw) });
-  }
   if (method === "GET" && /^\/api\/provider(?:\/|$)/.test(decodeURIComponent(forwardedPath)) && response.ok) {
     // Provider.Info includes request settings/headers, which may contain the
     // mirrored server-owned key. Clients only need public catalog metadata.
@@ -1866,11 +1686,6 @@ function opencodeUnreachableError(error: unknown, path: string): ApiError {
     path,
     cause: error instanceof Error ? error.message : String(error),
   });
-}
-
-function agentDiagnosticsTimeoutMs(): number {
-  const configured = Number(process.env.OPENWORK_AGENT_DIAGNOSTICS_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 24_000;
 }
 
 function buildOpencodeDirectoryHeader(directory: string) {
@@ -2822,41 +2637,28 @@ function createRoutes(
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
   logger: ServerLogger,
-  cloudProviderSync: CloudProviderSync,
+  providerReload: ReturnType<typeof createLocalProviderReload>,
   engineV2Preview: EngineV2Preview,
   isReady: () => boolean,
-  anonymousInference: AnonymousInferenceService,
 ): Route[] {
   const routes: Route[] = [];
   // The login runs with what the engine's own `claude` gets: OS paths, never this server's credentials.
   const claudeCodeLogin = createClaudeCodeLogin({ env: inheritedEngineEnv(undefined) });
-  addRoute(routes, "GET", "/anonymous-inference/status", "client", async () =>
-    jsonResponse(await anonymousInference.status()));
   for (const action of ["preflight", "refresh"]) {
-    addRoute(routes, "POST", `/anonymous-inference/${action}`, "client", async (ctx) => {
-      requireClientScope(ctx, "collaborator");
-      return jsonResponse(await anonymousInference.preflight());
-    });
   }
-  addRoute(routes, "GET", "/anonymous-inference/v1/models", "none", (ctx) =>
-    anonymousInference.handle(ctx.request, "models"));
-  addRoute(routes, "POST", "/anonymous-inference/v1/chat/completions", "none", (ctx) =>
-    anonymousInference.handle(ctx.request, "chat/completions"));
-  addRoute(routes, "POST", "/anonymous-inference/v1/responses", "none", (ctx) =>
-    anonymousInference.handle(ctx.request, "responses"));
   // A rollover-capable pool can apply this immediately without disposing
   // the generation that owns live sessions. Legacy/external engines keep
   // the established busy deferral.
   const applyManagedProviderReload = async (workspace: WorkspaceInfo): Promise<"reloaded" | "deferred"> => {
     const reloadDeferred = await shouldDeferInPlaceEngineReload(config, workspace, engineHasActiveSessions);
     if (reloadDeferred) {
-      cloudProviderSync.markReloadPending();
+      providerReload.request();
       return "deferred";
     }
     // A key-only rotation through this route never shows in the pool's
     // config fingerprint, so an unforced request would be skipped and the
     // engine would keep serving the previous credential while the route
-    // answered "reloaded". Force the standby path, mirroring cloud sync, and
+    // answered "reloaded". Force the standby path, matching local credential reloads, and
     // only report "reloaded" once the engine actually read the change.
     const outcome = await reloadOpencodeEngine(config, workspace, engineMcpServerState, {
       reason: "managed_provider_reload",
@@ -2865,7 +2667,7 @@ function createRoutes(
     if (rolloverOutcomeApplied(outcome)) return "reloaded";
     // Parked or skipped inside the pool: keep it owed so the sync retry
     // path lands it instead of the caller believing it is done.
-    cloudProviderSync.markReloadPending();
+    providerReload.request();
     return "deferred";
   };
   const privateProviderResponse = (value: unknown) => {
@@ -2873,30 +2675,7 @@ function createRoutes(
     response.headers.set("Cache-Control", "no-store");
     return response;
   };
-  addRoute(routes, "GET", "/anonymous-inference/preferences", "host-token", async () =>
-    privateProviderResponse(await anonymousInference.preferences()));
-  addRoute(routes, "PUT", "/anonymous-inference/preferences", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    if (typeof body.enabled !== "boolean" || Object.keys(body).some((key) => key !== "enabled")) {
-      throw new ApiError(400, "invalid_payload", "Only enabled is accepted.");
-    }
-    const preferences = await anonymousInference.setEnabled(body.enabled);
-    const refresh = await applyManagedProviderReload(resolveEngineRuntimeWorkspace(config));
-    return jsonResponse({ ...preferences, refresh });
-  });
-  // The app's analytics setting. Free Auto sends its analytics journey only after the app reports it is on.
-  // Not gated on writability: turning analytics off must always take effect.
-  addRoute(routes, "PUT", "/anonymous-inference/analytics", "host-token", async (ctx) => {
-    const body = await readJsonBody(ctx.request);
-    if (typeof body.enabled !== "boolean" || Object.keys(body).some((key) => key !== "enabled")) {
-      throw new ApiError(400, "invalid_payload", "Only enabled is accepted.");
-    }
-    return privateProviderResponse(await anonymousInference.setAnalyticsEnabled(body.enabled));
-  });
-  const nativeEngineForWorkspace = createNativeCloudMcpResolver(engineV2Preview);
   registerCoreRoutes({
-    nativeEngineForWorkspace,
     routes,
     config,
     tokens,
@@ -2915,7 +2694,6 @@ function createRoutes(
     resolveWorkspace,
     resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
-    refreshRegistrationFromLiveStatus: refreshEngineMcpRegistrationFromLiveStatus,
     serializeWorkspace,
     resolveDevLogPath,
     onManagedProviderAuthChanged: async () => {
@@ -2975,85 +2753,6 @@ function createRoutes(
     resolveWorkspaceWithoutBootstrap,
   });
 
-  registerCloudMcpRoutes({
-    nativeEngineForWorkspace,
-    routes,
-    config,
-    jsonResponse,
-    readJsonBody,
-    ensureWritable,
-    requireClientScope,
-    resolveWorkspace,
-    resolveOpencodeDirectory,
-    createWorkspaceOpencodeClient,
-    refreshRegistrationFromLiveStatus: refreshEngineMcpRegistrationFromLiveStatus,
-    registerRuntimeMcp: createRoutedCloudMcpRegistrar(engineV2Preview, (routeConfig, workspace, onlyNames, options) =>
-      syncRuntimeMcpToOpencodeEngine(
-        routeConfig,
-        workspace,
-        onlyNames,
-        options,
-        engineMcpServerState,
-      )),
-    serverMetadata: { serverVersion: SERVER_VERSION, expectedOpencodeVersion: OPENCODE_VERSION },
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/diagnostics/agent-context", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspaceForInspection(config, ctx.params.id);
-    // Reserve before consuming untrusted bytes and hold the reservation through
-    // report completion. The cooldown remains charged for invalid, oversized,
-    // timed-out, and otherwise unsuccessful attempts.
-    const releaseReservation = reserveAgentDiagnosticsRun(config, ctx.actor, workspace.id);
-    try {
-      const parsed = agentContextDiagnosticsRequestSchema.safeParse(await readAgentDiagnosticsJsonBody(ctx.request));
-      if (!parsed.success) {
-        throw new ApiError(400, "invalid_agent_diagnostics_request", "Agent diagnostics request is invalid");
-      }
-      const opencode = createWorkspaceOpencodeClient(config, workspace, { boundedDiagnosticsReads: true });
-      const timeoutSignal = AbortSignal.timeout(agentDiagnosticsTimeoutMs());
-      const diagnosticsSignal = AbortSignal.any([ctx.request.signal, timeoutSignal]);
-      let response: Response;
-      try {
-        response = jsonResponse(await runAgentContextDiagnostics({
-          config,
-          workspace,
-          request: parsed.data,
-          inspectRegistration: (name, mcpConfig) =>
-            inspectEngineMcpRegistrationInState(
-              config,
-              engineMcpServerState,
-              workspace,
-              name,
-              mcpConfig,
-            ),
-          dependencies: {
-            signal: diagnosticsSignal,
-            inspectEffectiveEngine: async (signal) => {
-              const [configResult, agentResult] = await Promise.all([
-                opencode.config.get({}, { signal }),
-                opencode.app.agents({}, { signal }),
-              ]);
-              return {
-                config: unwrapOpencodeResult(configResult, "/config"),
-                agents: unwrapOpencodeResult(agentResult, "/agent"),
-              };
-            },
-          },
-        }));
-      } catch (error) {
-        if (timeoutSignal.aborted && !ctx.request.signal.aborted) {
-          throw new ApiError(504, "agent_diagnostics_timeout", "Agent diagnostics timed out");
-        }
-        throw error;
-      }
-      response.headers.set("Cache-Control", "no-store");
-      return response;
-    } finally {
-      releaseReservation();
-    }
-  });
-
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const openwork = await readOpenworkConfigForWorkspace(config, workspace);
@@ -3066,101 +2765,6 @@ function createRoutes(
     );
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const openwork = await readOpenworkConfigForWorkspace(config, workspace);
-    return jsonResponse(readDesktopCloudSyncState(openwork));
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const snapshot = normalizeResourceSnapshot(body.snapshot);
-    if (!snapshot) {
-      throw new ApiError(400, "invalid_payload", "snapshot is required");
-    }
-
-    const result = await enqueueDesktopCloudSync(async () => {
-      const openwork = await readOpenworkConfigForWorkspace(config, workspace);
-      const installed = await readInstalledCloudPlugins(config, workspace.id);
-      const cloudImports = {
-        ...installed,
-        providers: readWorkspaceCloudImports(openwork).providers,
-      };
-      const next = syncDesktopCloudResources({ openwork: { ...openwork, cloudImports }, snapshot });
-      // The plugin DB owns plugins/marketplaces, but provider import baselines live in
-      // the workspace config. Writing the merged cloudImports back erased providers
-      // and drove the provider-sync dispose/create loop.
-      await writeOpenworkWorkspaceConfig(config, workspace.id, (current) => ({
-        ...current,
-        desktopCloudSync: next.state,
-      }));
-      await recordAudit(workspace.path, {
-        id: shortId(),
-        workspaceId: workspace.id,
-        actor: ctx.actor ?? { type: "remote" },
-        action: "desktop_cloud_sync.update",
-        target: openworkConfigPath(workspace.path),
-        summary: "Updated desktop cloud sync state",
-        timestamp: Date.now(),
-      });
-      return next;
-    });
-    return jsonResponse({ changes: result.changes, state: result.state });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
-    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: cloudImports.plugins });
-  });
-
-  addRoute(routes, "DELETE", "/workspace/:id/cloud-plugins/:pluginId", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const pluginId = ctx.params.pluginId ?? "";
-
-    await requireApproval(ctx, {
-      workspaceId: workspace.id,
-      action: "cloud_plugins.remove",
-      summary: `Remove cloud plugin ${pluginId}`,
-      paths: [openworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
-    });
-
-    const removed = await removeCloudPlugin({
-      serverConfig: config,
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      pluginId,
-    });
-
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "cloud_plugins.remove",
-      target: openworkConfigPath(workspace.path),
-      summary: `Removed cloud plugin ${removed.name}`,
-      timestamp: Date.now(),
-    });
-
-    for (const file of removed.files) {
-      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
-        type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
-        name: file.title,
-        action: "removed",
-      });
-    }
-    if (removed.files.some((file) => file.objectType === "skill")) {
-      await engineV2Preview.settleWorkspaceSkills(workspace.path);
-    }
-
-    return jsonResponse({ item: removed, warnings: [] });
   });
 
   const pendingRunModeRefresh = new Set<string>();
@@ -3435,79 +3039,6 @@ function createRoutes(
     return response;
   });
 
-  addRoute(routes, "PUT", "/den-session/identity", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const session = parseCloudProviderDenSession(await readJsonBody(ctx.request));
-    if (!session) throw new ApiError(400, "invalid_payload", "baseUrl, token, and orgId are required");
-    anonymousInference.setMemberSession(session);
-    // Repeated identity delivery for the sign-in already active must not pause
-    // provider sync or revoke the provider bridge: that cuts every live
-    // Gateway reply (ENG-994). A different sign-in still revokes synchronously.
-    const suspended = cloudProviderSync.suspendForSession(session);
-    try {
-      await managedDesktopPolicy(config).setSession(session);
-    } finally {
-      await suspended;
-    }
-    return new Response(null, { status: 204 });
-  });
-
-  addRoute(routes, "PUT", "/den-session", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const session = parseCloudProviderDenSession(await readJsonBody(ctx.request));
-    if (!session) throw new ApiError(400, "invalid_payload", "baseUrl, token, and orgId are required");
-    anonymousInference.setMemberSession(session);
-    // Revoke the old bridge identity synchronously, before policy/network work.
-    const suspended = cloudProviderSync.suspendForSession(session);
-    try {
-      await managedDesktopPolicy(config).setSession(session);
-    } finally {
-      await suspended;
-    }
-    await cloudProviderSync.setSession(session);
-    return new Response(null, { status: 204 });
-  });
-
-  addRoute(routes, "DELETE", "/den-session", "host-token", async () => {
-    ensureWritable(config);
-    anonymousInference.setMemberSession(null);
-    const clearing = cloudProviderSync.clearSession();
-    try {
-      await managedDesktopPolicy(config).clearSession();
-    } finally {
-      await clearing;
-    }
-    // Signed out, no organization rollout applies. The engine selection stays.
-    await engineV2Preview.setV2Only(false);
-    await anonymousInference.initialize(config.port);
-    return new Response(null, { status: 204 });
-  });
-
-  addRoute(routes, "POST", "/cloud-provider-sync/run", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    if (body.reason !== undefined && typeof body.reason !== "string") {
-      throw new ApiError(400, "invalid_payload", "reason must be a string");
-    }
-    return jsonResponse(await cloudProviderSync.run(typeof body.reason === "string" ? body.reason : undefined));
-  });
-
-  addRoute(routes, "POST", "/cloud-provider-sync/providers/:id/oauth/start", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const origin = ctx.request.headers.get("origin");
-    if (origin && origin !== new URL(ctx.request.url).origin && !config.corsOrigins.includes("*") && !config.corsOrigins.includes(origin)) {
-      throw new ApiError(403, "invalid_origin", "This origin cannot start provider authorization");
-    }
-    if (ctx.request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-      throw new ApiError(415, "invalid_content_type", "A JSON request is required");
-    }
-    const body = await readJsonBody(ctx.request);
-    if (typeof body.orgId !== "string" || (body.credentialSetId !== undefined && typeof body.credentialSetId !== "string") || Object.keys(body).some((key) => key !== "orgId" && key !== "credentialSetId")) {
-      throw new ApiError(400, "invalid_payload", "Only the active orgId and optional credentialSetId are accepted");
-    }
-    return jsonResponse(await cloudProviderSync.startProviderOAuth(ctx.params.id, body.orgId, body.credentialSetId));
-  });
-
   addRoute(routes, "POST", "/experimental/session-stop-fence/check", "client", async (ctx) => {
     const body = await readJsonBody(ctx.request);
     if (typeof body.directory !== "string" || !body.directory || typeof body.sessionID !== "string" || !body.sessionID) {
@@ -3515,45 +3046,6 @@ function createRoutes(
     }
     if (opencodeSessionIsStopping(config, body)) throw new ApiError(409, "session_stopping", "This task was stopped.");
     return jsonResponse({ allowed: true });
-  });
-
-  addRoute(routes, "GET", "/managed-policy", "client", async () =>
-    jsonResponse({ policy: await managedDesktopPolicy(config).current() }));
-  addRoute(routes, "GET", "/cloud-computer/status", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    return cloudComputerJson(await cloudComputerCall(() => cloudComputerFor(config).snapshot()));
-  });
-  addRoute(routes, "GET", "/cloud-computer/frame", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    return cloudComputerJson(await cloudComputerCall(() => cloudComputerFor(config).frame()));
-  });
-  addRoute(routes, "POST", "/cloud-computer/interact", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    ensureWritable(config);
-    if (ctx.request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") throw new ApiError(415, "invalid_content_type", "A JSON request is required");
-    const body = await readJsonBody(ctx.request);
-    return cloudComputerJson(await cloudComputerCall(() => cloudComputerFor(config).interact(body)));
-  });
-  // Electron verifies remote rollout authority here, independent of renderer state.
-  addRoute(routes, "GET", "/managed-policy/remote-computers", "client", async () =>
-    jsonResponse({ enabled: await managedDesktopPolicy(config).remoteComputersEnabled() }));
-  // The desktop process reads the built-in browser's website rules here itself.
-  addRoute(routes, "GET", "/managed-policy/website-rules", "client", async () =>
-    jsonResponse({ rules: await managedDesktopPolicy(config).websiteRules() }));
-  addRoute(routes, "GET", "/managed-policy/browser-upload-permissions", "client", async () =>
-    jsonResponse(await managedDesktopPolicy(config).browserUploadPolicy()));
-  addRoute(routes, "GET", "/managed-policy/computer-rules", "client", async () =>
-    jsonResponse({ rules: await managedDesktopPolicy(config).computerRules() }));
-  addRoute(routes, "POST", "/managed-policy/evaluate", "policy", async (ctx) => {
-    const body = await readJsonBody(ctx.request);
-    const action = managedPolicyActionSchema.safeParse(body.action);
-    if (!action.success || !isRecord(body.input)) throw new ApiError(400, "invalid_payload", "A supported policy action and input are required");
-    await managedDesktopPolicy(config).assert(action.data, body.input);
-    return jsonResponse({ allowed: true });
-  });
-
-  addRoute(routes, "GET", "/cloud-provider-sync/status", "client", async () => {
-    return jsonResponse(cloudProviderSync.status());
   });
 
   addRoute(routes, "GET", "/experimental/engine-v2-preview/status", "client", async () => {
@@ -3592,7 +3084,6 @@ function createRoutes(
       throw new ApiError(400, "invalid_payload", "chatRouting must be a boolean");
     }
     let status = engineV2Preview.status();
-    const previouslyLiveProviderSync = status.liveProviderSync;
     const apply = async () => {
       if (body.chatRouting === false) status = await engineV2Preview.setChatRouting(false);
       // Commit v2 routing before starting a process that can migrate the shared
@@ -3609,9 +3100,6 @@ function createRoutes(
         await apply();
       } });
     } else await apply();
-    if (shouldSyncLiveProviderOwnerTransition(previouslyLiveProviderSync, status.liveProviderSync)) {
-      void cloudProviderSync.run("engine_routing_changed");
-    }
     return jsonResponse(status);
   });
 
@@ -3820,7 +3308,7 @@ function createRoutes(
 
       // Per-provider merge: record values upsert, explicit `null` deletes
       // (mergeRuntimeProviderUpdate) — so clients can remove runtime-managed
-      // providers (e.g. cloud imports) without read-modify-write races.
+      // providers without read-modify-write races.
       // Providers are engine-global: the injected engine config file is
       // rendered from the ENGINE_GLOBAL row only, so a workspace-row write
       // would never reach the engine.
@@ -3893,7 +3381,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    // A no-op provider patch (for example cloud sync reconciling an identical
+    // A no-op provider patch (for example local configuration repeating an identical
     // block) must not force an engine reload; that caused a dispose/create loop.
     if (opencode && runtimeChanged) {
       emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(openworkConfigPath(workspace.path)));
@@ -4449,15 +3937,8 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const managedRemoved = name === OPENWORK_CLOUD_MCP_NAME
-      ? false
-      : await deleteLocalManagedMcp(config, workspace.id, name);
-    const cloudRemoval = name === OPENWORK_CLOUD_MCP_NAME
-      ? await removeOpenworkCloudMcpDesiredConfig(config)
-      : null;
-    const removed = cloudRemoval
-      ? cloudRemoval.changed
-      : managedRemoved || await removeMcp(config, workspace.id, name);
+    const managedRemoved = await deleteLocalManagedMcp(config, workspace.id, name);
+    const removed = managedRemoved || await removeMcp(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4468,8 +3949,8 @@ function createRoutes(
       timestamp: Date.now(),
     });
     if (removed) {
-      const affectedWorkspaces = cloudRemoval ? config.workspaces : [workspace];
-      const removedNames = cloudRemoval ? cloudRemoval.removedNames : [name];
+      const affectedWorkspaces = [workspace];
+      const removedNames = [name];
       await Promise.all(affectedWorkspaces.map(async (affectedWorkspace) => {
         for (const removedName of removedNames) {
           deleteEngineMcpRegistration(config, engineMcpServerState, affectedWorkspace, removedName);
@@ -4799,110 +4280,6 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   }
 }
 
-async function readAgentDiagnosticsJsonBody(request: Request): Promise<unknown> {
-  const tooLarge = () => new ApiError(
-    413,
-    "agent_diagnostics_request_too_large",
-    "Agent diagnostics request body is too large",
-  );
-  const timedOut = () => new ApiError(
-    408,
-    "agent_diagnostics_request_timeout",
-    "Agent diagnostics request body timed out",
-  );
-  const configuredDeadlineMs = Number(process.env.OPENWORK_AGENT_DIAGNOSTICS_BODY_TIMEOUT_MS);
-  const deadlineMs = Number.isFinite(configuredDeadlineMs) && configuredDeadlineMs >= 50
-    ? Math.min(configuredDeadlineMs, 10_000)
-    : AGENT_DIAGNOSTICS_DEFAULT_BODY_DEADLINE_MS;
-  const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null) {
-    const declaredBytes = Number(declaredLength);
-    if (Number.isFinite(declaredBytes) && declaredBytes > AGENT_DIAGNOSTICS_MAX_REQUEST_BYTES) {
-      throw tooLarge();
-    }
-  }
-
-  const reader = request.body?.getReader();
-  if (!reader) {
-    throw new ApiError(400, "invalid_json", "Invalid JSON body");
-  }
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let deadlineExpired = false;
-  let activeRead: ReturnType<typeof reader.read> | undefined;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    deadlineTimer = setTimeout(() => {
-      deadlineExpired = true;
-      reject(timedOut());
-    }, deadlineMs);
-  });
-  try {
-    while (true) {
-      // Race every read against the same promise. Incoming drips do not reset
-      // the absolute request-body lifetime.
-      activeRead = reader.read();
-      const next = await Promise.race([activeRead, deadline]);
-      activeRead = undefined;
-      if (next.done) {
-        break;
-      }
-      size += next.value.byteLength;
-      if (size > AGENT_DIAGNOSTICS_MAX_REQUEST_BYTES) {
-        throw tooLarge();
-      }
-      chunks.push(next.value);
-    }
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(400, "invalid_json", "Invalid JSON body");
-  } finally {
-    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
-    if (deadlineExpired && activeRead) {
-      const pendingRead = activeRead;
-      let released = false;
-      const release = () => {
-        if (released) return;
-        try {
-          reader.releaseLock();
-          released = true;
-        } catch {
-          // Cancellation owns the lock until the adapter finishes settling it.
-        }
-      };
-      // Returning the 408 with Connection: close lets the adapter flush the
-      // stable safe error before this active stream cancellation tears down the
-      // underlying request socket. The absolute deadline is not extended.
-      // Keep the reader locked until cancellation even if another drip settles
-      // the specific read that lost the deadline race. Otherwise that drip
-      // could leave the remainder of the body unbounded. Wait for both the
-      // cancellation and outstanding read before releasing the lock.
-      setTimeout(() => {
-        void (async () => {
-          await reader.cancel(new Error("Agent diagnostics request body timed out")).catch(() => undefined);
-          await pendingRead.catch(() => undefined);
-          release();
-        })();
-      }, AGENT_DIAGNOSTICS_ERROR_FLUSH_MS);
-    } else {
-      reader.releaseLock();
-    }
-  }
-
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new ApiError(400, "invalid_json", "Invalid JSON body");
-  }
-}
-
 async function readOptionalJsonBody(request: Request): Promise<Record<string, unknown>> {
   const text = await request.text();
   if (!text.trim()) return {};
@@ -5105,7 +4482,7 @@ function parseOpencodeErrorBody(input: string): unknown {
 }
 
 // Bounded so a dispose wedged on live-session teardown can never freeze the
-// caller (CloudProviderSync serializes passes on one queue; an unbounded
+// caller (local provider reloads serialize passes on one queue; an unbounded
 // dispose froze every later pass and the status it reports). Overridable for
 // tests.
 function opencodeDisposeTimeoutMs(): number {
@@ -5500,7 +4877,6 @@ async function postEngineRefreshSync(
   activeState: EngineMcpServerState | undefined,
 ): Promise<void> {
   const directory = resolveOpencodeDirectory(workspace);
-  markOpenworkCloudMcpStale(workspace, directory);
   return enqueueWorkspaceMcpRefreshSync({
     config,
     workspace,
@@ -5541,28 +4917,6 @@ async function runWorkspaceMcpRefreshSync(input: WorkspaceMcpRefreshRequest): Pr
     );
   } catch (error) {
     logRuntimeMcpSyncError({ config, workspace, trigger, error });
-  }
-  try {
-    const health = await reconcilePersistedOpenworkCloudMcp({
-      config,
-      workspace,
-      directory,
-      serverMetadata: { serverVersion: SERVER_VERSION, expectedOpencodeVersion: OPENCODE_VERSION },
-      createWorkspaceOpencodeClient,
-      refreshRegistrationFromLiveStatus: refreshEngineMcpRegistrationFromLiveStatus,
-      registerRuntimeMcp: (routeConfig, routeWorkspace, onlyNames, options) =>
-        syncRuntimeMcpToOpencodeEngine(
-          routeConfig,
-          routeWorkspace,
-          onlyNames,
-          options,
-          input.serverState ?? null,
-        ),
-      trigger,
-    });
-    logPersistedCloudMcpReconcileResult({ config, workspace, trigger, health });
-  } catch (error) {
-    logPersistedCloudMcpReconcileError({ config, workspace, trigger, error });
   }
   // The reconcile above may write the ENGINE_GLOBAL runtime row; refresh the
   // engine-visible file synchronously so the next provider-sync pass compares
@@ -5627,7 +4981,7 @@ async function runRuntimeMcpSyncToOpencodeEngine(
 
   const runtimeConfig = await readEffectiveRuntimeOpencodeConfig(config, workspace.id);
   const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
-    ([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
+    ([name]) => !name.startsWith("openwork-connect-")
       && (!onlyNames || onlyNames.includes(name)),
   );
   if (entries.length === 0) {
@@ -6683,29 +6037,6 @@ function deleteEngineMcpRegistration(
   state.registrationByWorkspace.get(workspace.id)?.delete(name);
 }
 
-function logPersistedCloudMcpReconcileResult(input: {
-  config: ServerConfig;
-  workspace: WorkspaceInfo;
-  trigger: WorkspaceMcpRefreshTrigger;
-  health: CloudMcpHealth;
-}): void {
-  if (!input.health.desired.present || input.health.usable) return;
-  const failure = input.health.firstFailure;
-  createServerLogger(input.config).log(
-    "warn",
-    `Cloud MCP ${input.trigger} reconciliation left connected service tools unavailable for workspace ${input.workspace.id}.`,
-    {
-      "workspace.id": input.workspace.id,
-      "mcp.name": "openwork-cloud",
-      "mcp.trigger": input.trigger,
-      "mcp.failure.code": failure?.code ?? "unknown",
-      "mcp.failure.stage": failure?.stage ?? "unknown",
-      "mcp.failure.retryable": failure?.retryable ?? null,
-      "mcp.failure.message": failure?.message ?? "Cloud MCP health remained unusable after reconciliation.",
-    },
-  );
-}
-
 function logRuntimeMcpSyncError(input: {
   config: ServerConfig;
   workspace: WorkspaceInfo;
@@ -6741,31 +6072,11 @@ function logDetachedPostEngineRefreshSyncError(input: {
   );
 }
 
-function logPersistedCloudMcpReconcileError(input: {
-  config: ServerConfig;
-  workspace: WorkspaceInfo;
-  trigger: WorkspaceMcpRefreshTrigger;
-  error: unknown;
-}): void {
-  createServerLogger(input.config).log(
-    "error",
-    `Cloud MCP ${input.trigger} reconciliation crashed for workspace ${input.workspace.id}.`,
-    {
-      "workspace.id": input.workspace.id,
-      "mcp.name": "openwork-cloud",
-      "mcp.trigger": input.trigger,
-      "mcp.failure.code": "cloud_mcp_reconcile_exception",
-      "mcp.failure.message": input.error instanceof Error ? input.error.message : String(input.error),
-    },
-  );
-}
-
 // Re-push every workspace's runtime-DB MCPs into the engine. Used at startup:
 // the runtime config file injected via OPENCODE_CONFIG covers workspaces[0]
 // only, so other workspaces' runtime MCPs are invisible to the engine until
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
-  await migrateOpenworkCloudMcpRuntimeConfig(config);
   await migrateWorkspaceRuntimeConfigToEngineGlobal(config);
   const serverState = activeEngineMcpServerState(config);
   for (const workspace of config.workspaces) {

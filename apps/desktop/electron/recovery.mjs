@@ -62,7 +62,7 @@ export async function recordHealthyVersion(app, distribution, rawVersion) {
 }
 
 export function recoveryManifestName(platform, arch, distribution) {
-  const channel = distribution === "public" ? "latest" : distribution;
+  const channel = "latest";
   if (platform === "darwin") return `${channel}-mac.yml`;
   if (platform === "win32") return `${channel}.yml`;
   return `${channel}-linux${arch === "arm64" ? "-arm64" : ""}.yml`;
@@ -95,7 +95,7 @@ function validRecoveryArtifactIdentity(artifact) {
   if (!version || artifact.version !== version) return false;
   if (!["darwin", "win32", "linux"].includes(artifact.platform)) return false;
   if (!["arm64", "x64"].includes(artifact.arch)) return false;
-  if (!["public", "cloud", "enterprise"].includes(artifact.distribution)) return false;
+  if (artifact.distribution !== "public") return false;
   if (typeof artifact.url !== "string" || typeof artifact.sha512 !== "string" || !artifact.sha512.trim()) return false;
   let url;
   try {
@@ -108,13 +108,12 @@ function validRecoveryArtifactIdentity(artifact) {
   const assetArch = artifact.arch;
   const platformSlug = artifact.platform === "darwin" ? "mac" : artifact.platform === "win32" ? "win" : "linux";
   const fileName = path.basename(url.pathname);
-  const distributionSlug = artifact.distribution === "public" ? "" : `${artifact.distribution}-`;
-  return fileName === `aiopc-${distributionSlug}${platformSlug}-${assetArch}-${version}${installerExtension(artifact.platform)}`;
+  return fileName === `aiopc-${platformSlug}-${assetArch}-${version}${installerExtension(artifact.platform)}`;
 }
 
 export function selectRecoveryArtifact(files, { version, platform, arch, distribution }) {
   const normalizedVersion = stableVersion(version);
-  if (!normalizedVersion || !["public", "cloud", "enterprise"].includes(distribution)) return null;
+  if (!normalizedVersion || distribution !== "public") return null;
   const assetArch = arch;
   const extension = installerExtension(platform);
   const matching = files.filter((file) =>
@@ -147,20 +146,12 @@ export async function compatibleRecoveryReleases({
   versions,
   currentVersion,
   previousVersion,
-  minimumVersion,
-  allowedVersions,
   resolveArtifact,
   limit = 5,
 }) {
   const current = stableVersion(currentVersion);
   const previous = stableVersion(previousVersion);
-  const minimum = stableVersion(minimumVersion);
-  const allowed = Array.isArray(allowedVersions)
-    ? new Set(allowedVersions.flatMap((value) => stableVersion(value) ?? []))
-    : null;
   const filtered = [...new Set(Array.isArray(versions) ? versions.flatMap((value) => stableVersion(value) ?? []) : [])]
-    .filter((version) => !minimum || compareStableVersions(version, minimum) >= 0)
-    .filter((version) => !allowed || allowed.has(version))
     .sort((left, right) => compareStableVersions(right, left) ?? 0)
     .slice(0, limit);
   const releases = [];

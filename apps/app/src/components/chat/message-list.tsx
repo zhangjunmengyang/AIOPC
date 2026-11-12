@@ -1,169 +1,151 @@
 "use memo";
 
-import { appBuildActivity, appBuildInProgress, appCreationRuns } from "@/react-app/domains/apps/app-creation-progress"
-import { BuiltAppPreviewSync } from "@/react-app/domains/apps/built-app-chat-preview"
-import { builtAppSummary } from "@/react-app/domains/apps/built-mcp-app-model"
-import { AppBuilderStep } from "./app-builder-step"
-import * as React from "react"
+import { openDesktopUrl } from "@/app/lib/desktop";
+import { openAlternativeModelPicker } from "@/app/lib/inference-access";
+import { isElectronRuntime } from "@/app/lib/runtime-env";
+import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
+import { TextSentenceLine,TrailingChevron } from "@/components/chat/activity-rail";
+import { CapabilityCallLine } from "@/components/chat/capability-call-line";
+import { CodeModeTool,isSilentCodeModePart } from "@/components/chat/code-mode-tool";
+import { AttachmentFileChip,ComposerBadgeChip,ComposerPillChip,PastedTextChip } from "@/components/chat/composer-pill";
+import { ConnectionCard } from "@/components/chat/connection-card";
 import {
-  Check,
-  Copy,
-  Download,
-  FileIcon,
-  FolderOpen,
-  LoaderCircle,
-  MoreHorizontal,
-  Pencil,
-  Split,
-  Undo2,
-  WifiOff,
-} from "lucide-react"
+CurrentToolLifecycleProvider,
+useCurrentToolLifecycleResolver,
+} from "@/components/chat/current-tool-lifecycle-context";
+import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge";
+import { builtMcpAppId,hasPreservedMcpAppResult,isNativeConnectionAppLaunch,McpAppFrame } from "@/components/chat/mcp-app-frame";
+import { useMessageList,useSessionErrorMessage } from "@/components/chat/message-list-provider";
+import { ProgressiveMessageList,type MessageListViewport } from "@/components/chat/progressive-message-list";
+import { ReasoningBlock } from "@/components/chat/reasoning-block";
+import { useSessionReferencesMaybe,type SessionReferences } from "@/components/chat/session-reference-context";
+import { SessionReferenceLink } from "@/components/chat/session-reference-link";
+import { SubagentRunLine } from "@/components/chat/subagent-run-line";
+import { TaskSuggestions } from "@/components/chat/task-suggestions";
+import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group";
 import {
-  DynamicToolUIPart,
-  isFileUIPart,
-  isToolUIPart,
-  ToolUIPart,
-  type FileUIPart,
-  type UIMessage,
-} from "ai"
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { openDesktopUrl } from "@/app/lib/desktop"
-import { isElectronRuntime } from "@/app/lib/runtime-env"
-import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
-import { t } from "@/i18n"
-import { useOpenTargets } from "@/lib/target-provider"
-import { openTargetFromUrl } from "@/react-app/domains/session/artifacts/open-target"
-import { presentOpencodeSessionError, sessionErrorPresentationFromUIMessage } from "@/react-app/domains/session/sync/session-error"
-import { TaskRecovery } from "./task-recovery"
-import { BackgroundTaskNotice, BackgroundTasksLabel, BackgroundTasksMessage, SubagentNoticeRow, backgroundShellNoticeFromMessage, subagentNoticeFromMessage } from "./background-tasks"
-import { sessionBackgroundShells, useBackgroundShellStore, type BackgroundShell } from "@/react-app/domains/session/status/background-shell-store"
-import { messageAutoAccessWall } from "@/app/lib/inference-access"
-import { AutoAccessNotice } from "@/react-app/domains/cloud/auto-access-ui"
-import { OpenWorkModelsLimitCard } from "@/react-app/domains/cloud/usage-limit-card"
-import type { OpenWorkModelsLimit } from "@/react-app/domains/cloud/usage-limit-state"
-import { rejectedRecoveryFromMessage } from "@/react-app/domains/session/sync/rejected-turn"
-import { replyModelLabel, replyModelProvider } from "@/react-app/domains/session/sync/reply-model"
-import { ProviderIcon } from "@/react-app/design-system/provider-icon"
-import { openAlternativeModelPicker } from "@/app/lib/inference-access"
-import { ApplyPatchTool } from "@/components/tools/apply-patch"
-import { BashTool } from "@/components/tools/bash"
-import { EditTool } from "@/components/tools/edit"
-import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
-import { GlobTool } from "@/components/tools/glob"
-import { GrepTool } from "@/components/tools/grep"
-import { LspTool } from "@/components/tools/lsp"
+DescriptiveButtonContent,
+DescriptiveButtonDescription,
+DescriptiveButtonIcon,
+DescriptiveButtonTitle,
+} from "@/components/descriptive-button";
+import { ApplyPatchTool } from "@/components/tools/apply-patch";
+import { BashTool } from "@/components/tools/bash";
+import { EditTool } from "@/components/tools/edit";
+import { connectionFromChatToolPart } from "@/components/tools/error-attribution";
+import { ReadFileTool,WriteFileTool } from "@/components/tools/file";
+import { GlobTool } from "@/components/tools/glob";
+import { GrepTool } from "@/components/tools/grep";
+import { LspTool } from "@/components/tools/lsp";
+import { QuestionTool } from "@/components/tools/question";
+import { SkillTool } from "@/components/tools/skill";
+import { TodoWriteTool } from "@/components/tools/todowrite";
+import { WebfetchTool } from "@/components/tools/webfetch";
+import { WebsearchTool } from "@/components/tools/websearch";
+import { ActionContextMenu } from "@/components/ui/action-context-menu";
+import type { MenuAction } from "@/components/ui/action-menu-model";
+import { Button } from "@/components/ui/button";
 import {
-  isAutomationProposalToolPart,
-  OpenWorkAutomationProposalTool,
-} from "@/components/tools/openwork-automation-proposal"
-import { QuestionTool } from "@/components/tools/question"
-import { SkillTool } from "@/components/tools/skill"
-import { TodoWriteTool } from "@/components/tools/todowrite"
-import { WebfetchTool } from "@/components/tools/webfetch"
-import { WebsearchTool } from "@/components/tools/websearch"
-import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
-import { TaskSuggestions } from "@/components/chat/task-suggestions"
-import { useSessionReferencesMaybe, type SessionReferences } from "@/components/chat/session-reference-context"
-import { SessionReferenceLink } from "@/components/chat/session-reference-link"
-import { ProgressiveMessageList, type MessageListViewport } from "@/components/chat/progressive-message-list"
+Collapsible,
+CollapsibleContent,
+CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
-  DescriptiveButtonContent,
-  DescriptiveButtonDescription,
-  DescriptiveButtonIcon,
-  DescriptiveButtonTitle,
-} from "@/components/descriptive-button"
-import { Button } from "@/components/ui/button"
+DropdownMenu,
+DropdownMenuContent,
+DropdownMenuItem,
+DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Image } from "@/components/ui/image";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ActionContextMenu } from "@/components/ui/action-context-menu"
-import type { MenuAction } from "@/components/ui/action-menu-model"
+Message,
+MessageAction,
+MessageActions,
+MessageContent,
+} from "@/components/ui/message";
+import { Tool } from "@/components/ui/tool";
+import { t } from "@/i18n";
+import { useOpenArtifactPath } from "@/lib/artifacts";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge"
-import { AttachmentFileChip, ComposerBadgeChip, ComposerPillChip, PastedTextChip } from "@/components/chat/composer-pill"
-import { agentBadge, fileMentionBadge } from "@/react-app/domains/session/surface/composer/composer-chips"
-import { isChatAttachmentUrl } from "@/react-app/domains/session/sync/attachment-file-part"
-import { splitComposerPillText } from "@/react-app/domains/session/surface/composer/composer-pills"
-import { composerDraftFromSentParts, sentTextPartToken } from "@/react-app/domains/session/surface/composer/sent-message-tokens"
-import { Image } from "@/components/ui/image"
+isApplyPatchToolPart,
+isBashToolPart,
+isEditToolPart,
+isGlobToolPart,
+isGrepToolPart,
+isLspToolPart,
+isQuestionToolPart,
+isReadToolPart,
+isSkillToolPart,
+isTaskToolPart,
+isTodoWriteToolPart,
+isWebFetchToolPart,
+isWebSearchToolPart,
+isWriteToolPart,
+taskChildSessionId,
+} from "@/lib/build-in-tools";
+import { codeModeToolCalls } from "@/lib/code-mode-tools";
+import { collectComputerSessionHistory,withoutComputerHistory,type ComputerSessionHistory as ComputerHistory } from "@/lib/computer-session-history";
+import { faviconUrlForHref } from "@/lib/favicon";
+import { collectLatestAssistantToolParts } from "@/lib/latest-assistant-tool-parts";
+import type { ThreadStatus } from "@/lib/messages";
+import { openWorkNativeFailure } from "@/lib/openwork-native-activity";
+import { useOpenTargets } from "@/lib/target-provider";
+import { isToolPartInFlight } from "@/lib/tool-activity";
+import type { AnyToolPart } from "@/lib/tool-aggregate";
+import { formatElapsedSeconds,formatToolCallDuration } from "@/lib/tool-call-duration";
+import { cn } from "@/lib/utils";
+import { ProviderIcon } from "@/react-app/design-system/provider-icon";
+import { resolveConnectorToolIdentity } from "@/react-app/domains/connections/connector-tool-identity";
+import { appBuildActivity,appBuildInProgress,appCreationRuns } from "@/react-app/domains/mcp-apps/app-creation-progress";
+import { BuiltAppPreviewSync } from "@/react-app/domains/mcp-apps/built-app-chat-preview";
+import { builtAppSummary } from "@/react-app/domains/mcp-apps/built-mcp-app-model";
+import { openTargetFromUrl } from "@/react-app/domains/session/artifacts/open-target";
+import { sessionBackgroundShells,useBackgroundShellStore,type BackgroundShell } from "@/react-app/domains/session/status/background-shell-store";
+import { useSessionActivityStore,type SessionActivityStatus,type WaitInterval } from "@/react-app/domains/session/status/session-activity-store";
+import { activeDelegatedTasks,hasNoNewActivity,lastTaskProgressAt } from "@/react-app/domains/session/status/session-progress";
+import { agentBadge,fileMentionBadge } from "@/react-app/domains/session/surface/composer/composer-chips";
+import { splitComposerPillText } from "@/react-app/domains/session/surface/composer/composer-pills";
+import { composerDraftFromSentParts,sentTextPartToken } from "@/react-app/domains/session/surface/composer/sent-message-tokens";
+import { isReservedConnectionQuestion,type ChatConnectionDecisionBinding } from "@/react-app/domains/session/surface/mcp-chat-reconnect";
+import { isChatAttachmentUrl } from "@/react-app/domains/session/sync/attachment-file-part";
+import { replyModelLabel,replyModelProvider } from "@/react-app/domains/session/sync/reply-model";
+import { presentOpencodeSessionError,sessionErrorPresentationFromUIMessage } from "@/react-app/domains/session/sync/session-error";
+import { revalidateWorkspaceSessionSync } from "@/react-app/domains/session/sync/session-sync";
+import { dedupeRenderedTurnErrors } from "@/react-app/domains/session/sync/transcript-reconcile";
+import { DevProfiler } from "@/react-app/shell/dev-profiler";
+import { useWorkspaceMaybe } from "@/react-app/shell/workspace-provider";
+import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import {
-  Message,
-  MessageAction,
-  MessageActions,
-  MessageContent,
-} from "@/components/ui/message"
-import { Tool } from "@/components/ui/tool"
-import { CapabilityCallLine } from "@/components/chat/capability-call-line"
-import { CodeModeTool, isSilentCodeModePart } from "@/components/chat/code-mode-tool"
-import { CreatedSkillCard, CreatedSkillsContext, useCreatedSkills, type CreatedSkillsContextValue } from "@/components/chat/created-skill-card"
-import { readCreatedSkillAccess } from "@/components/chat/created-skill-access"
-import { collectCreatedSkills, type ConfirmedSkillAccess, type CreatedSkillsModel } from "@/lib/created-skill"
-import { openWorkNativeFailure } from "@/lib/openwork-native-activity"
-import { TextSentenceLine, TrailingChevron } from "@/components/chat/activity-rail"
-import { ConnectionCard } from "@/components/chat/connection-card"
-import { CredentialPromptCard } from "@/components/chat/credential-prompt-card"
-import { credentialPromptCall } from "@/components/chat/credential-prompt"
-import { connectionFromChatToolPart } from "@/components/tools/error-attribution"
-import { isReservedConnectionQuestion, type ChatConnectionDecisionBinding } from "@/react-app/domains/session/surface/mcp-chat-reconnect"
-import { codeModeToolCalls } from "@/lib/code-mode-tools"
-import { codeModeCallsWithResults, remoteThreadStartsInParts } from "@/lib/remote-thread-starts"
-import { dedupeRenderedTurnErrors } from "@/react-app/domains/session/sync/transcript-reconcile"
-import { builtMcpAppId, hasPreservedMcpAppResult, isNativeConnectionAppLaunch, McpAppFrame } from "@/components/chat/mcp-app-frame"
-import { ReasoningBlock } from "@/components/chat/reasoning-block"
-import { SubagentRunLine } from "@/components/chat/subagent-run-line"
-import { RemoteThreadRunLine } from "@/components/chat/remote-thread-run-line"
-import { isRemoteThreadStatusCheck, remoteThreadFromToolPart, type RemoteThreadStart } from "@/lib/remote-session-thread"
-import { useReviveRemoteThread } from "@/react-app/domains/session/remote-threads/remote-thread-store"
-import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
+DynamicToolUIPart,
+isFileUIPart,
+isToolUIPart,
+ToolUIPart,
+type FileUIPart,
+type UIMessage,
+} from "ai";
 import {
-  CurrentToolLifecycleProvider,
-  useCurrentToolLifecycleResolver,
-} from "@/components/chat/current-tool-lifecycle-context"
-import {
-  isApplyPatchToolPart,
-  isBashToolPart,
-  isEditToolPart,
-  isGlobToolPart,
-  isGrepToolPart,
-  isLspToolPart,
-  isQuestionToolPart,
-  isReadToolPart,
-  isSkillToolPart,
-  isTaskToolPart,
-  taskChildSessionId,
-  isTodoWriteToolPart,
-  isWebFetchToolPart,
-  isWebSearchToolPart,
-  isWriteToolPart,
-} from "@/lib/build-in-tools"
-import type { ThreadStatus } from "@/lib/messages"
-import { useShallow } from "zustand/react/shallow"
-import { useSessionActivityStore, type SessionActivityStatus, type WaitInterval } from "@/react-app/domains/session/status/session-activity-store"
-import { activeDelegatedTasks, hasNoNewActivity, lastTaskProgressAt } from "@/react-app/domains/session/status/session-progress"
-import { revalidateWorkspaceSessionSync } from "@/react-app/domains/session/sync/session-sync"
-import { useWorkspaceMaybe } from "@/react-app/shell/workspace-provider"
-import { formatElapsedSeconds, formatToolCallDuration } from "@/lib/tool-call-duration"
-import { collectLatestAssistantToolParts } from "@/lib/latest-assistant-tool-parts"
-import { isToolPartInFlight } from "@/lib/tool-activity"
-import { faviconUrlForHref } from "@/lib/favicon"
-import { useOpenArtifactPath } from "@/lib/artifacts"
-import { cn } from "@/lib/utils"
-import { DevProfiler } from "@/react-app/shell/dev-profiler"
-import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, getRunStartedAt, getWaitedMs, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileRevealPath } from "./utils"
-import type { AnyToolPart } from "@/lib/tool-aggregate"
-import { collectComputerSessionHistory, withoutComputerHistory, type ComputerSessionHistory as ComputerHistory } from "@/lib/computer-session-history"
-import { ComputerSessionHistory, desktopSavedFileActions } from "./computer-session-history"
-import { ComputerCrewCard, useComputerCrew } from "./computer-crew"
-import { useComputerSessionHistoryStore } from "./computer-session-history-store"
-import { useSteadyLiveTurnStore } from "./steady-live-turn-store"
-import { resolveConnectorToolIdentity } from "@/react-app/domains/connections/connector-tool-identity"
+Check,
+Copy,
+Download,
+FileIcon,
+FolderOpen,
+LoaderCircle,
+MoreHorizontal,
+Pencil,
+Split,
+Undo2,
+WifiOff,
+} from "lucide-react";
+import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
+import { AppBuilderStep } from "./app-builder-step";
+import { backgroundShellNoticeFromMessage,BackgroundTaskNotice,BackgroundTasksLabel,BackgroundTasksMessage,subagentNoticeFromMessage,SubagentNoticeRow } from "./background-tasks";
+import { ComputerCrewCard,useComputerCrew } from "./computer-crew";
+import { ComputerSessionHistory,desktopSavedFileActions } from "./computer-session-history";
+import { useComputerSessionHistoryStore } from "./computer-session-history-store";
+import { useSteadyLiveTurnStore } from "./steady-live-turn-store";
+import { TaskRecovery } from "./task-recovery";
+import { formatMessageTimestamp,getAggregateOnlyParts,getAssistantRenderGroups,getFileTitle,getLastTextPart,getMediaBadge,getMessageCompleted,getMessageCreated,getMessagesText,getRunStartedAt,getSafeFileDownloadUrl,getSafeFileRevealPath,getWaitedMs,groupMessages,isMessageGroup,splitTurnAtAnswer,type UIMessageWithIndex } from "./utils";
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
@@ -269,9 +251,7 @@ function isReservedConnectionQuestionPart(part: ToolUIPart | DynamicToolUIPart):
 
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
   const { connectorIdentities, onMcpReconnect, onMcpReopenAuthorization, connectionQuestionToolCallId, getConnectionDecision } = useMessageList()
-  const pinnedRemoteThreads = React.useContext(PinnedRemoteThreadsContext)
   // The agent following up on a task the chat shows makes it run again.
-  useReviveRemoteThread(part.type === "dynamic-tool" ? part : null)
   const parentActive = React.useContext(ParentRunActiveContext)
   const resolveLifecycle = useCurrentToolLifecycleResolver()
   const lifecycle = resolveLifecycle(part.toolCallId, isToolPartInFlight(part))
@@ -280,40 +260,18 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   const appPanelFold = React.useContext(AppPanelFoldContext)
   if (appCreationParts.has(part.toolCallId)) return null
   if (part.toolCallId === connectionQuestionToolCallId || isReservedConnectionQuestionPart(part)) return null
-  const promptCall = credentialPromptCall(part)
-  const remoteStart = part.type === "dynamic-tool" ? remoteThreadFromToolPart(part) : null
   const calls = part.type === "dynamic-tool" ? codeModeToolCalls(part) : null
-  const remoteStarts = calls && part.type === "dynamic-tool" ? (codeModeCallsWithResults(part) ?? []).flatMap((call) => {
-    const start = remoteThreadFromToolPart(call)
-    return start ? [{ start, call }] : []
-  }) : []
-  const foldTool = appPanelFold && lifecycle !== "waiting" && !connectionCardParts.has(part.toolCallId) && !promptCall && !isTaskToolPart(part)
-  if (foldTool && !remoteStart && remoteStarts.length === 0) return null
+  const foldTool = appPanelFold && lifecycle !== "waiting" && !connectionCardParts.has(part.toolCallId) && !isTaskToolPart(part)
+  if (foldTool) return null
 
   // Delegated work has its own lifecycle, even after a parent follow-up/error.
   if (isTaskToolPart(part)) return <SubagentRunLine part={part} parentActive={parentActive} />
 
-  // So does a task started on another computer: it reads as a sub-agent.
-  if (remoteStart && part.type === "dynamic-tool") {
-    return pinnedRemoteThreads.has(part.toolCallId) ? null : <RemoteThreadRunLine start={remoteStart} part={part} />
-  }
-
   if (part.type === "dynamic-tool") {
-    if (calls && remoteStarts.length > 0) {
-      const started = new Set(remoteStarts.map(({ call }) => call.toolCallId))
-      return (
-        <div className="flex min-w-0 flex-col gap-1">
-          {!foldTool && <CodeModeTool part={part} calls={calls.filter((call) => !started.has(call.toolCallId))} lifecycle={lifecycle} connectors={connectorIdentities} />}
-          {promptCall && <CredentialPromptCard part={promptCall} continueToolCallId={part.toolCallId} />}
-          {remoteStarts.filter(({ call }) => !pinnedRemoteThreads.has(call.toolCallId))
-            .map(({ start, call }) => <RemoteThreadRunLine key={start.key} start={start} part={call} />)}
-        </div>
-      )
-    }
     if (calls) {
       const script = <CodeModeTool part={part} calls={calls} lifecycle={lifecycle} connectors={connectorIdentities} />
       // A key the script's Den call asked for is entered in the host's private field.
-      return promptCall ? <>{script}<CredentialPromptCard part={promptCall} continueToolCallId={part.toolCallId} /></> : script
+      return script
     }
   }
 
@@ -389,19 +347,12 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
     return <QuestionTool part={part} />
   }
 
-  if (part.type === "dynamic-tool" && isAutomationProposalToolPart(part)) {
-    return <OpenWorkAutomationProposalTool part={part} />
-  }
+
 
   // OpenWork's own connection reports render as the native card: the host is
   // the presentation; the Den App remains for external hosts.
   if (part.type === "dynamic-tool" && connectionCardParts.has(part.toolCallId)) {
     return <ConnectionCard part={part} allowDiscovery={Boolean(getConnectionDecision?.(part.toolCallId))} />
-  }
-
-  // A key an agent asked for is entered in the host's private field, never in chat.
-  if (part.type === "dynamic-tool" && promptCall) {
-    return <CredentialPromptCard part={promptCall} continueToolCallId={part.toolCallId} />
   }
 
   // Failed calls use the same sentence line with the "failures are
@@ -452,7 +403,7 @@ function stepsNeedAttention(items: UIMessageWithIndex[], connectionCards: Readon
     if (!isToolUIPart(part)) return false
     if (part.state === "output-error") return true
     if (part.type === "dynamic-tool") {
-      if (connectionCards.has(part.toolCallId) || credentialPromptCall(part)) return true
+      if (connectionCards.has(part.toolCallId)) return true
       if (openWorkNativeFailure(part)) return true
       if ((codeModeToolCalls(part) ?? []).some((call) => call.state === "output-error" || openWorkNativeFailure(call))) return true
     }
@@ -466,7 +417,7 @@ function withoutSilentSteps(messages: UIMessage[]): UIMessage[] {
     if (message.role !== "assistant") return [message]
     // With tasks on other computers shown live, the agent's own checks on them are plumbing.
     const parts = message.parts.filter((part) => !(part.type === "dynamic-tool"
-      && (isSilentCodeModePart(part) || isSilentAppLookup(part) || isRemoteThreadStatusCheck(part))))
+      && (isSilentCodeModePart(part) || isSilentAppLookup(part))))
     if (parts.length === message.parts.length) return [message]
     changed = true
     return parts.length > 0 ? [{ ...message, parts }] : []
@@ -977,7 +928,7 @@ const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
     const { onRevertToUserMessage, onEditUserMessage, highlightQuery, readOnly } = useMessageList()
     const references = useSessionReferencesMaybe()
-    const wall = messageAutoAccessWall(message.metadata)
+    const wall = false
     const { sessionId, workspaceId } = useMessageList()
     const { onOpenTarget } = useOpenTargets()
     const openLink = (event: React.MouseEvent) => {
@@ -1024,7 +975,6 @@ const UserMessage = React.memo(
             render={
               <div
                 className={cn("group flex w-full flex-col items-end gap-1 !select-text", wall && "opacity-50")}
-                data-unprocessed={wall ? "true" : undefined}
                 style={{ userSelect: "text" }}
               >
                 {hasContent ? (
@@ -1099,7 +1049,7 @@ const UserMessage = React.memo(
               </div>
             }
           />
-          {wall ? <div className="w-full"><AutoAccessNotice wall={wall} sessionId={sessionId} workspaceId={workspaceId} recovery={rejectedRecoveryFromMessage(message)} /></div> : null}
+
       </Message>
     )
   }
@@ -1119,7 +1069,6 @@ const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep, hideReasoning }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
       const presentation = sessionErrorPresentationFromUIMessage(message)
-      if (presentation?.autoAccessWall) return <TranscriptAutoAccessNotice wall={presentation.autoAccessWall} />
       const errorMessage = (
         <ErrorMessage
           error={getMessagesText([message]) || "Session failed"}
@@ -1128,12 +1077,9 @@ const MessageComponent = React.memo(
           resumePrompt={presentation?.recoveryPrompt}
           canRetry={isLastMessage && !isStreaming}
           technicalDetails={presentation?.technicalDetails}
-          gatewayConnectUrl={presentation?.kind === "gateway-auth-required" || presentation?.kind === "provider-credentials" ? presentation.connectUrl ?? null : undefined}
-          gatewaySelectionRequired={presentation?.kind === "gateway-selection-required"}
           changeModel={presentation !== null && ["provider-access-denied", "provider-unavailable", "provider-unreachable", "model-unavailable", "rate-limited", "conversation-too-long", "attachment-unsupported"].includes(presentation.kind)}
         />
       )
-      if (presentation?.openworkModelsLimit) return <TranscriptOpenWorkModelsLimit limit={presentation.openworkModelsLimit} />
       return errorMessage
     }
 
@@ -1166,17 +1112,6 @@ const MessageComponent = React.memo(
     )
   }
 )
-
-/** The organization used its OpenWork Models allowance: one usage-limit card. */
-function TranscriptOpenWorkModelsLimit({ limit }: { limit: OpenWorkModelsLimit }) {
-  const { sessionId } = useMessageList()
-  return <div className="mx-auto w-full max-w-3xl px-2 py-2 md:px-10"><OpenWorkModelsLimitCard limit={limit} sessionId={sessionId} /></div>
-}
-
-function TranscriptAutoAccessNotice({ wall }: { wall: NonNullable<ReturnType<typeof messageAutoAccessWall>> }) {
-  const { sessionId, workspaceId } = useMessageList()
-  return <div className="mx-auto w-full max-w-3xl px-2 md:px-10"><AutoAccessNotice wall={wall} sessionId={sessionId} workspaceId={workspaceId} /></div>
-}
 
 MessageComponent.displayName = "MessageComponent"
 
@@ -1501,16 +1436,6 @@ function isMcpAppFramePart(part: UIMessage["parts"][number]): part is DynamicToo
 }
 
 /** Tasks a group's steps started on other computers, directly or from a script. */
-function collectRemoteThreadStarts(items: UIMessageWithIndex[]) {
-  const starts = new Map<string, { start: RemoteThreadStart; part: DynamicToolUIPart }>()
-  for (const item of items) {
-    if (item.message.role !== "assistant" || isSessionErrorMessage(item.message)) continue
-    for (const found of remoteThreadStartsInParts(item.message.parts)) {
-      if (!starts.has(found.start.key)) starts.set(found.start.key, found)
-    }
-  }
-  return [...starts.values()]
-}
 
 function collectMcpAppParts(items: UIMessageWithIndex[]): DynamicToolUIPart[] {
   const parts = new Map<string, DynamicToolUIPart>()
@@ -1565,7 +1490,6 @@ function MessageGroup({
     () => panelLive ? appBuildActivity(items.map(item => item.message), creationParts, showThinking) : null,
     [panelLive, items, creationParts, showThinking],
   )
-  const remoteThreadStarts = React.useMemo(() => collectRemoteThreadStarts(items), [items])
   const computerHistoryEnabled = useComputerSessionHistoryStore(state => state.enabled)
   const computerHistory = React.useMemo(() => computerHistoryEnabled ? collectComputerSessionHistory(items.map(item => item.message), { thinking: showThinking }) : null, [computerHistoryEnabled, items, showThinking])
   const computerWorking = useComputerSessionHistoryStore(state => Boolean(state.working[sessionId]))
@@ -1583,13 +1507,6 @@ function MessageGroup({
   // steps/answer split until it finishes) and reserves room only at the list's
   // end (LiveTurnReserve). With the flag off, neither area reserves height.
   const steadyLiveTurn = useSteadyLiveTurnStore(state => state.enabled)
-  // The skill this turn produced stays in view as its result, even when the
-  // steps fold; later updates and shares change this card, not add another.
-  const { cards: createdSkillCards } = useCreatedSkills()
-  const groupSkillCards = React.useMemo(() => {
-    const ids = new Set(items.flatMap((item) => item.message.parts.flatMap((part) => part.type === "dynamic-tool" ? [part.toolCallId] : [])))
-    return createdSkillCards.filter((card) => ids.has(card.anchorToolCallId))
-  }, [items, createdSkillCards])
 
   if (!lastItem || isMessageEmptyGroup(items)) {
     return null;
@@ -1693,8 +1610,6 @@ function MessageGroup({
     && !stepsNeedAttention(stepItems, connectionCardParts)
   // A task on another computer outlives the turn that started it and may still
   // need the person, so its row stays in view below a folded run.
-  const pinnedRemoteThreads = collapseSteps ? remoteThreadStarts : []
-  const pinnedRemoteIds = pinnedRemoteThreads.length > 0 ? new Set(pinnedRemoteThreads.map(({ part }) => part.toolCallId)) : NO_PINNED_REMOTE_THREADS
   const replyStartedAt = stepsStartedAt ?? (lastRealItem ? getMessageCreated(lastRealItem.message) : null)
   const stepCountLabel = stepRowCount ? `${stepRowCount} ${stepRowCount === 1 ? "step" : "steps"}` : null
   const replyWorkedLabel = replyStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > replyStartedAt
@@ -1777,7 +1692,6 @@ function MessageGroup({
     <DevProfiler id={`MessageGroup:${lastItem.message.id}`}>
       <AppCreationPartsContext.Provider value={creationParts}>
       <AppPanelFoldContext.Provider value={panelLive}>
-      <PinnedRemoteThreadsContext.Provider value={pinnedRemoteIds}>
       <ConnectionCardPartsContext.Provider value={connectionCardParts}>
       <ComputerHistoryContext.Provider value={computerHistory}>
       <ActionContextMenu
@@ -1817,11 +1731,6 @@ function MessageGroup({
       ) : null}
       {creationRuns.map(run => <Message key={`creation-${run.id}`} className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10"><AppBuilderStep run={run} startedAt={getMessageCreated(items[0]!.message)} completedAt={getMessageCompleted(lastItem.message)} activity={run === creationRuns.at(-1) ? panelActivity : null} active={creationLive && (run === creationRuns.at(-1) || Boolean(run.preparation && isToolPartInFlight(run.preparation)) || run.builds.some(isToolPartInFlight))} /></Message>)}
       {mcpAppParts.map(appFrame)}
-      {pinnedRemoteThreads.map(({ start, part }) => (
-        <Message key={`remote-thread-${start.key}`} className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10">
-          <RemoteThreadRunLine start={start} part={part} />
-        </Message>
-      ))}
       {renderItems(proseItems, stepItems.length, collapseSteps || panelLive)}
       {computerHistory ? <Message className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10">
         <ComputerSessionHistory key={computerHistory.id} history={computerHistory} active={isLiveGroup && parentActive} renderAction={part => <ToolMessage part={part} />}
@@ -1833,11 +1742,7 @@ function MessageGroup({
       </Message> : crew ? <Message className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10">
         <ComputerCrewCard members={crew.members} onOpen={crew.onOpen} />
       </Message> : null}
-      {groupSkillCards.length > 0 ? (
-        <div data-created-skills="" className="mx-auto mt-1 flex w-full max-w-3xl flex-col gap-2 px-2 md:px-10">
-          {groupSkillCards.map((card) => <CreatedSkillCard key={card.kind === "ready" ? card.skillId : card.key} card={card} />)}
-        </div>
-      ) : null}
+
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 md:px-8">
           <div className={cn("flex items-center gap-2 transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover/message-group:opacity-100 group-focus-within/message-group:opacity-100 pointer-coarse:opacity-100", forkingMessageId && forkingMessageId === lastRealItem?.message.id ? "opacity-100" : "opacity-0")}>
@@ -1881,7 +1786,6 @@ function MessageGroup({
       </ActionContextMenu>
       </ComputerHistoryContext.Provider>
       </ConnectionCardPartsContext.Provider>
-      </PinnedRemoteThreadsContext.Provider>
       </AppPanelFoldContext.Provider>
       </AppCreationPartsContext.Provider>
     </DevProfiler>
@@ -2070,11 +1974,9 @@ export function MessageList({ messages, messageIdReplacements, status, activityS
     () => new Set(latestAssistantToolParts.map((part) => part.toolCallId)),
     [latestAssistantToolParts],
   )
-  const createdSkills = useCreatedSkillsModel(messages, appRunActive && !syncDegraded)
   const steadyLiveTurn = useSteadyLiveTurnStore(state => state.enabled)
 
   return (
-    <CreatedSkillsContext.Provider value={createdSkills}>
     <ParentRunActiveContext.Provider value={appRunActive}>
     <AppPanelLiveContext.Provider value={appPanelLive}>
     <BuiltAppPreviewSync key={sessionId} messages={messages} active={runActive}>
@@ -2154,47 +2056,5 @@ export function MessageList({ messages, messageIdReplacements, status, activityS
     </BuiltAppPreviewSync>
     </AppPanelLiveContext.Provider>
     </ParentRunActiveContext.Provider>
-    </CreatedSkillsContext.Provider>
   )
-}
-
-/** Same model, same object: text streaming must not re-render every group's cards. */
-function sameCreatedSkills(left: CreatedSkillsModel, right: CreatedSkillsModel): boolean {
-  return JSON.stringify([left.cards, [...left.shareLabels], [...left.savedNames]])
-    === JSON.stringify([right.cards, [...right.shareLabels], [...right.savedNames]])
-}
-
-/**
- * Created skills for the whole conversation, plus what the person learned by
- * checking (read-only) after a share went unconfirmed.
- */
-function useCreatedSkillsModel(messages: UIMessage[], live: boolean): CreatedSkillsContextValue {
-  const { onOpenLibraryDetail } = useMessageList()
-  const [checked, setChecked] = React.useState<ReadonlyMap<string, ConfirmedSkillAccess>>(() => new Map())
-  const next = React.useMemo(() => {
-    const collected = collectCreatedSkills(messages, { live })
-    return checked.size === 0 ? collected : {
-      ...collected,
-      cards: collected.cards.map((card) => {
-        const access = card.kind === "ready" ? checked.get(card.pluginId) : undefined
-        if (!access || card.kind !== "ready") return card
-        // A check answers an unconfirmed share; anything still running stays as it is.
-        return { ...card, access, pending: card.pending?.state === "unverified" ? null : card.pending }
-      }),
-    }
-  }, [messages, live, checked])
-  // Keep the previous object while nothing changed (derived state, not a ref).
-  const [stable, setStable] = React.useState<CreatedSkillsModel>(next)
-  const unchanged = stable === next || sameCreatedSkills(stable, next)
-  if (!unchanged) setStable(next)
-  const model = unchanged ? stable : next
-  const onCheckSharing = React.useCallback(async (pluginId: string) => {
-    try {
-      const access = await readCreatedSkillAccess(pluginId)
-      setChecked((current) => new Map(current).set(pluginId, access))
-    } catch (cause) {
-      console.warn("[created-skill] checking sharing failed", cause)
-    }
-  }, [])
-  return React.useMemo(() => ({ ...model, onOpenSkill: onOpenLibraryDetail, onCheckSharing }), [model, onOpenLibraryDetail, onCheckSharing])
 }

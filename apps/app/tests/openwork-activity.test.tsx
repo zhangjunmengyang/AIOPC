@@ -18,7 +18,7 @@ afterAll(() => {
 
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 const { MessageList } = await import("../src/components/chat/message-list")
 
@@ -73,7 +73,7 @@ async function render(parts: UIMessage["parts"]) {
   const root = createRoot(container)
   mounted = { root, container }
   await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -84,7 +84,7 @@ async function render(parts: UIMessage["parts"]) {
       onMcpReopenAuthorization: async () => {},
       children: createElement(MessageList, { messages, status: "ready", activityStatus: "idle" }),
     }),
-  }) }), })))
+  }), })))
   return container
 }
 

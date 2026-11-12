@@ -1,14 +1,12 @@
-// Desktop workspace persistence and bootstrap configuration. This module owns
+// Desktop workspace persistence. This module owns
 // on-disk workspace state, per-workspace openwork.json files, and the
 // workspace-facing command operations.
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  desktopBootstrapPath as resolveDesktopBootstrapPath,
-  legacyDesktopBootstrapPath as resolveLegacyDesktopBootstrapPath,
   normalizeWorkspaceRootPath,
   openworkServerConfigPath as resolveOpenworkServerConfigPath,
 } from "@openwork/paths";
@@ -106,64 +104,7 @@ async function readJsonFile(targetPath, fallback) {
   }
 }
 
-// Resolved once at module load so a mid-session process.env mutation
-// (runtime.mjs buildChildEnv -> Object.assign(process.env)) can never retarget
-// reads to a different file.
-const DEFAULT_DESKTOP_BOOTSTRAP_PATH = resolveDesktopBootstrapPath({ homeDir: os.homedir() });
-
-// Older builds resolved the default as ~/.config on every OS, ignoring
-// LOCALAPPDATA and XDG_CONFIG_HOME. Keep reading that file when the canonical one
-// is missing so existing installs keep their deployment config.
-const LEGACY_DESKTOP_BOOTSTRAP_PATH = resolveLegacyDesktopBootstrapPath({ homeDir: os.homedir() });
-const HOSTED_DESKTOP_WEB_URL = "https://app.openworklabs.com";
-const HOSTED_DESKTOP_API_URL = "https://api.openworklabs.com";
-
-function bootstrapUrlOrigin(value) {
-  if (typeof value !== "string" || !value.trim()) return "";
-  try {
-    return new URL(value.trim()).origin;
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}
-
-function isHostedDesktopBootstrapConfig(config) {
-  const baseUrlOrigin = bootstrapUrlOrigin(config?.baseUrl);
-  return baseUrlOrigin === HOSTED_DESKTOP_WEB_URL || baseUrlOrigin === HOSTED_DESKTOP_API_URL;
-}
-
-export function createWorkspaceStore({
-  app,
-  defaultDenBaseUrl,
-  defaultRequireSignin,
-  forceRequireSignin,
-}) {
-  function desktopBootstrapPath() {
-    if (process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim()) {
-      return resolveDesktopBootstrapPath({ env: process.env, homeDir: os.homedir(), userDataDir: app.getPath("userData") });
-    }
-    // Dev mode swaps process.env.HOME to the sandboxed dev-data home midway
-    // through startup (runtime.mjs buildChildEnv -> Object.assign(process.env)),
-    // which changes what os.homedir() returns. Resolve the dev-data home
-    // deterministically so early and late IPC reads target the same file.
-    if (process.env.OPENWORK_DEV_MODE === "1") {
-      return resolveDesktopBootstrapPath({ env: process.env, homeDir: os.homedir(), userDataDir: app.getPath("userData") });
-    }
-    return DEFAULT_DESKTOP_BOOTSTRAP_PATH;
-  }
-
-  function legacyDesktopBootstrapPath() {
-    // An explicit bootstrap path defines an isolated installation boundary.
-    // Never let a legacy global config cross that boundary: it may contain a
-    // completed activation from another distribution or deployment.
-    if (process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim()) return null;
-    const primary = desktopBootstrapPath();
-    if (primary === DEFAULT_DESKTOP_BOOTSTRAP_PATH && LEGACY_DESKTOP_BOOTSTRAP_PATH !== primary) {
-      return LEGACY_DESKTOP_BOOTSTRAP_PATH;
-    }
-    return null;
-  }
-
+export function createWorkspaceStore({ app }) {
   function workspaceStatePath() {
     const override = process.env.OPENWORK_DESKTOP_WORKSPACE_STATE_PATH?.trim();
     if (override) return path.resolve(override);
@@ -203,307 +144,6 @@ export function createWorkspaceStore({
       console.warn("[migration] legacy Electron workspace-state copy failed", error);
       return false;
     }
-  }
-
-  function normalizeDesktopBootstrapConfig(input) {
-    const baseUrl = typeof input?.baseUrl === "string" ? input.baseUrl.trim() : "";
-    if (!baseUrl) {
-      throw new Error("baseUrl is required");
-    }
-
-    // The handoff grant is a one-time, short-lived (~5 min) desktop sign-in
-    // token written to this machine-local config by the bootstrap CLI. The app
-    // exchanges it once on boot and then rewrites this file with `handoff: null`
-    // (see den-auth-provider) so it is never reusable. It is intentionally kept
-    // in plaintext here because it is single-use and local-only; do not persist
-    // long-lived secrets in this file.
-    const handoffInput = input?.handoff;
-    const handoff = handoffInput && typeof handoffInput === "object"
-      ? {
-          grant: typeof handoffInput.grant === "string" ? handoffInput.grant.trim() : "",
-          denBaseUrl: typeof handoffInput.denBaseUrl === "string" ? handoffInput.denBaseUrl.trim() : "",
-          orgId: typeof handoffInput.orgId === "string" ? handoffInput.orgId.trim() : "",
-          orgName: typeof handoffInput.orgName === "string" ? handoffInput.orgName.trim() : "",
-          orgSlug: typeof handoffInput.orgSlug === "string" ? handoffInput.orgSlug.trim() : "",
-          skillId: typeof handoffInput.skillId === "string" ? handoffInput.skillId.trim() : "",
-          skillTitle: typeof handoffInput.skillTitle === "string" ? handoffInput.skillTitle.trim() : "",
-          createdAt: typeof handoffInput.createdAt === "string" ? handoffInput.createdAt.trim() : "",
-        }
-      : null;
-    const normalizedHandoff = handoff?.grant && handoff.denBaseUrl && handoff.orgId && handoff.orgName && handoff.skillId && handoff.skillTitle
-      ? handoff
-      : null;
-    const preparedInput = input?.prepared;
-    const prepared = preparedInput && typeof preparedInput === "object"
-      ? {
-          orgId: typeof preparedInput.orgId === "string" ? preparedInput.orgId.trim() : "",
-          orgName: typeof preparedInput.orgName === "string" ? preparedInput.orgName.trim() : "",
-          orgSlug: typeof preparedInput.orgSlug === "string" ? preparedInput.orgSlug.trim() : "",
-          skillId: typeof preparedInput.skillId === "string" ? preparedInput.skillId.trim() : "",
-          skillTitle: typeof preparedInput.skillTitle === "string" ? preparedInput.skillTitle.trim() : "",
-          skillsDir: typeof preparedInput.skillsDir === "string" ? preparedInput.skillsDir.trim() : "",
-          skillPath: typeof preparedInput.skillPath === "string" ? preparedInput.skillPath.trim() : "",
-          preparedAt: typeof preparedInput.preparedAt === "string" ? preparedInput.preparedAt.trim() : "",
-        }
-      : null;
-    const normalizedPrepared = prepared?.orgId && prepared.orgName && prepared.skillId && prepared.skillTitle && prepared.skillPath
-      ? prepared
-      : null;
-    const claimLinksInput = Array.isArray(input?.claimLinks) ? input.claimLinks : [];
-    const claimLinks = claimLinksInput.flatMap((link) => {
-      if (!link || typeof link !== "object") return [];
-      const id = typeof link.id === "string" ? link.id.trim() : "";
-      const role = typeof link.role === "string" ? link.role.trim() : "";
-      const token = typeof link.token === "string" ? link.token.trim() : "";
-      const url = typeof link.url === "string" ? link.url.trim() : "";
-      const expiresAt = typeof link.expiresAt === "string" ? link.expiresAt.trim() : "";
-      return id && role && url && expiresAt ? [{ id, role, ...(token ? { token } : {}), url, expiresAt }] : [];
-    });
-    const writtenAt = typeof input?.writtenAt === "string" ? input.writtenAt.trim() : "";
-    const apiBaseUrl = typeof input?.apiBaseUrl === "string" ? input.apiBaseUrl.trim() : "";
-    const brandAppName = typeof input?.brandAppName === "string" ? input.brandAppName.trim().slice(0, 64) : "";
-    const brandLogoUrl = typeof input?.brandLogoUrl === "string" ? input.brandLogoUrl.trim() : "";
-    const brandIconUrl = typeof input?.brandIconUrl === "string" ? input.brandIconUrl.trim() : "";
-    const enterpriseActivationInput = input?.enterpriseActivation;
-    const enterpriseActivation = enterpriseActivationInput && typeof enterpriseActivationInput === "object"
-      ? {
-          activatedAt: typeof enterpriseActivationInput.activatedAt === "string"
-            ? enterpriseActivationInput.activatedAt.trim()
-            : "",
-          denBaseUrl: typeof enterpriseActivationInput.denBaseUrl === "string"
-            ? enterpriseActivationInput.denBaseUrl.trim()
-            : "",
-        }
-      : null;
-    const normalizedEnterpriseActivation = enterpriseActivation?.activatedAt && enterpriseActivation.denBaseUrl
-      ? enterpriseActivation
-      : null;
-    return {
-      baseUrl,
-      ...(apiBaseUrl ? { apiBaseUrl } : {}),
-      requireSignin: forceRequireSignin || input?.requireSignin === true,
-      // Only an explicit policy is carried. The artifact default is never
-      // materialized here: desktop-bootstrap.json is shared by both flavors
-      // (one application identifier, one user-data directory), so persisting
-      // the enterprise default would gate the public artifact on the same
-      // machine. Consumers fall back to their own build default when the key
-      // is absent, which is exactly the documented precedence.
-      ...(typeof input?.requireActivation === "boolean"
-        ? { requireActivation: input.requireActivation }
-        : {}),
-      ...(brandAppName ? { brandAppName } : {}),
-      ...(brandLogoUrl ? { brandLogoUrl } : {}),
-      ...(brandIconUrl ? { brandIconUrl } : {}),
-      ...(writtenAt ? { writtenAt } : {}),
-      ...(claimLinks.length > 0 ? { claimLinks } : {}),
-      ...(normalizedHandoff ? { handoff: normalizedHandoff } : {}),
-      ...(normalizedPrepared ? { prepared: normalizedPrepared } : {}),
-      ...(normalizedEnterpriseActivation ? { enterpriseActivation: normalizedEnterpriseActivation } : {}),
-    };
-  }
-
-  function desktopBootstrapCandidateTimeMs(candidate) {
-    const writtenAt = typeof candidate.parsed?.writtenAt === "string" ? candidate.parsed.writtenAt.trim() : "";
-    const writtenAtMs = writtenAt ? Date.parse(writtenAt) : Number.NaN;
-    return Number.isFinite(writtenAtMs) ? writtenAtMs : candidate.mtimeMs;
-  }
-
-  function compareDesktopBootstrapCandidates(left, right) {
-    const classDifference = Number(!isHostedDesktopBootstrapConfig(left.normalized)) - Number(!isHostedDesktopBootstrapConfig(right.normalized));
-    return classDifference || desktopBootstrapCandidateTimeMs(left) - desktopBootstrapCandidateTimeMs(right);
-  }
-
-  async function readDesktopBootstrapCandidate(candidatePath) {
-    let exists = false;
-    let mtimeMs = 0;
-    try {
-      const stats = await stat(candidatePath);
-      exists = true;
-      mtimeMs = stats.mtimeMs;
-    } catch {
-      // Missing paths are normal; keep the read error below for diagnostics.
-    }
-
-    try {
-      const raw = await readFile(candidatePath, "utf8");
-      const parsed = JSON.parse(raw);
-      return {
-        ok: true,
-        path: candidatePath,
-        exists: true,
-        raw,
-        parsed,
-        normalized: normalizeDesktopBootstrapConfig(parsed),
-        mtimeMs,
-        error: null,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        path: candidatePath,
-        exists,
-        raw: null,
-        parsed: null,
-        normalized: null,
-        mtimeMs,
-        error,
-      };
-    }
-  }
-
-  function readDesktopBootstrapCandidateSync(candidatePath) {
-    let exists = false;
-    let mtimeMs = 0;
-    try {
-      const stats = statSync(candidatePath);
-      exists = true;
-      mtimeMs = stats.mtimeMs;
-    } catch {
-      // Missing paths are normal; keep the read error below for diagnostics.
-    }
-
-    try {
-      const raw = readFileSync(candidatePath, "utf8");
-      const parsed = JSON.parse(raw);
-      return {
-        ok: true,
-        path: candidatePath,
-        exists: true,
-        raw,
-        parsed,
-        normalized: normalizeDesktopBootstrapConfig(parsed),
-        mtimeMs,
-        error: null,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        path: candidatePath,
-        exists,
-        raw: null,
-        parsed: null,
-        normalized: null,
-        mtimeMs,
-        error,
-      };
-    }
-  }
-
-  async function migrateLegacyDesktopBootstrapConfig(configPath, legacyCandidate) {
-    try {
-      await mkdir(path.dirname(configPath), { recursive: true });
-      await writeFile(configPath, legacyCandidate.raw, "utf8");
-      console.info("[desktop-bootstrap] migrated legacy config", {
-        from: legacyCandidate.path,
-        to: configPath,
-      });
-    } catch (migrationError) {
-      console.warn("[desktop-bootstrap] legacy config migration failed", migrationError);
-    }
-  }
-
-  async function getDesktopBootstrapConfig() {
-    const configPath = desktopBootstrapPath();
-    const primary = await readDesktopBootstrapCandidate(configPath);
-    const legacyPath = legacyDesktopBootstrapPath();
-    const legacy = legacyPath ? await readDesktopBootstrapCandidate(legacyPath) : null;
-
-    if (primary.ok && legacy?.ok) {
-      if (compareDesktopBootstrapCandidates(legacy, primary) > 0) {
-        await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
-        return { ...legacy.normalized, fromFile: true };
-      }
-      return { ...primary.normalized, fromFile: true };
-    }
-
-    if (primary.ok) return { ...primary.normalized, fromFile: true };
-
-    if (legacy?.ok) {
-      await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
-      return { ...legacy.normalized, fromFile: true };
-    }
-
-    console.warn("[desktop-bootstrap] falling back to defaults", {
-      path: configPath,
-      error: primary.error instanceof Error ? primary.error.message : String(primary.error),
-    });
-    return {
-      baseUrl: defaultDenBaseUrl,
-      requireSignin: defaultRequireSignin,
-      fromFile: false,
-    };
-  }
-
-  function readDesktopBootstrapConfigSync() {
-    const configPath = desktopBootstrapPath();
-    const primary = readDesktopBootstrapCandidateSync(configPath);
-    const legacyPath = legacyDesktopBootstrapPath();
-    const legacy = legacyPath ? readDesktopBootstrapCandidateSync(legacyPath) : null;
-
-    if (primary.ok && legacy?.ok) {
-      return {
-        ...(compareDesktopBootstrapCandidates(legacy, primary) > 0 ? legacy.normalized : primary.normalized),
-        fromFile: true,
-      };
-    }
-
-    if (primary.ok) return { ...primary.normalized, fromFile: true };
-    if (legacy?.ok) return { ...legacy.normalized, fromFile: true };
-
-    return {
-      baseUrl: defaultDenBaseUrl,
-      requireSignin: defaultRequireSignin,
-      fromFile: false,
-    };
-  }
-
-  async function debugDesktopBootstrapConfig() {
-    const configPath = desktopBootstrapPath();
-    const legacyPath = legacyDesktopBootstrapPath();
-    const result = {
-      path: configPath,
-      legacyPath,
-      legacyExists: legacyPath ? existsSync(legacyPath) : false,
-      home: os.homedir(),
-      envHome: process.env.HOME ?? null,
-      envOverride: process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH ?? null,
-      exists: existsSync(configPath),
-      raw: null,
-      parsed: null,
-      normalized: null,
-      error: null,
-    };
-
-    try {
-      result.raw = await readFile(configPath, "utf8");
-      result.parsed = JSON.parse(result.raw);
-      result.normalized = normalizeDesktopBootstrapConfig(result.parsed);
-    } catch (error) {
-      result.error = error instanceof Error ? error.message : String(error);
-    }
-
-    return result;
-  }
-
-  async function setDesktopBootstrapConfig(config) {
-    const normalized = normalizeDesktopBootstrapConfig(config);
-    const outputPath = desktopBootstrapPath();
-    const stamped = { ...normalized, writtenAt: new Date().toISOString() };
-    await writeJsonFileAtomic(outputPath, stamped);
-    return stamped;
-  }
-
-  async function clearDesktopBootstrapFiles() {
-    await rm(desktopBootstrapPath(), { force: true });
-    const legacyPath = legacyDesktopBootstrapPath();
-    if (legacyPath) {
-      await rm(legacyPath, { force: true });
-    }
-  }
-
-  async function clearDesktopBootstrapConfig() {
-    await clearDesktopBootstrapFiles();
-    return undefined;
   }
 
   function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
@@ -950,7 +590,6 @@ export function createWorkspaceStore({
 
   async function resetOpenworkState() {
     await rm(workspaceStatePath(), { force: true });
-    await clearDesktopBootstrapFiles();
     return undefined;
   }
 
@@ -958,20 +597,15 @@ export function createWorkspaceStore({
     addAuthorizedRoot,
     bootstrapFirstLaunchWorkspace,
     createWorkspace,
-    clearDesktopBootstrapConfig,
-    debugDesktopBootstrapConfig,
     defaultWorkspaceOpenworkConfig,
     exportConfig,
     forgetWorkspace,
-    getDesktopBootstrapConfig,
     importConfig,
     listLocalWorkspacePaths,
     migrateLegacyElectronWorkspaceStateIfNeeded,
-    readDesktopBootstrapConfigSync,
     readWorkspaceOpenworkConfig,
     readWorkspaceState,
     resetOpenworkState,
-    setDesktopBootstrapConfig,
     setRuntimeActiveWorkspace,
     setSelectedWorkspace,
     updateWorkspaceDisplayName,

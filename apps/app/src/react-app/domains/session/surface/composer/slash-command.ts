@@ -7,35 +7,8 @@ export type ComposerSlashCommandOption = SlashCommandOption & {
   skill?: SkillCard;
 };
 
-export function skillSlashCommandName(skill: Pick<SkillCard, "name" | "trigger">) {
-  const trigger = skill.trigger?.trim();
-  if (trigger && /^[A-Za-z0-9_-]+$/.test(trigger)) return trigger;
-  const slug = skill.name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "skill";
-}
-
-export function skillMenuSlashCommandName(skill: Pick<SkillCard, "name" | "trigger" | "origin">) {
-  return skill.origin === "openwork-connect" ? skillSlashCommandName(skill) : skill.name;
-}
-
-export function connectSkillSlashCommandOptions(skills: SkillCard[]): ComposerSlashCommandOption[] {
-  return skills.flatMap((skill) => {
-    if (skill.origin !== "openwork-connect" || !skill.connectCapabilityName) return [];
-    return [{
-      id: `connect-skill:${skill.connectCapabilityName}`,
-      name: skillSlashCommandName(skill),
-      description: [
-        skill.description,
-        [skill.marketplaceName, skill.pluginName].filter(Boolean).join(" · "),
-      ].filter(Boolean).join(" — "),
-      source: "skill",
-      skill,
-    }];
-  });
+export function skillMenuSlashCommandName(skill: Pick<SkillCard, "name">) {
+  return skill.name;
 }
 
 export function getSlashCommandQuery(value: string) {

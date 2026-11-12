@@ -6,7 +6,6 @@ import {
 } from "@openwork/types/connection-action-app";
 
 import { safeStringify } from "@/app/utils";
-import { connectRemoteSessionAction } from "@/lib/capability-call";
 import { normalizeErrorText } from "@/lib/error-text";
 import { isComputerToolName } from "@/lib/computer-session-history";
 
@@ -81,12 +80,8 @@ function toolCallProviderMetadata(part: ToolPart): ProviderMetadata {
     ? stateMetadata.sessionId.trim()
     : null;
   const appBuilder = /(?:^|_)(?:search_capabilities|prepare_app|create_app|update_app)$/.test(part.tool);
-  // A task started or followed up on another computer keeps its start time after it returns.
-  const remoteSession = connectRemoteSessionAction(part.tool) !== null
-    || (/(?:^|_)execute_capability$/.test(part.tool) && isRecord(part.state.input)
-      && typeof part.state.input.name === "string" && part.state.input.name.startsWith("remote-session:"));
   const computer = isComputerToolName(part.tool);
-  const toolStartedAt = (appBuilder || computer || remoteSession || part.tool === "task" || part.metadata?.openworkV2CodeMode === true) && "time" in part.state && typeof part.state.time?.start === "number"
+  const toolStartedAt = (appBuilder || computer || part.tool === "task" || part.metadata?.openworkV2CodeMode === true) && "time" in part.state && typeof part.state.time?.start === "number"
     && Number.isFinite(part.state.time.start)
     ? part.state.time.start
     : null;

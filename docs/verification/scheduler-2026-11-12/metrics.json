@@ -1,0 +1,16 @@
+{
+  "kind": "scheduler acceptance fixture",
+  "orders": [
+    {
+      "product": "sample",
+      "revenue": 12
+    },
+    {
+      "product": "sample",
+      "revenue": 8
+    }
+  ],
+  "previous_price": 9,
+  "current_price": 12,
+  "reminder": "Review the local report"
+}

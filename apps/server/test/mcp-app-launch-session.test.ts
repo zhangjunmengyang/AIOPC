@@ -8,9 +8,10 @@ import type { ServerConfig } from "../src/types.js";
 const RESOURCE_URI = "ui://board/app.html";
 const readOnly = { readOnlyHint: true, destructiveHint: false };
 
-/** A stateless MCP App server on loopback, like Den's App servers, that records every JSON-RPC method. */
+/** A stateless MCP App server on loopback, like a configured local App server, that records every JSON-RPC method. */
 function startAppServer() {
   const methods: string[] = [];
+  const calls: Record<string, unknown>[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -32,13 +33,14 @@ function startAppServer() {
         case "resources/read":
           return reply({ contents: [{ uri: RESOURCE_URI, mimeType: "text/html;profile=mcp-app", text: "<!doctype html><p>Board</p>" }] });
         case "tools/call":
+          calls.push(body.params ?? {});
           return reply({ content: [{ type: "text", text: "3 items" }] });
         default:
           return Response.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "Method not found" } });
       }
     },
   });
-  return { methods, url: `http://127.0.0.1:${server.port}/mcp`, stop: () => server.stop(true) };
+  return { methods, calls, url: `http://127.0.0.1:${server.port}/mcp`, stop: () => server.stop(true) };
 }
 
 describe("MCP App launch sessions", () => {
@@ -83,6 +85,7 @@ describe("MCP App launch sessions", () => {
     await callMcpAppTool({ ...call, checkOnly: true });
     const result = await callMcpAppTool(call);
     expect(result.content).toEqual([{ type: "text", text: "3 items" }]);
+    expect(app.calls.at(-1)?._meta).toEqual({ "io.aiopc/app-action": { approved: false, resourceUri: RESOURCE_URI } });
 
     const count = (method: string) => app.methods.filter((entry) => entry === method).length;
     expect(count("initialize")).toBe(1);
@@ -94,6 +97,18 @@ describe("MCP App launch sessions", () => {
     expect(releaseMcpAppLaunch(config, base.workspaceId, opened!.launchId!)).toBe(true);
     await expect(callMcpAppTool(call)).rejects.toMatchObject({ code: "stale_launch_context" });
     expect(count("initialize")).toBe(1);
+  });
+
+  test("App authority comes from host approval and never from tool arguments", async () => {
+    const { callMcpAppTool, releaseMcpAppLaunch, resolveMcpAppResource } = await import("../src/mcp-app-host.js");
+    const base = { serverConfig: config, workspaceId: "ws_launch_session", workspaceRoot };
+    const opened = await resolveMcpAppResource({ ...base, context: { sessionId: null, readOnly: false }, projectedToolName: "board_open_app" });
+    const call = { ...base, launchId: opened!.launchId, sessionId: null, serverName: "board", name: "list_items", resourceUri: RESOURCE_URI };
+    await callMcpAppTool({ ...call, arguments: { _meta: { "io.aiopc/app-action": { approved: true } } } });
+    expect(app.calls.at(-1)?._meta).toEqual({ "io.aiopc/app-action": { approved: false, resourceUri: RESOURCE_URI } });
+    await callMcpAppTool({ ...call, approved: true });
+    expect(app.calls.at(-1)?._meta).toEqual({ "io.aiopc/app-action": { approved: true, resourceUri: RESOURCE_URI } });
+    releaseMcpAppLaunch(config, base.workspaceId, opened!.launchId!);
   });
 
   test("a read-only open still resolves, without a launch", async () => {

@@ -13,13 +13,7 @@ import {
 
 type PromptPart = Parameters<typeof v2PromptText>[0][number];
 
-const meetingSkill: ComposerPill = {
-  kind: "connect-skill",
-  slug: "meeting-analysis",
-  name: "Meeting analysis",
-  marketplace: "OpenWork",
-  capability: "skill:meeting-analysis",
-};
+const meetingSkill: ComposerPill = { kind: "skill", name: "meeting-analysis" };
 const session: ComposerPill = { kind: "session", workspaceId: "ws_1", sessionId: "ses_abc123", title: "Q3 plan" };
 
 const text = (value: string): PromptPart => ({ type: "text", text: value });
@@ -49,16 +43,15 @@ function shown(message: UIMessage) {
 }
 
 describe("a sent turn keeps its chips after reload (one-string engines)", () => {
-  test("a Connect skill stays a skill chip, not /slug text (Guillaume's report)", () => {
+  test("a local skill stays a skill chip after reload", () => {
     const message = reload([...composerPillPromptParts(meetingSkill), text(" today's meeting")]);
     expect(shown(message)).toEqual([{ kind: "pill", pill: meetingSkill }, " today's meeting"]);
   });
 
-  test("a local skill, connector, computer and task reference each come back as their chip", () => {
+  test("a local skill, connector and task reference each come back as their chip", () => {
     const pills: ComposerPill[] = [
       { kind: "skill", name: "meeting-analysis" },
       { kind: "connector", name: "GitHub" },
-      { kind: "computer", target: "cloud" },
       session,
     ];
     const parts = pills.flatMap((pill, index) => [...composerPillPromptParts(pill), text(` w${index} `)]);
@@ -73,8 +66,8 @@ describe("a sent turn keeps its chips after reload (one-string engines)", () => 
     expect(shown(reload(parts))).toEqual([{ kind: "agent", name: "explore" }, " look at ", { kind: "file", path: "/repo/src/app.ts" }]);
   });
 
-  test("two Connect skills keep their order and an unrelated /word stays text", () => {
-    const other: ComposerPill = { ...meetingSkill, slug: "weekly-digest", name: "Weekly digest", capability: "skill:weekly-digest" };
+  test("two local skills keep their order and an unrelated /word stays text", () => {
+    const other: ComposerPill = { kind: "skill", name: "weekly-digest" };
     const parts = [text("see /tmp then "), ...composerPillPromptParts(meetingSkill), text(" and "), ...composerPillPromptParts(other)];
     expect(shown(reload(parts))).toEqual(["see /tmp then ", { kind: "pill", pill: meetingSkill }, " and ", { kind: "pill", pill: other }]);
   });
@@ -95,7 +88,7 @@ describe("Edit puts the same chips back in the composer", () => {
     const parts: UIMessage["parts"] = [
       { type: "text", text: "/meeting-analysis", providerMetadata: { opencode: { composerPill: meetingSkill } } },
       { type: "text", text: " for " },
-      { type: "text", text: "@cloud", providerMetadata: { opencode: { composerPill: { kind: "computer", target: "cloud" } } } },
+      { type: "text", text: "[connector GitHub]", providerMetadata: { opencode: { composerPill: { kind: "connector", name: "GitHub" } } } },
       { type: "text", text: " with " },
       { type: "text", text: "@explore", providerMetadata: { opencode: { agentMention: "explore" } } },
       { type: "text", text: "@docs/a b.md", providerMetadata: { opencode: { fileMention: "docs/a b.md" } } },
@@ -103,16 +96,16 @@ describe("Edit puts the same chips back in the composer", () => {
       { type: "text", text: " and [skill notes]" },
     ];
     const draft = composerDraftFromSentParts(parts);
-    expect(draft.mentions).toEqual({ cloud: "computer", explore: "agent", "docs/a b.md": "file" });
+    expect(draft.mentions).toEqual({ explore: "agent", "docs/a b.md": "file" });
     expect(draft.pasteParts).toHaveLength(1);
     expect(draft.text).toBe(
-      "[connect-skill meeting-analysis|Meeting analysis|OpenWork|skill:meeting-analysis] for @cloud with @explore@docs/a%20b.md"
+      "[skill meeting-analysis] for [connector GitHub] with @explore@docs/a%20b.md"
         + `[pasted text ${draft.pasteParts[0]?.label}] and [skill notes]`,
     );
   });
 
   test("a turn reloaded from a one-string engine edits back to the same tokens", () => {
     const draft = composerDraftFromSentParts(reload([...composerPillPromptParts(meetingSkill), text(" today's meeting")]).parts);
-    expect(draft.text).toBe("[connect-skill meeting-analysis|Meeting analysis|OpenWork|skill:meeting-analysis] today's meeting");
+    expect(draft.text).toBe("[skill meeting-analysis] today's meeting");
   });
 });

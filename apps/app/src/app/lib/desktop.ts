@@ -1,4 +1,4 @@
-import type { DesktopAgentPermissionRule } from "@openwork/types/den/desktop-policies";
+import type { DesktopAgentPermissionRule } from "@openwork/types/desktop-policies-runtime";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 
 export type * from "./desktop-types";
@@ -14,9 +14,6 @@ export type {
   AppBuildInfo,
   DesktopStartupTimings,
   DesktopDistributionInfo,
-  BrandIconApplyResult,
-  BrandIconState,
-  DesktopBootstrapConfig,
   EvalRelaunchResult,
   OpenworkDockerCleanupResult,
   ExecResult,
@@ -32,9 +29,6 @@ export type {
 } from "./desktop-types";
 
 import type {
-  BrandIconApplyResult,
-  BrandIconState,
-  DesktopBootstrapConfig,
   DesktopDistributionInfo,
   DesktopCommandArgs,
   DesktopCommandInvokers,
@@ -92,9 +86,6 @@ declare global {
       dictation?: {
         onEvent?: (callback: (payload: SpeechDictationEvent) => void) => () => void;
       };
-      automationRunner?: {
-        onCredentialRejected?: (callback: () => void) => () => void;
-      };
       fileSystem?: {
         getPathForFile?: (file: File) => string;
       };
@@ -129,10 +120,6 @@ declare global {
       migration?: {
         readSnapshot?: () => Promise<unknown>;
         ackSnapshot?: () => Promise<{ ok: boolean; moved: boolean }>;
-      };
-      brandIcon?: {
-        apply?: (url: string | null) => Promise<BrandIconApplyResult>;
-        getState?: () => Promise<BrandIconState>;
       };
       dev?: {
         evalRelaunch?: () => Promise<EvalRelaunchResult>;
@@ -196,7 +183,6 @@ declare global {
         onExit?: (callback: (payload: { terminalId: string; exitCode: number | null; signal?: number }) => void) => () => void;
       };
       meta?: {
-        desktopBootstrap?: DesktopBootstrapConfig | null;
         distribution?: DesktopDistributionInfo;
         initialDeepLinks?: string[];
         platform?: "darwin" | "linux" | "windows";
@@ -520,22 +506,6 @@ export async function revealDesktopItemInDir(target: string): Promise<void> {
   }
 }
 
-export async function applyBrandAppName(appName: string | null): Promise<string> {
-  const result = await invokeElectronHelper("__applyBrandAppName", appName);
-  return result.appName;
-}
-
-export async function applyBrandIcon(url: string | null): Promise<BrandIconApplyResult> {
-  const apply = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.brandIcon?.apply : undefined;
-  if (!apply) return { ok: false, reason: "bridge-unavailable" };
-  return apply(url);
-}
-
-export async function getBrandIconState(): Promise<BrandIconState | null> {
-  const getState = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.brandIcon?.getState : undefined;
-  return getState ? getState() : null;
-}
-
 export async function evalRelaunchDesktopApp(): Promise<EvalRelaunchResult> {
   const relaunch = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.dev?.evalRelaunch : undefined;
   if (!relaunch) {
@@ -610,10 +580,6 @@ export async function subscribeDesktopDeepLinks(
   };
 }
 
-export function readInitialDesktopBootstrapConfig(): DesktopBootstrapConfig | null | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.__OPENWORK_ELECTRON__?.meta?.desktopBootstrap;
-}
 
 export function readDesktopDistributionInfo(): DesktopDistributionInfo {
   const distribution = typeof window === "undefined"
@@ -646,12 +612,6 @@ const {
   engineRestart,
   appBuildInfo,
   startupTimings,
-  getDesktopBootstrapConfig,
-  debugDesktopBootstrapConfig,
-  clearDesktopBootstrapConfig,
-  setDesktopBootstrapConfig,
-  connectLinkVerify,
-  connectLinkAccept,
   nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
   openworkServerInfo,
@@ -688,12 +648,6 @@ export {
   engineRestart,
   appBuildInfo,
   startupTimings,
-  getDesktopBootstrapConfig,
-  debugDesktopBootstrapConfig,
-  clearDesktopBootstrapConfig,
-  setDesktopBootstrapConfig,
-  connectLinkVerify,
-  connectLinkAccept,
   nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
   openworkServerInfo,

@@ -10,8 +10,6 @@ files:
   - from: .electron-runtime/node_modules
     to: node_modules
 extraResources:
-  - from: .electron-runtime/openwork-sentry.json
-    to: openwork-sentry.json
   - from: ../app/dist
     to: app-dist
   - from: server/dist/opencode-plugins

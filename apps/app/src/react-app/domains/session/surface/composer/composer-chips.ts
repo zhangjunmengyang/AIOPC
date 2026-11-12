@@ -1,10 +1,10 @@
-import { getMediaBadge } from "@/components/chat/utils";
 import { formatAttachmentBytes } from "@/app/lib/v2-prompt-context";
+import { getMediaBadge } from "@/components/chat/utils";
 
-import { humanizeCapabilityName } from "./composer-plus-menu-model";
-import { composerConnectorLogoUrls } from "./composer-connector-logos";
-import { composerPillTitle, type ComposerPill } from "./composer-pills";
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
+import { composerConnectorLogoUrls } from "./composer-connector-logos";
+import { composerPillTitle,type ComposerPill } from "./composer-pills";
+import { humanizeCapabilityName } from "./composer-plus-menu-model";
 
 /**
  * How composer chips look. The composer draws them as raw Lexical DOM and the
@@ -57,7 +57,7 @@ export type BadgeTone = "violet" | "sky" | "cyan" | "gray";
 
 export type ComposerBadge = {
   /** Stable kind, exposed as `data-composer-badge`. */
-  kind: "skill" | "connect-skill" | "connector" | "computer" | "session" | "agent" | "file" | "pasted";
+  kind: "skill" | "connector" | "session" | "agent" | "file" | "pasted";
   label: string;
   /** Muted detail after the label, e.g. "42 lines". */
   meta?: string;
@@ -90,12 +90,8 @@ export function composerPillBadge(pill: ComposerPill): ComposerBadge {
   switch (pill.kind) {
     case "skill":
       return { kind: "skill", label: humanizeCapabilityName(pill.name), title, tone: "violet", slot: { icon: "book" } };
-    case "connect-skill":
-      return { kind: "connect-skill", label: humanizeCapabilityName(pill.slug), title, tone: "violet", slot: { icon: "book" } };
     case "connector":
       return { kind: "connector", label: pill.name, title, tone: "gray", slot: { logoUrls: composerConnectorLogoUrls({ name: pill.name }), fallback: "plug" } };
-    case "computer":
-      return { kind: "computer", label: `@${pill.target}`, title, tone: "sky", slot: { icon: pill.target === "cloud" ? "cloud" : "monitor" } };
     case "session":
       return sessionReferenceBadge(pill.title);
   }

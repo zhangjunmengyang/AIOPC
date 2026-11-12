@@ -14,13 +14,6 @@ let downloads = 0;
 mock.module("../src/react-app/kernel/local-provider", () => ({
   useLocal: () => ({ prefs: {}, setPrefs: () => {} }),
 }));
-mock.module("../src/react-app/domains/cloud/desktop-config-provider", () => ({
-  useDesktopConfig: () => ({ loading: false, config: {}, refreshFresh: async () => ({}) }),
-}));
-mock.module("../src/react-app/domains/cloud/enterprise-activation-gate", () => ({
-  useEnterpriseActivationRequired: () => false,
-}));
-mock.module("../src/react-app/domains/cloud/brand-theme", () => ({ useBrandAppName: () => "OpenWork" }));
 mock.module("../src/react-app/shell/notifications", () => ({ notifyAlert: () => {} }));
 // An unrelated rollout must not make Restart appear before the build is staged.
 mock.module("../src/react-app/domains/session/status/use-desktop-feature", () => ({ useDesktopFeature: () => true }));
@@ -63,7 +56,7 @@ describe("titlebar staged-update restart", () => {
     localStorage.clear();
   });
 
-  test.each(["idle", "checking", "available", "blocked", "downloading", "error"] satisfies NonNullable<SettingsUpdateStatus>["state"][])("does not offer a restart while %s", async (state) => {
+  test.each(["idle", "checking", "available", "downloading", "error"] satisfies NonNullable<SettingsUpdateStatus>["state"][])("does not offer a restart while %s", async (state) => {
     status = { state, version: "0.18.5" };
     await render();
     expect(host.querySelector("[data-update-button]") !== null).toBe(false);
@@ -77,7 +70,7 @@ describe("titlebar staged-update restart", () => {
     await render();
     expect(host.querySelector("[data-update-button]")).not.toBeNull();
     await click("Restart to update");
-    expect(document.body.textContent).toContain("Restart OpenWork?");
+    expect(document.body.textContent).toContain("Restart AIOPC?");
     expect(installs).toBe(0);
     await click("Restart & update");
     expect(installs).toBe(1);

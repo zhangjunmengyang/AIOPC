@@ -10,10 +10,6 @@ import type { OpenworkServerClient, OpenworkWorkspaceInfo } from "../../../../ap
 import { deleteRouteSession, routeSessionEndpoint } from "../../../shell/route-workspaces";
 import type { ResolvedWorkspaceEndpoint } from "../../../../app/lib/workspace-endpoint";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
-import { useCheckDesktopRestriction } from "../../cloud/desktop-config-provider";
-import { useDenAuth } from "../../cloud/den-auth-provider";
-import { filterEntitledModelOptions } from "../../connections/provider-auth/provider-policy";
-import { filterCloudManagedModelOptions } from "../../connections/provider-auth/assigned-model-options";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { isActiveWorkSessionStatus, isNeedsAttentionSessionStatus } from "../sidebar/utils";
@@ -97,8 +93,6 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     archiveSession,
   } = input;
   const pinnedIds = useSessionManagementStore((s) => s.pinnedIds);
-  const checkDesktopRestriction = useCheckDesktopRestriction();
-  const { isSignedIn } = useDenAuth();
 
   const createTaskControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.create_task",
@@ -141,13 +135,10 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const workspace = matches[0];
       if (matches.length !== 1 || !workspace) throw new Error("Workspace is missing or ambiguous; pass its exact id.");
       const options = (await workspaceModels(workspace)).map((model) => ({ ...model, providerID: model.providerId }));
-      const models = filterEntitledModelOptions(filterCloudManagedModelOptions(options, isSignedIn), {
-        restrictToCloud: checkDesktopRestriction({ restriction: "allowCustomProviders" }),
-        checkRestriction: checkDesktopRestriction,
-      }).map(({ providerID, ...model }) => ({ ...model, available: true }));
+      const models = options.map(({ providerID, ...model }) => ({ ...model, available: true }));
       return { ok: true, workspaceId: workspace.id, models };
     },
-  }), [checkDesktopRestriction, isSignedIn, workspaceModels, workspaces]));
+  }), [workspaceModels, workspaces]));
 
   const listSessionsControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.list_sessions",
@@ -355,13 +346,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const status = unwrap(await client.session.status({ directory: targetWorkspace.path }));
       if (status[sessionId]?.type === "busy") return { ok: false, error: "Working sessions cannot be reassigned. Wait until the session is idle." };
 
-      const catalog = filterEntitledModelOptions(filterCloudManagedModelOptions(
-        (await workspaceModels(targetWorkspace)).map((model) => ({ ...model, providerID: model.providerId })),
-        isSignedIn,
-      ), {
-        restrictToCloud: checkDesktopRestriction({ restriction: "allowCustomProviders" }),
-        checkRestriction: checkDesktopRestriction,
-      });
+      const catalog = await workspaceModels(targetWorkspace);
       const match = catalog.find((model) => model.providerId === providerId && model.modelId === modelId);
       if (!match) return { ok: false, error: `Unavailable model: ${providerId}/${modelId}. Use models.list for this workspace.` };
       await setSessionModel(client, sessionId, { providerID: providerId, modelID: modelId }, variant);
@@ -389,7 +374,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
         },
       };
     },
-  }), [checkDesktopRestriction, endpointForWorkspace, isSignedIn, sessionsByWorkspaceId, workspaceModels, workspaces]);
+  }), [endpointForWorkspace, sessionsByWorkspaceId, workspaceModels, workspaces]);
   useControlAction(sessionSetModelControlAction);
 
   // ---------------------------------------------------------------------------

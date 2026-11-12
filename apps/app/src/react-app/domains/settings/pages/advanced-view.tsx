@@ -7,35 +7,18 @@ import { ADVANCED_SETTINGS_SECTIONS } from "../advanced-sections";
 import { Separator } from "@/components/ui/separator";
 
 import type { OpencodeConnectStatus } from "@/app/types";
-import type { OpenworkServerClient, OpenworkCloudMcpHealth, OpenworkRuntimeConfigStatus, OpenworkServerStatus } from "@/app/lib/openwork-server";
+import type { OpenworkServerClient, OpenworkRuntimeConfigStatus, OpenworkServerStatus } from "@/app/lib/openwork-server";
 import { t } from "@/i18n";
 import { LayoutStack } from "../settings-layout";
-import type { useDenSession } from "../cloud/use-den-session";
 
 import { advancedLocalReducer, initialAdvancedLocalState } from "./advanced-view-state";
 import {
   AdvancedDeveloperSection,
   AdvancedEngineV2PreviewSection,
-  AdvancedCloudMcpDiagnosticsSection,
-  AdvancedOrganizationServerSection,
   AdvancedRuntimeConfigSourcesSection,
   AdvancedRuntimeSection,
   AdvancedWorkspaceRunModeSection,
 } from "./advanced-view-sections";
-
-type AdvancedOrganizationServerSession = Pick<
-  ReturnType<typeof useDenSession>,
-  | "authBusy"
-  | "baseUrl"
-  | "baseUrlBusy"
-  | "baseUrlDraft"
-  | "baseUrlError"
-  | "onApplyBaseUrl"
-  | "onBaseUrlDraftChange"
-  | "onClearServerConfiguration"
-  | "onResetBaseUrlToDefault"
-  | "sessionBusy"
->;
 
 export type AdvancedViewProps = {
   sectionId?: string;
@@ -49,10 +32,6 @@ export type AdvancedViewProps = {
   openDebugDeepLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
   canInspectRuntimeConfig: boolean;
   getRuntimeConfigStatus: () => Promise<OpenworkRuntimeConfigStatus>;
-  organizationServer: AdvancedOrganizationServerSession;
-  cloudMcpUrl: string | null;
-  cloudMcpHealth: OpenworkCloudMcpHealth | null;
-  refreshCloudMcpHealth: () => Promise<OpenworkCloudMcpHealth | null>;
   engineClient: OpenworkServerClient | null;
 };
 
@@ -176,19 +155,7 @@ export function AdvancedView(props: AdvancedViewProps) {
   return (
     <div ref={viewRef}>
       <LayoutStack>
-        <AdvancedOrganizationServerSection
-          authBusy={props.organizationServer.authBusy}
-          baseUrl={props.organizationServer.baseUrl}
-          baseUrlBusy={props.organizationServer.baseUrlBusy}
-          baseUrlDraft={props.organizationServer.baseUrlDraft}
-          baseUrlError={props.organizationServer.baseUrlError}
-          onApplyBaseUrl={props.organizationServer.onApplyBaseUrl}
-          onBaseUrlDraftChange={props.organizationServer.onBaseUrlDraftChange}
-          onClearServerConfiguration={props.organizationServer.onClearServerConfiguration}
-          onResetBaseUrlToDefault={props.organizationServer.onResetBaseUrlToDefault}
-          sessionBusy={props.organizationServer.sessionBusy}
-          cloudMcpUrl={props.cloudMcpUrl}
-        />
+
 
         <AdvancedRuntimeSection
           clientStatusLabel={clientStatusLabel}

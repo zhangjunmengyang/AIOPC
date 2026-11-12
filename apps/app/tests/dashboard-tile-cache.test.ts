@@ -7,7 +7,7 @@ const ownsDom = !GlobalRegistrator.isRegistered;
 if (ownsDom) GlobalRegistrator.register({ url: "http://localhost/" });
 afterAll(async () => { if (ownsDom) await GlobalRegistrator.unregister(); });
 
-const { clearDashboardTileData, loadDashboardTileDocument, pruneDashboardTiles, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, savedLaunchResult, writeDashboardTileCache } = await import("../src/react-app/domains/dashboard/dashboard-tile-cache");
+const { clearDashboardTileData, loadDashboardTileDocument, pruneDashboardTiles, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, savedLaunchResult, writeDashboardTileCache } = await import("../src/react-app/domains/mcp-apps/dashboard-tile-cache");
 const { setMcpAppDocumentBackend } = await import("../src/app/lib/mcp-app-document-store");
 const { flushDashboardTileCacheStorage, resetDashboardTileCacheMemory } = await import("../src/app/lib/dashboard-cache-storage");
 

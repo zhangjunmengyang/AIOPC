@@ -10,11 +10,9 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { EnvironmentView } from "../../aiopc/environment-view";
-import { BuiltMcpAppPanel } from "../../apps/built-mcp-app-panel";
+import { BuiltMcpAppPanel } from "../../mcp-apps/built-mcp-app-panel";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
-import { AppArtifact } from "../../apps/app-artifact";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
-import { RemoteThreadPanel } from "../remote-threads/remote-thread-panel";
 import {
   usePanelTabStore,
   type PanelTab as PanelTabEntry,
@@ -97,7 +95,7 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
           title={tab.label}
           aria-label={`Select tab: ${tab.label}`}
         >
-          {(tab.type === "app" || tab.type === "mcp-app") ? <Blocks /> : tab.type === "remote-thread" ? <MessagesSquare /> : tab.type === "environment" ? <Cpu /> : (
+          {tab.type === "mcp-app" ? <Blocks /> : tab.type === "environment" ? <Cpu /> : (
             <ArtifactIcon type={tab.preview} />
           )}
           <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
@@ -361,10 +359,6 @@ export function SidePanel({
           <div className="min-h-0 flex-1 overflow-hidden">
             <EnvironmentView key={activeTab.id} workspaceRoot={activeTab.workspaceRoot} />
           </div>
-        ) : activeTab?.type === "remote-thread" ? (
-          <div className="min-h-0 flex-1 overflow-hidden"><RemoteThreadPanel key={activeTab.id} tab={activeTab} /></div>
-        ) : activeTab?.type === "app" ? (
-          <div className="min-h-0 flex-1 overflow-hidden"><AppArtifact key={activeTab.id} appId={activeTab.appId} revisionId={activeTab.revisionId} receiptId={activeTab.receiptId} onClose={onClose} /></div>
         ) : activeTab?.type === "artifact" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <ArtifactPanel

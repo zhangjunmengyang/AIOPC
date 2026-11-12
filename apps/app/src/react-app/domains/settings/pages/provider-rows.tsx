@@ -60,8 +60,7 @@ export function CredentialHealthStatus({ health }: { health: ProviderCredentialH
   return <ProviderStatus tone="ready">Ready to use</ProviderStatus>;
 }
 
-export function LocalProviderStatus({ state, organizationName, credentialHealth }: { state?: LocalProviderEngineState; organizationName?: string; credentialHealth?: ProviderCredentialHealth }) {
-  if (state === "managed_by_organization") return <ProviderStatus tone="locked">{organizationName || "Your organization"} manages AI providers</ProviderStatus>;
+export function LocalProviderStatus({ state, credentialHealth }: { state?: LocalProviderEngineState; credentialHealth?: ProviderCredentialHealth }) {
   if (state === "not_on_engine") return <ProviderStatus tone="neutral">Not available on the new engine yet</ProviderStatus>;
   if (credentialHealth) return <CredentialHealthStatus health={credentialHealth} />;
   return <ProviderStatus tone="ready">Ready to use</ProviderStatus>;
@@ -92,7 +91,7 @@ export function ProviderRow(props: {
   actions?: ReactNode;
   className?: string;
   testId?: string;
-  scope?: "device" | "organization";
+  scope?: "device";
 }) {
   return (
     <div className={cn("flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", props.className)} data-testid={props.testId} data-provider-scope={props.scope}>
@@ -109,22 +108,6 @@ export function ProviderRow(props: {
       {props.aside ? <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">{props.aside}</div> : null}
       {props.actions ? <div className="ml-auto flex shrink-0 items-center gap-1">{props.actions}</div> : null}
     </div>
-  );
-}
-
-/** Initials for an organization mark, e.g. "Different AI" → "DA". */
-export function organizationInitials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const initials = (words.length > 1 ? words.slice(0, 2).map((word) => word[0]) : [...(words[0] ?? "").slice(0, 2)]).join("");
-  return initials.toUpperCase() || "?";
-}
-
-export function OrganizationMark({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
-  return (
-    <span aria-hidden className={cn(
-      "inline-flex shrink-0 items-center justify-center rounded-full bg-dls-text font-semibold text-dls-surface",
-      size === "md" ? "size-6 text-[10px]" : "size-5 text-[9px]",
-    )}>{organizationInitials(name)}</span>
   );
 }
 

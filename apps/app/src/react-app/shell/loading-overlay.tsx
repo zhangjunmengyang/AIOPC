@@ -1,26 +1,8 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
 import type { RecoveryActionResult, RecoveryRelease } from "@/app/lib/desktop";
-import type { DenAppVersionMetadata, DenDesktopConfig } from "@/app/lib/den";
-import { readFreshDenAppVersionMetadata } from "@/app/lib/version-gate";
-import { useDesktopConfig } from "@/react-app/domains/cloud/desktop-config-provider";
 import { bootOverlayCanHide, useBootState, useBootOverlayVisible } from "./boot-state";
-import { useCloudWorkspaceStatus } from "./cloud-workspace-overlay";
-import { shouldSuppressBootOverlayForGateway } from "./cloud-workspace-status";
 import { OwDotTicker } from "./dot-ticker";
-import { useOrgOnboardingOnScreen } from "./org-onboarding-visibility";
-
-async function loadRecoveryPolicy(
-  refreshDesktopConfig: () => Promise<DenDesktopConfig>,
-): Promise<{ metadata: DenAppVersionMetadata; policy: DenDesktopConfig } | null> {
-  const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 10_000));
-  return Promise.race([
-    Promise.all([readFreshDenAppVersionMetadata(), refreshDesktopConfig()])
-      .then(([metadata, policy]) => ({ metadata, policy }))
-      .catch(() => null),
-    timeout,
-  ]);
-}
 
 /**
  * Quiet, opaque boot overlay. Solid surface fill so nothing bleeds through.
@@ -30,14 +12,6 @@ async function loadRecoveryPolicy(
 export function LoadingOverlay() {
   const visible = useBootOverlayVisible();
   const { phase, routeReady, message, error } = useBootState();
-  const cloudWorkspace = useCloudWorkspaceStatus();
-  const orgOnboardingOnScreen = useOrgOnboardingOnScreen();
-  const suppressForGateway = shouldSuppressBootOverlayForGateway({
-    gatewayMode: cloudWorkspace.gatewayMode,
-    signedIn: cloudWorkspace.visible,
-    variant: cloudWorkspace.viewModel.variant,
-  });
-  const { config: desktopPolicy, refreshFresh: refreshDesktopPolicy } = useDesktopConfig();
   const [releases, setReleases] = useState<RecoveryRelease[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [actionState, setActionState] = useState<string | null>(null);
@@ -47,39 +21,16 @@ export function LoadingOverlay() {
     let cancelled = false;
     const bridge = window.__OPENWORK_ELECTRON__?.recovery;
     if (!bridge?.list) return;
-    const cachedPolicy = {
-      versions: [],
-      minimumVersion: "0.0.0",
-      ...(Array.isArray(desktopPolicy.allowedDesktopVersions)
-        ? { allowedVersions: desktopPolicy.allowedDesktopVersions }
-        : {}),
-    };
+    const cachedPolicy = { versions: [], minimumVersion: "0.0.0" };
     void bridge.list(cachedPolicy)
       .then((result) => {
         if (!cancelled && result.ok) setReleases(result.releases);
       })
       .catch(() => undefined);
-    if (window.__openworkRecoveryControl) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    void loadRecoveryPolicy(refreshDesktopPolicy)
-      .then((fresh) => fresh ? bridge.list?.({
-        versions: fresh.metadata.publishedDesktopVersions,
-        minimumVersion: fresh.metadata.minAppVersion,
-        ...(Array.isArray(fresh.policy.allowedDesktopVersions)
-          ? { allowedVersions: fresh.policy.allowedDesktopVersions }
-          : {}),
-      }) : null)
-      .then((result) => {
-        if (!cancelled && result?.ok) setReleases(result.releases);
-      })
-      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [desktopPolicy, error, refreshDesktopPolicy]);
+  }, [error]);
 
   const runRecovery = async (action: (() => Promise<RecoveryActionResult>) | undefined) => {
     if (!action) return;
@@ -96,7 +47,7 @@ export function LoadingOverlay() {
 
   const useRelease = window.__OPENWORK_ELECTRON__?.recovery?.use;
 
-  if (!visible || ((suppressForGateway || orgOnboardingOnScreen) && !error)) return null;
+  if (!visible) return null;
 
   const fading = bootOverlayCanHide(phase, routeReady);
 
@@ -112,7 +63,7 @@ export function LoadingOverlay() {
       <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
         {error ? (
           <div className="flex w-full flex-col gap-3 text-[12px] leading-5">
-            <div className="text-base font-medium text-dls-primary">OpenWork couldn't start</div>
+            <div className="text-base font-medium text-dls-primary">AIOPC 无法启动</div>
             <div className="text-dls-secondary">Reload to try again, or return to a version that works on this computer.</div>
             <button
               type="button"

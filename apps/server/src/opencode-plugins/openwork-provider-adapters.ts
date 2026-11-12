@@ -335,31 +335,6 @@ function sessionGroupContribution(): OpenworkFeatureContribution {
   };
 }
 
-function automationContribution(): OpenworkFeatureContribution {
-  const provider: OpenworkProviderRef = { id: "openwork-automations", kind: "builtin" };
-  return {
-    featureId: "automations",
-    provider,
-    affordances: [
-      affordance({
-        id: "automation.propose",
-        kind: "command",
-        title: "Propose an Automation",
-        description: "Offer a scheduled Automation for the person to review and create. This only renders a proposal in the chat; it cannot create, activate, or run anything.",
-        provider,
-        arguments: [
-          argument("name", "string", true, "Short Automation name, at most 120 characters."),
-          argument("instructions", "string", true, "Self-contained instructions the Automation runs on its schedule."),
-          argument("schedule", "object", true, "Schedule with an IANA timezone: once {at}, daily {hour, minute}, weekly {daysOfWeek, hour, minute}, or interval {everyHours 1-24, optional daysOfWeek (0=Sunday), startHour, endHour} for every few hours on the hour, e.g. every 3 hours from 9 to 18, or calendar {edge start|end, offsetMinutes -120..120, rule {withExternalAttendees, titleIncludes}} to run around each meeting on the person's Google Calendar (Cloud only). Interval and calendar need their organization features."),
-          argument("model", "object", false, "Optional providerId and modelId. Omit to use the person's default."),
-        ],
-        effects: noEffects,
-      }),
-    ],
-    guidance: [],
-  };
-}
-
 function extensionContribution(): OpenworkFeatureContribution {
   const provider: OpenworkProviderRef = { id: "openwork-extensions", kind: "extension" };
   return {
@@ -393,61 +368,6 @@ function extensionContribution(): OpenworkFeatureContribution {
   };
 }
 
-function connectContribution(
-  skills: ConnectSkillDescriptor[],
-  cloudMcp: EngineMcpDescriptor | undefined,
-): OpenworkFeatureContribution | null {
-  if (skills.length === 0 && !cloudMcp) return null;
-  const provider: OpenworkProviderRef = { id: "openwork-cloud", kind: "connect" };
-  const guidance: OpenworkGuidanceDescriptor[] = skills.map((skill) => ({
-    ref: skill.capability,
-    title: skill.title?.trim() || skill.name,
-    description: skill.description,
-    provider,
-    loading: "catalog",
-  }));
-  return {
-    featureId: "connect",
-    provider,
-    affordances: [
-      affordance({
-        id: "connect.capabilities.search",
-        kind: "query",
-        title: "Search Connect capabilities",
-        description: "Discover a remote capability when no exact capability ref is already known.",
-        provider,
-        arguments: [
-          argument("query", "string", true, "Capability keywords."),
-          argument("limit", "number", false, "Maximum capabilities to return."),
-          argument("type", "string", false, "Optional capability type filter."),
-        ],
-        effects: { data: "read", ui: "none", external: true },
-        tool: "openwork-cloud_search_capabilities",
-      }),
-      affordance({
-        id: "connect.capability.execute",
-        kind: "command",
-        title: "Execute a Connect capability",
-        description: "Execute an exact remote capability ref or load a known remote skill.",
-        provider,
-        arguments: [
-          argument("name", "string", false, "Exact capability ref returned by Connect search or remote skill guidance."),
-          argument("arguments", "object", false, "Arguments matching the search match's inputSchema."),
-          argument("schemaDigest", "string", false, "Optional schema digest from the search match."),
-          // Den keeps accepting these older inputs for a while, for callers
-          // and older Den builds from before `arguments`.
-          argument("path", "object", false, "Older form of arguments.path."),
-          argument("query", "object", false, "Older form of arguments.query."),
-          argument("body", "object", false, "Older form of arguments."),
-        ],
-        effects: { data: "write", ui: "none", external: true },
-        tool: "openwork-cloud_execute_capability",
-      }),
-    ],
-    guidance,
-  };
-}
-
 function mcpContribution(mcp: EngineMcpDescriptor): OpenworkFeatureContribution {
   return {
     featureId: `mcp:${mcp.name}`,
@@ -461,16 +381,11 @@ export function buildOpenworkProviderContributions(
   skills: ConnectSkillDescriptor[],
   mcps: EngineMcpDescriptor[] = [],
 ): OpenworkFeatureContribution[] {
-  const cloudMcp = mcps.find((mcp) => mcp.name === "openwork-cloud");
-  const connect = connectContribution(skills, cloudMcp);
   return [
     sessionContribution(),
     sessionGroupContribution(),
-    automationContribution(),
     extensionContribution(),
     ...mcps
-      .filter((mcp) => mcp.name !== "openwork-cloud")
       .map(mcpContribution),
-    ...(connect ? [connect] : []),
   ];
 }

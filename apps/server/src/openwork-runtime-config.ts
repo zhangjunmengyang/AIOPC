@@ -1,9 +1,7 @@
-import { legacyExecutionPermissions } from "./managed-policy-rules.js";
-import { DESKTOP_POLICY_ENFORCEMENT_ENABLED, desktopCapabilityConfig } from "@openwork/types/den/desktop-policies-runtime";
-import { materializeLegacyFastProviders } from "@openwork/types/cloud-model-fast";
+
+import { materializeLegacyFastProviders } from "@openwork/types/model-fast";
 import { isManagedPolicyPlugin } from "./managed-policy-plugin.js";
 import { isLegacyBrowserPlugin } from "./workspace-init.js";
-import { ORGANIZATION_PROVIDER_ID, organizationProviderGate } from "./organization-provider-gate.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -27,7 +25,6 @@ import {
   openworkAnthropicAdaptiveThinkingPluginPath,
   openworkAnthropicToolSchemaPluginPath,
   openworkTitleRecoveryPluginPath,
-  openworkGatewayQuotaPluginPath,
   openworkOfficeAttachmentsPluginPath,
   openworkSpreadsheetsPluginPath,
   openworkChromeDevtoolsPluginPath,
@@ -46,8 +43,7 @@ import {
   runtimePluginList,
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
-import { CONNECT_MCP_SERVER_NAME_PREFIX } from "./connect-mcp-server-catalog.js";
-import { appendOrganizationPrompts, OPENWORK_AGENT_PROMPT } from "./openwork-agent-prompt.js";
+import { OPENWORK_AGENT_PROMPT } from "./openwork-agent-prompt.js";
 import { AIOPC_ASK_TOOLS, aiopcSkillDirectories, withAiopcInstructions } from "./aiopc-runtime.js";
 
 export async function buildOpenworkRuntimeConfigObject(
@@ -65,26 +61,15 @@ export async function buildOpenworkRuntimeConfigObject(
 export function buildOpenworkRuntimeConfigObjectFromSnapshot(
   runtimeConfig: RuntimeOpencodeConfig,
 ): Record<string, unknown> {
-  if (!DESKTOP_POLICY_ENFORCEMENT_ENABLED) {
-    // Only model access (the AI Gateway's "Who can use models") is enforced: keep allowCustomProviders from the verified
-    // policy (cleared on sign-out) and drop execution rules and every other desktop policy.
-    const { managedPolicy, ...localConfig } = runtimeConfig;
-    runtimeConfig = managedPolicy ? { ...localConfig, managedPolicy: desktopCapabilityConfig(managedPolicy) } : localConfig;
-  }
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
-  const permissions = legacyExecutionPermissions(runtimeConfig.managedPolicy?.execution);
-  const { managedPolicy: _managedPolicy, managedPrompt, ...engineConfig } = runtimeConfig;
+  const permissions = {};
+  const engineConfig = runtimeConfig;
   const provider = materializeLegacyFastProviders(runtimeProviderMap(runtimeConfig));
-  const allowsProvider = organizationProviderGate(runtimeConfig.managedPolicy);
   const aiopcSkills = aiopcSkillDirectories();
   return {
     ...engineConfig,
     // The runtime DB has no skills of its own; workspace configs still add theirs.
     ...(aiopcSkills.length ? { skills: { paths: aiopcSkills } } : {}),
-    ...(allowsProvider ? { enabled_providers: [
-      ...Object.keys(provider).filter((id) => ORGANIZATION_PROVIDER_ID.test(id)),
-      ...(allowsProvider("opencode") ? ["opencode"] : []),
-    ] } : {}),
     permission: {
       ...Object.fromEntries(AIOPC_ASK_TOOLS.map((tool) => [tool, "ask"])),
       ...engineConfig.permission,
@@ -96,7 +81,7 @@ export function buildOpenworkRuntimeConfigObjectFromSnapshot(
         description: "AIOPC default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: appendOrganizationPrompts(withAiopcInstructions(OPENWORK_AGENT_PROMPT), managedPrompt),
+        prompt: withAiopcInstructions(OPENWORK_AGENT_PROMPT),
         permission: {
           ...permissions,
           skill: {
@@ -126,12 +111,11 @@ export function buildOpenworkRuntimeConfigObjectFromSnapshot(
       openworkAnthropicAdaptiveThinkingPluginPath(),
       openworkAnthropicToolSchemaPluginPath(),
       openworkTitleRecoveryPluginPath(),
-      openworkGatewayQuotaPluginPath(),
       ...runtimePluginList(runtimeConfig).filter((plugin) => !isManagedPolicyPlugin(plugin) && !isLegacyBrowserPlugin(plugin)),
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: Object.fromEntries(Object.entries(runtimeMcpMap(runtimeConfig))
-      .filter(([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX))),
+      .filter(([name]) => !name.startsWith("openwork-connect-"))),
     ...(Object.keys(provider).length ? { provider } : {}),
   };
 }

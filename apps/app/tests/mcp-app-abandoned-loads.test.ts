@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 
 import { createOpenworkServerClient, type OpenworkMcpAppResource, type OpenworkServerClient } from "../src/app/lib/openwork-server"
 import { createMcpAppActions } from "../src/components/chat/mcp-app-origin"
-import { resolveDashboardMcpApp } from "../src/react-app/domains/dashboard/dashboard-mcp-app-resolution"
+import { resolveDashboardMcpApp } from "../src/react-app/domains/mcp-apps/dashboard-mcp-app-resolution"
 
 const app = { launchId: "launch", serverName: "server", toolName: "open_app", resourceUri: "ui://server/app" } as OpenworkMcpAppResource
 

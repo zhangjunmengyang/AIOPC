@@ -4,8 +4,8 @@ import {
   AUTO_ROUTER_THINKING_LABELS,
   AUTO_ROUTER_THINKING_LEVELS,
   type AutoRouterReplyRoute,
-} from "@openwork/types/den/auto-router";
-import { AUTO_MODEL_ID, SMART_MODEL_FALLBACK_NAME } from "@/react-app/domains/models/model-catalog";
+} from "@openwork/types/auto-router";
+import { SMART_MODEL_FALLBACK_NAME } from "@/react-app/domains/models/model-catalog";
 
 function field(value: unknown, key: string): unknown {
   return value && typeof value === "object" ? Reflect.get(value, key) : undefined;
@@ -50,8 +50,6 @@ export function replyModelProvider(message: UIMessage, autoRoutes: readonly Auto
   const requestedProviderID = text(field(model, "requestedProviderID"));
   const requestedModelID = text(field(model, "requestedModelID"));
   const providerID = text(field(model, "providerID"));
-  if (requestedProviderID === "openwork" || providerID === "openwork"
-    || requestedModelID === AUTO_MODEL_ID) return "openwork";
   // Opaque gateway ids must not become a monogram or a remote logo request.
   return providerID?.startsWith("ipr_") ? undefined : providerID;
 }
@@ -125,11 +123,10 @@ export function replyModelLabel(
     return publicLabel(resolveTitle?.({ providerID, modelID: requestedModelID })) ?? SMART_MODEL_FALLBACK_NAME;
   }
   if (field(model, "resolved") === true) {
-    if (modelID === AUTO_MODEL_ID) return "GPT-6 Luna";
     const resolvedLabel = publicLabel(field(model, "name")) ?? publicLabel(modelID);
     if (resolvedLabel) return resolvedLabel;
   }
   // OpenWork Free routes upstream itself: its id is not the model that answered.
-  if (!providerID || requestedModelID === AUTO_MODEL_ID) return null;
+  if (!providerID) return null;
   return publicLabel(resolveTitle?.({ providerID, modelID: requestedModelID })) ?? null;
 }

@@ -20,7 +20,6 @@ export type MobileChatActionsProps = {
   onFind?: () => void;
   onFiles: () => void;
   fileCount: number;
-  onSignIn?: () => void;
   onParent?: () => void;
 };
 
@@ -43,7 +42,7 @@ export function MobileChatActions(props: MobileChatActionsProps) {
             {props.onParent ? <DropdownMenuItem onClick={select(props.onParent)}><ArrowLeft />Back to parent chat</DropdownMenuItem> : null}
             {props.onFind ? <DropdownMenuItem onClick={select(props.onFind)}><TextSearch />Find in conversation</DropdownMenuItem> : null}
             <DropdownMenuItem onClick={select(props.onFiles)}><FileText />Files{props.fileCount > 0 ? ` (${props.fileCount})` : ""}</DropdownMenuItem>
-            {props.onSignIn ? <DropdownMenuItem onClick={select(props.onSignIn)}><Cloud />{t("den.signin_button")}</DropdownMenuItem> : null}
+
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>

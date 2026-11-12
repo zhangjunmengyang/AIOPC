@@ -19,7 +19,6 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { t } from "../../../../i18n";
-import { NotificationBell } from "../../../shell/notification-center";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsPage,
@@ -75,8 +74,8 @@ export function SettingsShell(props: SettingsShellProps) {
               type="button"
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
               onClick={props.onClose}
-              title={t("dashboard.close_settings")}
-              aria-label={t("dashboard.close_settings")}
+              title={t("workspace.close_settings")}
+              aria-label={t("workspace.close_settings")}
             >
               <X size={17} />
             </Button>
@@ -133,14 +132,14 @@ export function SettingsShell(props: SettingsShellProps) {
               </div>
               <div className="flex shrink-0 items-center gap-1.5 text-gray-10 titlebar-no-drag">
                 <DesktopUpdateButton />
-                <NotificationBell />
+
                 <Button
                   variant="ghost"
                   type="button"
                   className="flex size-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text lg:hidden"
                   onClick={props.onClose}
-                  title={t("dashboard.close_settings")}
-                  aria-label={t("dashboard.close_settings")}
+                  title={t("workspace.close_settings")}
+                  aria-label={t("workspace.close_settings")}
                 >
                   <X size={18} />
                 </Button>
@@ -167,7 +166,6 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
     { label: null, tabs: groups.hub },
     { label: t("settings.group_workspace"), tabs: groups.workspace },
     { label: t("settings.group_global"), tabs: groups.global },
-    { label: t("settings.group_cloud"), tabs: groups.cloud },
   ].filter((section) => section.tabs.length > 0);
   const ActiveIcon = getSettingsTabIcon(props.activeTab);
 

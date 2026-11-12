@@ -24,7 +24,9 @@ export function navigationError(errorText) {
 const DOCUMENT_GONE = /execution context was destroyed|cannot find (default )?(execution )?context|inspected target navigated|context with specified id|no frame (for|with) given id|frame.*(was detached|not found)/i;
 
 // Loopback, private, shared, link-local (including cloud metadata) and unspecified ranges.
+/** @type {[string, number][]} */
 const IPV4_PRIVATE = [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16]];
+/** @type {[string, number][]} */
 const IPV6_PRIVATE = [["::", 96], ["::ffff:0:0", 96], ["64:ff9b::", 96], ["64:ff9b:1::", 48], ["fc00::", 7], ["fe80::", 10]];
 const PRIVATE = new BlockList();
 const PRIVATE_V6 = new BlockList();
@@ -82,7 +84,8 @@ export function nativeBrowserEgress(payload, uid) {
     if (typeof value !== "string" || isIP(value) !== (family === "ip" ? 4 : 6)) return null;
     return family === "ip" ? value : new URL(`http://[${value}]`).hostname;
   };
-  return [["ip", IPV4_PRIVATE], ["ip6", IPV6_PRIVATE]].every(([family, required]) => entries.some(({ rule }) => {
+  const requiredFamilies = /** @type {[string, [string, number][]][]} */ ([["ip", IPV4_PRIVATE], ["ip6", IPV6_PRIVATE]]);
+  return requiredFamilies.every(([family, required]) => entries.some(({ rule }) => {
     if (rule?.family !== "inet" || rule.table !== "openwork_desktop" || rule.chain !== "output" || rule.expr?.length !== 3) return false;
     const [owner, destination, verdict] = rule.expr;
     if (owner?.match?.op !== "==" || owner.match.left?.meta?.key !== "skuid" || owner.match.right !== uid || !verdict?.reject) return false;

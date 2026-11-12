@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 
 
-export type PanelTabType = "artifact" | "app" | "mcp-app" | "remote-thread" | "environment";
+export type PanelTabType = "artifact" | "mcp-app" | "environment";
 
 export type ArtifactPanelTab = {
   id: string;
@@ -15,17 +15,12 @@ export type ArtifactPanelTab = {
   target?: OpenTarget;
 }
 
-export type AppPanelTab = { id: string; type: "app"; label: string; appId: string; revisionId?: string; receiptId?: string };
-
 export type McpAppPanelTab = { id: string; type: "mcp-app"; label: string; appId: string; updating?: boolean; part: DynamicToolUIPart; origin: McpAppOrigin };
-
-/** A task running on another computer, opened from its row in the chat. */
-export type RemoteThreadPanelTab = { id: string; type: "remote-thread"; label: string; threadKey: string; owner: { workspaceId: string; sessionId: string } };
 
 /** This project's own computer, watched live; the person takes over here when the AI needs them to. */
 export type EnvironmentPanelTab = { id: string; type: "environment"; label: string; workspaceRoot: string };
 
-export type PanelTab = ArtifactPanelTab | AppPanelTab | McpAppPanelTab | RemoteThreadPanelTab | EnvironmentPanelTab;
+export type PanelTab = ArtifactPanelTab | McpAppPanelTab | EnvironmentPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -134,14 +129,6 @@ function isSameTab(left: PanelTab, right: PanelTab) {
 
   if (left.type === "mcp-app" && right.type === "mcp-app") {
     return left.label === right.label && left.part === right.part && left.origin === right.origin;
-  }
-
-  if (left.type === "remote-thread" && right.type === "remote-thread") {
-    return left.label === right.label && left.threadKey === right.threadKey;
-  }
-
-  if (left.type === "app" && right.type === "app") {
-    return left.label === right.label && left.appId === right.appId && left.revisionId === right.revisionId && left.receiptId === right.receiptId;
   }
 
   return false;

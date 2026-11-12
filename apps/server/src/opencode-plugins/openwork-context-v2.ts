@@ -1,10 +1,8 @@
 import { z } from "zod";
 import { approvalLoopbackFetch } from "./approval-loopback-fetch.js";
-import { registerCloudSkillDiscovery, type CloudSkillContext } from "./openwork-cloud-skills-v2.js";
 import { server as browserTools } from "./openwork-chrome-devtools.js";
 import { server as computerTools } from "./openwork-computer-use.js";
 import { ASK_WITHOUT_WAITING, askArgs, askDescription } from "./openwork-agent-questions.js";
-import { DRIVE_FILE_TOOLS } from "./drive-file-tools.js";
 import { addProviderSafeTool } from "./provider-safe-tool-schema.js";
 
 const browserResult = z.object({
@@ -21,8 +19,8 @@ type Tool = {
   options: { codemode: boolean };
   execute(input: unknown, context: ToolCall): Promise<z.infer<typeof browserResult>>;
 };
-type Context = Omit<CloudSkillContext, "session"> & {
-  session?: CloudSkillContext["session"] & { get?(input: { sessionID: string }): Promise<{ readonly parentID?: string; readonly title?: string } | undefined> };
+type Context = {
+  session?: { get?(input: { sessionID: string }): Promise<{ readonly parentID?: string; readonly title?: string } | undefined>; hook(name: "prompt", callback: () => Promise<void>): Promise<{ dispose(): Promise<void> }> };
   location?: { directory?: string };
   options: { url: string; token: string; browser?: { url: string; token: string } };
   tool: {
@@ -126,7 +124,7 @@ export default {
         addProviderSafeTool(editor, {
           name,
           description: name === "openwork_context"
-            ? "Read OpenWork app context and available affordances. Discover session.search/read, session.archive/pin/rename/set_model for existing conversations, session.group commands for sidebar groups, session.create/send to start or message sessions, session.question.list/answer for pending questions, and automation.propose for scheduled work."
+            ? "Read OpenWork app context and available affordances. Discover session.search/read, session.archive/pin/rename/set_model for existing conversations, session.group commands for sidebar groups, session.create/send to start or message sessions, session.question.list/answer for pending questions,."
             : name === "openwork_query"
               ? "Read an OpenWork affordance without changing the app or navigating. Use the exact id and arguments from openwork_context; session.read includes live background-agent activity."
               : "Run an OpenWork command listed in openwork_context: archive/unarchive, pin/unpin, rename or change an idle session's model without opening it or starting inference; change sidebar groups; create or message sessions; answer pending questions with the person's answers; or propose an Automation. A proposal does not create, activate, or run anything. Use the exact discovered id, arguments and safety requirements.",
@@ -151,45 +149,6 @@ export default {
             if (!response.ok) throw new Error(`OpenWork ${name === "openwork_execute" ? "command" : "read"} failed (${response.status})`);
             return { content: [{ type: "text", text: await response.text() }] };
           },
-        });
-      }
-      addProviderSafeTool(editor, {
-        name: "openwork_drive_upload",
-        description: "Upload one workspace file to the member's Google Drive through OpenWork Cloud, outside model context. Use this when the user asks to put a local file in Drive; it does not need a separate Google sign-in. Bytes, basename and MIME type are preserved without Office conversion. path is workspace-relative or an absolute local file path, including outside the workspace. The person approves that exact file and Drive destination, not access to its folder. folderId selects a Drive parent folder; connectionId (google-workspace or emc_...) selects a Google account and never falls back to another. The person approves the upload in the chat first; Allow for session remembers only the same unchanged file, Drive folder and account in that chat. Other files or destinations need approval. Select connectionId for session approval; an unresolved default account always needs fresh approval. If they decline, do not upload it another way. Returns the Drive file id. Never retry an unconfirmed upload automatically.",
-        input: { type: "object", properties: {
-          path: { type: "string" }, folderId: { type: "string" }, connectionId: { type: "string", pattern: "^(google-workspace|emc_[A-Za-z0-9]+)$" },
-        }, required: ["path"], additionalProperties: false },
-        options: { codemode: false },
-        execute: (input, call) => driveCall("openwork_drive_upload", input, call, "Drive upload failed"),
-      });
-      addProviderSafeTool(editor, {
-        name: "openwork_gmail_draft",
-        description: "Create a Gmail draft, or a reply on a Gmail thread, with workspace files attached through OpenWork Cloud, outside model context. Use this when the user asks to email or reply with local files from Gmail. to, cc and bcc are comma-separated addresses; a reply passes the thread's threadId and keeps its subject. Up to ten files, 4 MiB in all; paths are workspace-relative or absolute under an authorized workspace root. connectionId (google-workspace or emc_...) selects a Google account. The person approves each draft in the chat first, and it is never sent. Never retry an unconfirmed draft automatically.",
-        input: { type: "object", properties: {
-          to: { type: "string" }, cc: { type: "string" }, bcc: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, threadId: { type: "string" },
-          connectionId: { type: "string", pattern: "^(google-workspace|emc_[A-Za-z0-9]+)$" },
-          paths: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 10 },
-        }, required: ["to", "subject", "body", "paths"], additionalProperties: false },
-        options: { codemode: false },
-        execute: (input, call) => driveCall("openwork_gmail_draft", input, call, "Gmail draft failed"),
-      });
-      addProviderSafeTool(editor, {
-        name: "openwork_outlook_draft",
-        description: "Create an Outlook draft, or a reply draft to one Outlook message, with workspace files attached through OpenWork Cloud, outside model context. Use this when the user asks to email or reply with local files from Outlook. A new draft needs to and subject; a reply takes replyToMessageId and body only, keeping the message's recipients and subject. body is plain text unless bodyContentType is html; use html for links, line breaks, tables or a signature. Up to ten files, each under 3 MB and 4 MiB in all; paths are workspace-relative or absolute under an authorized workspace root. connectionId (microsoft-365 or emc_...) selects a Microsoft account. The person approves each draft in the chat first, and it is never sent. Never retry an unconfirmed draft automatically.",
-        input: { type: "object", properties: {
-          to: { type: "array", items: { type: "string" } }, cc: { type: "array", items: { type: "string" } }, bcc: { type: "array", items: { type: "string" } },
-          subject: { type: "string" }, body: { type: "string" }, bodyContentType: { type: "string", enum: ["text", "html"] }, replyToMessageId: { type: "string" },
-          connectionId: { type: "string", pattern: "^(microsoft-365|emc_[A-Za-z0-9]+)$" },
-          paths: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 10 },
-        }, required: ["body", "paths"], additionalProperties: false },
-        options: { codemode: false },
-        execute: (input, call) => driveCall("openwork_outlook_draft", input, call, "Outlook draft failed"),
-      });
-      for (const [name, tool] of Object.entries(DRIVE_FILE_TOOLS)) {
-        addProviderSafeTool(editor, {
-          name, description: tool.description, input: z.toJSONSchema(tool.args),
-          options: { codemode: false },
-          execute: (input, call) => driveCall(name, input, call, `${name} failed`),
         });
       }
       if (questionsOn) addProviderSafeTool(editor, {
@@ -224,7 +183,6 @@ export default {
       questionsOn = questions;
       await context.tool.reload?.();
     }) : undefined;
-    const stopSkills = await registerCloudSkillDiscovery(context);
-    return async () => { await stopSkills(); await promptHook?.dispose(); await registration.dispose(); };
+    return async () => { await promptHook?.dispose(); await registration.dispose(); };
   },
 };

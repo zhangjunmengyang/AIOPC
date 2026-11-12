@@ -32,7 +32,7 @@ const { snapshotToUIMessages } = await import("../src/react-app/domains/session/
 const { subagentNoticeFromMessage } = await import("../src/components/chat/background-tasks")
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 const { MessageList } = await import("../src/components/chat/message-list")
 
@@ -101,7 +101,7 @@ test("the row opens the sub-agent's chat", async () => {
     providerMetadata: { opencode: { subagentNotice: { childSessionId: CHILD, description: "Sort the photos", outcome: "finished" } } },
   }] }
   await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: SESSION,
@@ -113,7 +113,7 @@ test("the row opens the sub-agent's chat", async () => {
       onOpenSubagentSession: (sessionId: string) => opened.push(sessionId),
       children: createElement(MessageList, { messages: [notice], status: "ready", activityStatus: "idle" }),
     }),
-  }) }), })))
+  }), })))
   const row = container.querySelector<HTMLButtonElement>('button[data-subagent-notice="finished"]')
   expect(row?.textContent).toBe("Sub-agent finishedSort the photos")
   await act(async () => row?.click())

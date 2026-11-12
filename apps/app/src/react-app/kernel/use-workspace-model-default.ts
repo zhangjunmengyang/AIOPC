@@ -1,23 +1,10 @@
 import { useCallback } from "react";
 import type { ModelRef } from "@/app/types";
-import { readDenSettings } from "@/app/lib/den";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
-import { useDenAuth } from "../domains/cloud/den-auth-provider";
-import { resolveSessionDraftScope } from "../domains/session/sync/draft-store";
 import { useWorkspaceMaybe } from "../shell/workspace-provider";
 import { setWorkspaceDefaultModel, workspaceModelScope } from "./model-config";
 
-export function useWorkspaceModelProfile() {
-  const auth = useDenAuth();
-  const settings = readDenSettings();
-  const identity = resolveSessionDraftScope({ hasCloudCredential: Boolean(settings.authToken?.trim()), verifiedIdentity: auth.verifiedIdentity });
-  if (!identity) return null;
-  if (identity === "local") return identity;
-  try {
-    const url = new URL(settings.baseUrl);
-    return JSON.stringify([url.origin, url.pathname.replace(/\/+$/, ""), identity]);
-  } catch { return null; }
-}
+export function useWorkspaceModelProfile() { return "local"; }
 
 export function useSetWorkspaceDefaultModel() {
   const workspace = useWorkspaceMaybe();

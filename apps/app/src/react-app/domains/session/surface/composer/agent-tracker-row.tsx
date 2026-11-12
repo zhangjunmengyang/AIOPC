@@ -47,7 +47,7 @@ export function agentTrackerStatusText(status: AgentTrackerStatus): { visible: s
       if (status.workingNote === "starting") return { visible: t("session.subagent_tracker_starting"), spoken: null }
       return status.elapsed
         ? { visible: status.elapsed, spoken: t("session.subagent_tracker_working_prefix") }
-        : { visible: t("session.remote_task_status_working"), spoken: null }
+        : { visible: t("session.agent_status_working"), spoken: null }
   }
 }
 

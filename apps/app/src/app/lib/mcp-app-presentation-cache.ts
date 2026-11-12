@@ -1,9 +1,8 @@
 import { parseMcpAppResourceUri } from "@openwork/types/mcp-app";
-import { readDenSettings } from "./den";
 import { scheduleMcpAppDiscovery } from "./mcp-app-discovery-scheduler";
 import type { OpenworkMcpAppLaunchReference, OpenworkMcpAppResource } from "./openwork-server";
 import type { McpAppOrigin } from "../../components/chat/mcp-app-origin";
-import { createPresentationCacheStore } from "../../react-app/domains/dashboard/dashboard-tile-cache";
+import { createPresentationCacheStore } from "../../react-app/domains/mcp-apps/dashboard-tile-cache";
 import { DASHBOARD_TILE_CACHE_STORAGE_PREFIX } from "./dashboard-cache-storage";
 
 async function digest(value: string) {
@@ -21,15 +20,10 @@ const CHAT_PRESENTATION_MAX_BYTES = 1_500_000;
 const chatPresentationStore = createPresentationCacheStore(CHAT_PRESENTATION_MAX_BYTES);
 const entryId = (scope: Scope, resourceUri: string) => `${scope.key}\n${resourceUri}`;
 
-/** The account credential is hashed in memory; neither its value nor a lease goes into storage. */
+/** Cache previews per local server and project. Live calls still revalidate their lease. */
 export async function mcpAppPresentationScope(origin: McpAppOrigin): Promise<Scope | null> {
-  const identity = () => {
-    const settings = readDenSettings();
-    return settings.authToken ? JSON.stringify([settings.authToken, settings.activeOrgId, settings.baseUrl,
-      settings.apiBaseUrl, origin.client.baseUrl, origin.workspaceId]) : null;
-  };
+  const identity = () => JSON.stringify([origin.client.baseUrl, origin.workspaceId, origin.engine]);
   const snapshot = identity();
-  if (!snapshot) return null;
   return { key: await digest(snapshot), current: () => identity() === snapshot };
 }
 

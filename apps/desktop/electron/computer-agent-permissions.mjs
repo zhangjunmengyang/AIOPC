@@ -2,9 +2,9 @@ import {
   agentPermissionDenialMessage,
   agentPermissionRuleSchema,
   decideAgentPermission,
-} from "@openwork/types/den/agent-permissions-runtime";
+} from "@openwork/types/agent-permissions-runtime";
 
-/** @typedef {import("@openwork/types/den/agent-permissions-runtime").AgentPermissionRule} AgentPermissionRule */
+/** @typedef {import("@openwork/types/agent-permissions-runtime").AgentPermissionRule} AgentPermissionRule */
 /** @typedef {"computer" | "computer_files" | "computer_clipboard" | "script"} ComputerPermissionKind */
 
 /** Using apps, moving files and copying between them, and app scripts. */

@@ -1,20 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
-import {
-  type ConnectSnapshotOptions,
-  getConnectSnapshot,
-  writeConnectState,
-} from "../connect-state.js";
-import type { CloudMcpLiveStatusObserver } from "../cloud-mcp-health.js";
-import { readOpenWorkConnectSkillContent, readOpenWorkConnectSkillContents, readOpenWorkConnectSkillIndex, renderOpenWorkConnectSkillInstruction } from "../connect-skill-catalog.js";
-import { readOpenWorkAutomationCatalog, renderOpenWorkAutomationInstruction } from "../connect-automation-catalog.js";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
 import { syncManagedProviderAuth, type ManagedProviderAuthResult } from "../managed-provider-auth.js";
 import { ApiError } from "../errors.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "../extensions/index.js";
-import { takeApprovedDriveUpload } from "../extensions/approved-drive-upload.js";
-import { callDriveFileAction } from "../extensions/drive-files.js";
 import type { TokenService } from "../tokens.js";
 import type { Capabilities, ServerConfig, WorkspaceInfo } from "../types.js";
 import { addRoute, type Route } from "./registry.js";
@@ -41,7 +31,6 @@ type FetchRuntimeControl = (path: string, init?: { method?: string; body?: unkno
 type WorkspaceOpencodeClient = ReturnType<typeof createOpencodeClient>;
 
 interface RegisterCoreRoutesOptions {
-  nativeEngineForWorkspace?: ConnectSnapshotOptions["nativeEngineForWorkspace"];
   routes: Route[];
   config: ServerConfig;
   tokens: TokenService;
@@ -59,7 +48,6 @@ interface RegisterCoreRoutesOptions {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   resolveOpencodeDirectory: (workspace: WorkspaceInfo) => string | null;
   createWorkspaceOpencodeClient: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
-  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
   resolveDevLogPath: () => string | null;
   onManagedProviderAuthChanged?: (result: ManagedProviderAuthResult) => Promise<void>;
@@ -75,31 +63,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function providerModelFromValues(provider: unknown, model: unknown): ConnectSnapshotOptions["providerModel"] {
-  const providerValue = optionalTrimmedString(provider);
-  const modelValue = optionalTrimmedString(model);
-  if (!providerValue && !modelValue) return undefined;
-  if (!providerValue || !modelValue) return undefined;
-  return { provider: providerValue, model: modelValue };
-}
-
-function connectSnapshotOptionsFromQuery(url: URL): ConnectSnapshotOptions {
-  return {
-    workspaceId: optionalTrimmedString(url.searchParams.get("workspaceId")) ?? optionalTrimmedString(url.searchParams.get("workspace")),
-    directory: optionalTrimmedString(url.searchParams.get("directory")) ?? optionalTrimmedString(url.searchParams.get("worktree")),
-    providerModel: providerModelFromValues(url.searchParams.get("provider"), url.searchParams.get("model")),
-  };
-}
-
-function connectSnapshotOptionsFromBody(body: Record<string, unknown>): ConnectSnapshotOptions {
-  const context = isRecord(body.context) ? body.context : {};
-  return {
-    workspaceId: optionalTrimmedString(context.workspaceId) ?? optionalTrimmedString(context.workspaceID) ?? optionalTrimmedString(body.workspaceId),
-    directory: optionalTrimmedString(context.worktree) ?? optionalTrimmedString(context.directory) ?? optionalTrimmedString(body.directory),
-    providerModel: providerModelFromValues(context.provider, context.model) ?? providerModelFromValues(body.provider, body.model),
-  };
 }
 
 export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
@@ -120,21 +83,12 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     resolveWorkspace,
     resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
-    refreshRegistrationFromLiveStatus,
     serializeWorkspace,
     resolveDevLogPath,
     onManagedProviderAuthChanged,
     managedProviderAuthLogger,
   } = options;
   const envPendingChangesByRuntime = new Map<string, boolean>();
-
-  const connectSnapshotBaseOptions = {
-    nativeEngineForWorkspace: options.nativeEngineForWorkspace,
-    resolveOpencodeDirectory,
-    createWorkspaceOpencodeClient,
-    refreshRegistrationFromLiveStatus,
-    serverMetadata: { serverVersion, expectedOpencodeVersion: opencodeVersion },
-  };
 
   const healthResponse = () => {
     const ok = options.isReady?.() ?? true;
@@ -289,67 +243,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     return jsonResponse(buildCapabilities(config));
   });
 
-  addRoute(routes, "GET", "/experimental/connect/state", "client", async (ctx) => {
-    return jsonResponse({
-      ok: true,
-      schemaVersion: 1,
-      ...(await getConnectSnapshot(config, { ...connectSnapshotBaseOptions, ...connectSnapshotOptionsFromQuery(ctx.url) })),
-    });
-  });
-
-  addRoute(routes, "GET", "/experimental/connect/skills", "client", async (_ctx) => {
-    // Connect skills are server/account-scoped (openwork-cloud on the host), not per-workspace.
-    const { skills, delivery } = await readOpenWorkConnectSkillIndex(config);
-    return jsonResponse({
-      ok: true,
-      schemaVersion: 1,
-      skills,
-      ...(delivery ? { delivery } : {}),
-      instruction: renderOpenWorkConnectSkillInstruction(skills),
-    });
-  });
-
-  addRoute(routes, "POST", "/experimental/connect/skills/read", "client", async (ctx) => {
-    // Listed skills' SKILL.md for native delivery; Den rechecks access.
-    const body = await readJsonBody(ctx.request);
-    const validUrl = (url: unknown): url is string => typeof url === "string" && url.startsWith("skill://") && url.length <= 2_048;
-    if (Array.isArray(body.urls)) {
-      // Several bodies on one Den session; `use` marks a message that uses them.
-      if (body.urls.length === 0 || body.urls.length > 150 || !body.urls.every(validUrl)) {
-        return jsonResponse({ ok: false, reason: "invalid_url" }, 400);
-      }
-      const contents = await readOpenWorkConnectSkillContents(config, body.urls, { use: body.use === true });
-      return jsonResponse({ ok: true, contents: Object.fromEntries(contents) });
-    }
-    if (!validUrl(body.url)) {
-      return jsonResponse({ ok: false, reason: "invalid_url" }, 400);
-    }
-    const content = await readOpenWorkConnectSkillContent(config, body.url);
-    if (content === null) return jsonResponse({ ok: false, reason: "unavailable" }, 404);
-    return jsonResponse({ ok: true, content });
-  });
-
-  addRoute(routes, "GET", "/experimental/connect/automations", "client", async (_ctx) => {
-    // Owner-scoped through the same openwork-cloud connection as skills.
-    const index = await readOpenWorkAutomationCatalog(config);
-    return jsonResponse({
-      ok: true,
-      schemaVersion: 1,
-      index,
-      instruction: renderOpenWorkAutomationInstruction(index),
-    });
-  });
-
-  addRoute(routes, "PUT", "/experimental/connect/state", "host", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    if (typeof body.connectEnabled !== "boolean" || Object.keys(body).some((key) => key !== "connectEnabled")) {
-      throw new ApiError(400, "invalid_payload", "connectEnabled must be a boolean");
-    }
-    await writeConnectState(config, { connectEnabled: body.connectEnabled });
-    return jsonResponse({ ok: true, schemaVersion: 1, ...(await getConnectSnapshot(config, connectSnapshotBaseOptions)) });
-  });
-
   addRoute(routes, "GET", "/experimental/extensions/actions", "client", async (ctx) => {
     const extensionId = ctx.url.searchParams.get("extensionId") ?? "";
     return jsonResponse({
@@ -363,26 +256,8 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     if (ctx.actor?.scope === "viewer") {
       throw new ApiError(403, "forbidden", "Viewer tokens cannot call extension actions");
     }
-    const approvedDriveFile = takeApprovedDriveUpload(ctx.request);
-    if (approvedDriveFile) ensureWritable(config);
     const body = await readJsonBody(ctx.request);
-    return jsonResponse(await callExperimentalExtensionAction(config, env, body, await getConnectSnapshot(config, { ...connectSnapshotBaseOptions, ...connectSnapshotOptionsFromBody(body) }), ctx.request.signal, approvedDriveFile));
-  });
-
-  // Drive writes additionally require the in-process Desktop confirmation in
-  // callDriveFileAction. Neither an engine credential nor a request flag grants approval.
-  addRoute(routes, "POST", "/experimental/drive-files/call", "client", async (ctx) => {
-    if (ctx.actor?.scope === "viewer") {
-      throw new ApiError(403, "forbidden", "Viewer tokens cannot call Drive file actions");
-    }
-    const body = await readJsonBody(ctx.request);
-    const action = typeof body.action === "string" ? body.action : "";
-    const args = isRecord(body.args) ? body.args : {};
-    const context = isRecord(body.context) ? body.context : {};
-    if (action === "drive_push_file" || action === "drive_pull_file") ensureWritable(config);
-    const result = await callDriveFileAction(config, action, args, context, { signal: ctx.request.signal });
-    if (!result) throw new ApiError(404, "extension_action_not_found", "Drive file action not found");
-    return jsonResponse(result);
+    return jsonResponse(await callExperimentalExtensionAction(config, env, body, ctx.request.signal));
   });
 
   addRoute(routes, "GET", "/workspaces", "client", async () => {

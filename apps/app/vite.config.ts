@@ -8,7 +8,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { devOpenworkProxy } from "./dev-openwork-proxy";
-import { devDenProxy } from "./dev-den-proxy";
 import { MCP_APP_SANDBOX_PROXY_VERSION } from "../server/src/mcp-app-sandbox";
 
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
@@ -88,7 +87,6 @@ const isElectronPackagedBuild = process.env.OPENWORK_ELECTRON_BUILD === "1";
 // web app. Inert unless the launcher sets the target env. No gateway marker:
 // that runtime implies a provisioned cloud instance, which local dev lacks.
 export default defineConfig(({ command, isPreview }) => {
-  const denProxy = devDenProxy(command === "serve" && !isPreview ? process.env : {});
   const openworkProxy = devOpenworkProxy(command === "serve" && !isPreview ? process.env : {});
   const headlessBrowserHostSuffix = Object.keys(openworkProxy).length > 0
     ? process.env.OPENWORK_DEV_BROWSER_HOST_SUFFIX
@@ -132,7 +130,6 @@ export default defineConfig(({ command, isPreview }) => {
         ? { allowedHosts: [...allowedHosts, ...(headlessBrowserHostSuffix ? [headlessBrowserHostSuffix] : [])] }
         : {}),
       proxy: {
-        ...denProxy,
         ...openworkProxy,
       },
     },

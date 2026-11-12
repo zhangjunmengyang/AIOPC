@@ -11,9 +11,6 @@ import {
 } from "./session-read-detail.js";
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { ApiError } from "../errors.js";
-import { createDriveFileTools, DRIVE_FILE_ACTIONS } from "./drive-file-tools.js";
-import { createGmailAttachmentFulfillment, type GmailAttachmentDependencies } from "./gmail-attachment-fulfillment.js";
 import { z } from "zod";
 import { sessionActivityFrom, type SessionActivity } from "./session-activity.js";
 import {
@@ -28,7 +25,6 @@ import {
   type OpenworkAffordanceEffects,
   type OpenworkSessionModel,
 } from "@openwork/types/openwork-affordance";
-import { automationProposalSchema } from "@openwork/types/automations";
 import {
   appendAgentInstructions,
   createInstructionSection,
@@ -36,8 +32,6 @@ import {
 import {
   OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION,
   OPENWORK_ON_DEMAND_DISCOVERY_INSTRUCTION,
-  resolveOpenWorkAutomationInstruction,
-  resolveOpenWorkConnectSkillInstruction,
   resolveOpenWorkExtensionDiscoveryInstruction,
   type OpenCodeContext,
   type OpenWorkEngineMcpStatusClient,
@@ -52,7 +46,6 @@ import {
   sessionQuestionListArgsSchema,
   sessionSendArgsSchema,
   sessionTimestampMs,
-  type ConnectSkillDescriptor,
   type EngineMcpDescriptor,
 } from "./openwork-provider-adapters.js";
 import {
@@ -76,11 +69,11 @@ type ExtensionActionPayload = {
 };
 
 const listActionsArgsSchema = z.object({
-  extensionId: z.string().optional().describe("Optional extension id to filter by, such as openwork-cloud-uploads."),
+  extensionId: z.string().optional().describe("Optional extension id to filter by, such as openai-image-generation."),
 });
 
 const callArgsSchema = z.object({
-  extensionId: z.string().describe("Extension id returned by extension.actions, such as openwork-cloud-uploads."),
+  extensionId: z.string().describe("Extension id returned by extension.actions, such as openai-image-generation."),
   action: z.string().describe("Action id from extension.actions."),
   args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the action."),
 });
@@ -91,17 +84,6 @@ const openworkAffordanceRequestSchema = z.object({
   expectedRevision: z.number().int().nonnegative().optional().describe("Context revision from openwork_context. Use for commands to prevent stale writes."),
   actor: z.string().trim().min(1).optional().describe("Optional agent or client id used to attribute serialized commands."),
 });
-
-const connectSkillDescriptorSchema = z.object({
-  name: z.string(),
-  title: z.string().optional(),
-  description: z.string(),
-  capability: z.string(),
-}).passthrough();
-
-const connectSkillsEnvelopeSchema = z.object({
-  skills: z.array(connectSkillDescriptorSchema),
-}).passthrough();
 
 const workspaceSchema = z.object({
   id: z.string(),
@@ -355,17 +337,6 @@ async function serverGet(path: string): Promise<unknown> {
   return payload;
 }
 
-async function readConnectSkillDescriptors(): Promise<ConnectSkillDescriptor[]> {
-  try {
-    const parsed = connectSkillsEnvelopeSchema.safeParse(
-      await serverGet("/experimental/connect/skills"),
-    );
-    return parsed.success ? parsed.data.skills : [];
-  } catch {
-    return [];
-  }
-}
-
 async function readEngineMcpDescriptors(
   client: OpenWorkEngineMcpStatusClient | undefined,
   directory: string | undefined,
@@ -390,12 +361,11 @@ async function readOpenworkAgentContext(
   engineMcpStatusClient: OpenWorkEngineMcpStatusClient | undefined,
   engineMcpStatusDirectory: string | undefined,
 ): Promise<Record<string, unknown>> {
-  const [uiResult, skills, mcps] = await Promise.all([
+  const [uiResult, mcps] = await Promise.all([
     uiControlRequest("context"),
-    readConnectSkillDescriptors(),
     readEngineMcpDescriptors(engineMcpStatusClient, engineMcpStatusDirectory),
   ]);
-  const contributions = buildOpenworkProviderContributions(skills, mcps);
+  const contributions = buildOpenworkProviderContributions([], mcps);
   const providerAffordances = contributions.flatMap((contribution) => contribution.affordances);
   const uiContext = isRecord(uiResult) && isRecord(uiResult.context) ? uiResult.context : null;
   if (!uiContext) {
@@ -457,12 +427,6 @@ async function queryOpenworkAffordance(rawArgs: unknown): Promise<unknown> {
       affordanceReadEffects,
     );
   }
-  if (request.id.startsWith("connect.")) {
-    return unavailableAffordance(
-      request.id,
-      "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
-    );
-  }
   const result = await uiControlRequest("query", request);
   return isRecord(result) && typeof result.ok === "boolean"
     ? result
@@ -499,18 +463,8 @@ async function executeOpenworkAffordance(
       request.id === "session.group.list" ? affordanceReadEffects : affordanceWriteEffects,
     );
   }
-  if (request.id === "automation.propose") {
-    return affordanceResult(
-      request.id,
-      proposeAutomation(request.args ?? {}, context),
-      affordanceProposalEffects,
-    );
-  }
   if (request.id === "extension.call") {
     const args = callArgsSchema.parse(request.args ?? {});
-    if (args.extensionId === "openwork-cloud-uploads" && (DRIVE_FILE_ACTIONS as readonly string[]).includes(args.action)) {
-      return unavailableAffordance(request.id, `Use the ${args.action} tool, which asks the person before changing files.`);
-    }
     return affordanceResult(
       request.id,
       await postJson("/experimental/extensions/call", {
@@ -520,12 +474,6 @@ async function executeOpenworkAffordance(
         context: contextPayload(context),
       }),
       affordanceExternalWriteEffects,
-    );
-  }
-  if (request.id.startsWith("connect.")) {
-    return unavailableAffordance(
-      request.id,
-      "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
     );
   }
   // Keep the requesting conversation attached when commands cross the server.
@@ -1659,37 +1607,9 @@ async function createOpenWorkSessions(rawArgs: unknown, context: OpenCodeContext
   };
 }
 
-/**
- * Validates a proposed Automation and hands it back for the renderer to show.
- *
- * Deliberately does no I/O. Automations are active from the moment they exist,
- * and the Den credential lives in the renderer, so an agent can describe an
- * Automation but only a person can create one.
- */
-function proposeAutomation(rawArgs: unknown, context: OpenCodeContext): object {
-  const { workspaceId: _modelSupplied, ...parsed } = automationProposalSchema.parse(rawArgs);
-  // Pin the proposing conversation's workspace so the Automation keeps running
-  // there even after the person activates a different workspace. The pin comes
-  // from the engine-provided context only: a model-supplied workspaceId is
-  // discarded so a prompt-injected agent cannot retarget the Automation to a
-  // workspace the person is not looking at.
-  const workspaceId = context.workspaceId ?? context.workspaceID;
-  const proposal = workspaceId ? { ...parsed, workspaceId } : parsed;
-  return {
-    ok: true,
-    kind: "automation-proposal",
-    proposal,
-    created: false,
-    limitation: "This Desktop proposal creates Desktop placement and runs only while a signed-in desktop runner is connected. Use Web or Cloud Chat to create headless Cloud placement.",
-  };
-}
-
-async function postJson(path: string, body: ExtensionActionPayload | Record<string, unknown>, signal?: AbortSignal, gmailAttachment = false): Promise<unknown> {
+async function postJson(path: string, body: ExtensionActionPayload | Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const transport = openworkReadTransport.getStore();
   if (transport) return transport.post(path, body, signal);
-  if (gmailAttachment && (!serverUrl() || !serverToken())) {
-    throw new ApiError(409, "gmail_host_unavailable", "OpenWork host transport is unavailable. Run this tool from OpenWork.");
-  }
   const { url, token } = requireOpenWorkServer();
   const response = await fetch(url + path, {
     signal,
@@ -1702,19 +1622,9 @@ async function postJson(path: string, body: ExtensionActionPayload | Record<stri
   });
   const payload = await parseResponse(response);
   if (!response.ok) {
-    if (gmailAttachment) {
-      throw new ApiError(response.status, getStringProperty(payload, "code") ?? "gmail_attachment_http_error",
-        errorMessage(payload, "OpenWork extension call failed"), isRecord(payload) ? payload.details : undefined);
-    }
     throw new Error(errorMessage(payload, "OpenWork extension call failed"));
   }
   return payload;
-}
-
-// Pulls of large files stream through OpenWork Cloud, so they get more time than other extension calls.
-function driveToolSignal(context: unknown) {
-  const timeout = AbortSignal.timeout(15 * 60 * 1000);
-  return isRecord(context) && context.abort instanceof AbortSignal ? AbortSignal.any([context.abort, timeout]) : timeout;
 }
 
 function contextPayload(context: OpenCodeContext) {
@@ -1728,30 +1638,16 @@ function contextPayload(context: OpenCodeContext) {
   };
 }
 
-export const OpenWorkExtensionsPreview = async (factoryInput?: unknown, _options?: unknown, dependencies?: GmailAttachmentDependencies) => {
+export const OpenWorkExtensionsPreview = async (factoryInput?: unknown, _options?: unknown) => {
   const factoryContext = normalizeOpenCodeContext(factoryInput);
-  const fulfillGmailAttachments = createGmailAttachmentFulfillment(
-    dependencies ?? { callExtension: (request, signal) => postJson("/experimental/extensions/call", request, AbortSignal.any([signal, AbortSignal.timeout(130_000)]), true) },
-    contextPayload(factoryContext),
-  );
   const engineMcpStatusClient = readEngineMcpStatusClient(factoryInput);
   const engineMcpStatusDirectory = factoryContext.directory ?? factoryContext.worktree;
   return {
-  "tool.execute.before": fulfillGmailAttachments.before,
-  event: fulfillGmailAttachments.event,
-  dispose: fulfillGmailAttachments.dispose,
   "chat.params": async (input: { sessionID: string }) => {
     if (!serverUrl() || !serverToken()) return;
     await assertSessionContinuation(postJson, { directory: engineMcpStatusDirectory, sessionID: input.sessionID });
   },
-  "chat.headers": async (input: { sessionID: string; model: { providerID: string }; message: { id: string } }, output: { headers: Record<string, string> }) => {
-    // OpenWork Models and free Auto: the desktop relay checks the session against the task the user started.
-    if (input.model.providerID !== "openwork" && input.model.providerID !== "openwork-free") return;
-    output.headers["x-openwork-session-id"] = input.sessionID;
-    output.headers["x-openwork-task-id"] = input.message.id;
-  },
   "tool.execute.after": async (input: unknown, output: unknown) => {
-    await fulfillGmailAttachments(input, output);
     // OpenCode 1.18.18 keeps the text projection of an MCP result but drops
     // structuredContent and result _meta before persisting the completed tool
     // part. Preserve those standard fields in the existing metadata channel
@@ -1769,26 +1665,19 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown, _options
     );
   },
   tool: {
-    ...createDriveFileTools((action, args, context) => postJson("/experimental/drive-files/call", {
-      action,
-      args,
-      context: contextPayload({ ...factoryContext, ...normalizeOpenCodeContext(context) }),
-    }, driveToolSignal(context))),
     openwork_context: {
       description: "Read one semantic snapshot of OpenWork: current screen, retained conversation tabs, split view and focused pane, sidebar and side panel state, settings panel, provider contributions, remote skill guidance, and available affordances with explicit effects and executors.",
       args: {},
       async execute() {
-        const [context, routing, skills, automations] = await Promise.all([
+        const [context, routing] = await Promise.all([
           readOpenworkAgentContext(engineMcpStatusClient, engineMcpStatusDirectory),
           resolveOpenWorkExtensionDiscoveryInstruction({ context: factoryContext }, fetch, {
             client: engineMcpStatusClient,
             directory: engineMcpStatusDirectory,
           }),
-          resolveOpenWorkConnectSkillInstruction(),
-          resolveOpenWorkAutomationInstruction(),
         ]);
         return JSON.stringify(
-          { ...context, instructions: { routing, skills, automations } },
+          { ...context, instructions: { routing } },
           null,
           2,
         );

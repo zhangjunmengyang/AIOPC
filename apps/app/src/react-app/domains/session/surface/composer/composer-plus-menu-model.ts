@@ -1,4 +1,4 @@
-import type { CloudImportedPlugin, CloudImportedPluginFile } from "@/app/cloud/import-state";
+import type { ComposerPlugin, ComposerPluginFile } from "./composer-plugin-types";
 import type { SkillCard, SlashCommandOption } from "@/app/types";
 import {
   normalizeComposerQuery,
@@ -37,8 +37,8 @@ export type PlusMenuItem =
   | (ItemBase & { kind: "section"; section: PlusMenuSection; count: number })
   | (ItemBase & { kind: "skill"; skill: SkillCard })
   | (ItemBase & { kind: "connector"; connector: PlusMenuConnector })
-  | (ItemBase & { kind: "plugin"; plugin: CloudImportedPlugin })
-  | (ItemBase & { kind: "plugin-file"; file: CloudImportedPluginFile })
+  | (ItemBase & { kind: "plugin"; plugin: ComposerPlugin })
+  | (ItemBase & { kind: "plugin-file"; file: ComposerPluginFile })
   | (ItemBase & { kind: "agent"; agent: PlusMenuAgent })
   | (ItemBase & { kind: "command"; command: SlashCommandOption })
   | (ItemBase & { kind: "file"; path: string })
@@ -70,7 +70,7 @@ export type PlusMenuInput = {
   query: string;
   skills: SkillCard[];
   connectors: PlusMenuConnector[];
-  plugins: CloudImportedPlugin[];
+  plugins: ComposerPlugin[];
   agents: PlusMenuAgent[];
   commands: SlashCommandOption[];
   files: string[];
@@ -113,11 +113,11 @@ function connectorItem(connector: PlusMenuConnector, highlights: number[] = []):
   return { kind: "connector", id: `connector:${connector.key}`, label: connector.name, highlights, connector };
 }
 
-function pluginItem(plugin: CloudImportedPlugin, highlights: number[] = []): PlusMenuItem {
+function pluginItem(plugin: ComposerPlugin, highlights: number[] = []): PlusMenuItem {
   return { kind: "plugin", id: `plugin:${plugin.pluginId}`, label: plugin.name, highlights, plugin };
 }
 
-function pluginFileItem(file: CloudImportedPluginFile, highlights: number[] = []): PlusMenuItem {
+function pluginFileItem(file: ComposerPluginFile, highlights: number[] = []): PlusMenuItem {
   return { kind: "plugin-file", id: `plugin-file:${file.configObjectId}:${file.path}`, label: file.title, highlights, file };
 }
 
@@ -197,11 +197,11 @@ function connectorEntry(connector: PlusMenuConnector): ComposerSearchEntry<PlusM
   return { id: connector.key, label: connector.name, value: connector };
 }
 
-function pluginEntry(plugin: CloudImportedPlugin): ComposerSearchEntry<CloudImportedPlugin> {
+function pluginEntry(plugin: ComposerPlugin): ComposerSearchEntry<ComposerPlugin> {
   return { id: plugin.pluginId, label: plugin.name, keywords: [plugin.description ?? ""], value: plugin };
 }
 
-function pluginFileEntry(file: CloudImportedPluginFile): ComposerSearchEntry<CloudImportedPluginFile> {
+function pluginFileEntry(file: ComposerPluginFile): ComposerSearchEntry<ComposerPluginFile> {
   return { id: `${file.configObjectId}:${file.path}`, label: file.title, keywords: [file.skillName ?? ""], value: file };
 }
 

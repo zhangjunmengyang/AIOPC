@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { OwDotTicker } from "./dot-ticker";
-import { formatCloudWorkspaceElapsed } from "./cloud-workspace-status";
+const formatWorkspaceElapsed = (milliseconds: number) => `${Math.max(0, Math.floor(milliseconds / 1000))} 秒`;
 
 /** One quiet, fixed-size status region. Timers must not re-announce the message. */
 export function WorkspaceStartupStatus(props: {
@@ -20,8 +20,8 @@ export function WorkspaceStartupStatus(props: {
         {props.detail ? <p className="text-sm text-muted-foreground">{props.detail}</p> : null}
       </div>
       {props.elapsedMs !== undefined ? (
-        <span role="timer" aria-live="off" className="text-xs tabular-nums text-muted-foreground" data-testid="cloud-workspace-elapsed">
-          {formatCloudWorkspaceElapsed(props.elapsedMs)}
+        <span role="timer" aria-live="off" className="text-xs tabular-nums text-muted-foreground" data-testid="workspace-elapsed">
+          {formatWorkspaceElapsed(props.elapsedMs)}
         </span>
       ) : null}
       {props.children}

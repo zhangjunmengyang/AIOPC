@@ -9,7 +9,7 @@ afterAll(async () => { if (ownsDom) await GlobalRegistrator.unregister(); });
 
 const { mcpAppDocuments, setMcpAppDocumentBackend } = await import("../src/app/lib/mcp-app-document-store");
 const { clearDashboardTileCacheStorage, DASHBOARD_TILE_CACHE_STORAGE_PREFIX, flushDashboardTileCacheStorage, resetDashboardTileCacheMemory } = await import("../src/app/lib/dashboard-cache-storage");
-const { dashboardTileDocumentPending, loadDashboardTileDocument, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, writeDashboardTileCache } = await import("../src/react-app/domains/dashboard/dashboard-tile-cache");
+const { dashboardTileDocumentPending, loadDashboardTileDocument, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, writeDashboardTileCache } = await import("../src/react-app/domains/mcp-apps/dashboard-tile-cache");
 
 const documents = new Map<string, string>();
 const sizes = new Map<string, McpAppDocumentSize>();

@@ -9,9 +9,9 @@ import {
   appRead,
   isAppGuidePart,
   type AppCreationRun,
-} from "@/react-app/domains/apps/app-creation-progress";
-import { appBuilderResultFailed } from "@/react-app/domains/apps/built-mcp-app-model";
-import { BuiltAppChatPreview } from "@/react-app/domains/apps/built-app-chat-preview";
+} from "@/react-app/domains/mcp-apps/app-creation-progress";
+import { appBuilderResultFailed } from "@/react-app/domains/mcp-apps/built-mcp-app-model";
+import { BuiltAppChatPreview } from "@/react-app/domains/mcp-apps/built-app-chat-preview";
 import { DetailsToggle, TechnicalDetailsPanel } from "./capability-call-line";
 import type { DynamicToolUIPart } from "ai";
 

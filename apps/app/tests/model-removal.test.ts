@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelOption } from "../src/app/types";
-import { confirmedOrganizationRemoval, closestAvailableModel } from "../src/react-app/domains/session/surface/model-removal";
+import { closestAvailableModel } from "../src/react-app/domains/session/surface/model-removal";
 import { computeModelAvailability, createUnavailableConfirmationGate } from "../src/react-app/domains/session/surface/model-availability";
 import { useModelRecoveryStore } from "../src/react-app/domains/session/surface/model-recovery-store";
 
@@ -16,14 +16,9 @@ const sonnet = option("ipr_gateway", "gwm_sonnet", "Claude Sonnet 4.5");
 const haiku = option("ipr_gateway", "gwm_haiku", "Claude Haiku 4.5");
 const luna = option("openwork", "openai/gpt-6-luna", "GPT-6 Luna");
 
-test("live sync uses its subscribed engine catalog rather than a deliberately absent legacy snapshot", () => {
-  const context = {
-    workspaceReady: true, loading: false, signedIn: true, cloudProviderSyncReady: true,
-    openWorkModelsSyncing: false, restrictToCloud: false, checkRestriction: () => false,
-    cloudProviderList: null, providerList: { all: [], connected: [], default: {} },
-  };
-  expect(computeModelAvailability(old, { ...context, liveProviderSync: true })).toEqual({ status: "unavailable", reason: "model_missing" });
-  expect(computeModelAvailability(old, { ...context, liveProviderSync: false })).toEqual({ status: "pending" });
+test("model availability waits for a loaded local catalog", () => {
+  expect(computeModelAvailability(old, { workspaceReady: true, loading: false, providerList: null })).toEqual({ status: "pending" });
+  expect(computeModelAvailability(old, { workspaceReady: true, loading: false, providerList: { all: [], connected: [], default: {} } })).toEqual({ status: "unavailable", reason: "model_missing" });
 });
 
 test("a mature catalog gap neither spins a timer nor hides another model's deadline", () => {
@@ -34,20 +29,6 @@ test("a mature catalog gap neither spins a timer nor hides another model's deadl
   expect(gate.nextRecheckDelay()).toBeNull();
   gate.confirm(sonnet, { status: "unavailable", reason: "model_missing" });
   expect(gate.nextRecheckDelay()).toBe(1200);
-});
-
-describe("authoritative organization model removal", () => {
-  test("an engine gap cannot remove a model still assigned by Den", () => {
-    expect(confirmedOrganizationRemoval({ model: old, before: present, after: present, engineSettled: true, engineMissing: true })).toBe(false);
-  });
-  test("both independent inventories must confirm absence after the engine settles", () => {
-    expect(confirmedOrganizationRemoval({ model: old, before: empty, after: empty, engineSettled: true, engineMissing: true })).toBe(true);
-    for (const [before, after] of [[null, empty], [empty, null], [present, empty], [empty, present], [locked, empty], [empty, locked]]) {
-      expect(confirmedOrganizationRemoval({ model: old, before, after, engineSettled: true, engineMissing: true })).toBe(false);
-    }
-    expect(confirmedOrganizationRemoval({ model: old, before: empty, after: empty, engineSettled: false, engineMissing: true })).toBe(false);
-    expect(confirmedOrganizationRemoval({ model: old, before: empty, after: empty, engineSettled: true, engineMissing: false })).toBe(false);
-  });
 });
 
 describe("closest usable model", () => {
@@ -68,8 +49,8 @@ describe("closest usable model", () => {
     expect(closestAvailableModel([luna, gemini], [], [gemini], old, () => true)).toEqual(gemini);
     expect(closestAvailableModel([luna, gemini], [], [], old, () => true)).toEqual(luna);
   });
-  test("never picks an unavailable, disabled, same, or sign-in-required model", () => {
-    expect(closestAvailableModel([{ ...sonnet, disabled: true }, { ...haiku, gatewayAuthorization: { cloudProviderId: "ipr_gateway", credentialSetId: "gcs_auth" } }, luna], [], [], old, () => false)).toBeNull();
+  test("never picks an unavailable or disabled model", () => {
+    expect(closestAvailableModel([{ ...sonnet, disabled: true }, haiku, luna], [], [], old, () => false)).toBeNull();
   });
 });
 

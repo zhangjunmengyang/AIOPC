@@ -6,7 +6,7 @@ const ownsDom = !GlobalRegistrator.isRegistered;
 if (ownsDom) GlobalRegistrator.register({ url: "http://localhost/" });
 const { act, useEffect, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { RetainedArtifactSurface } = await import("../src/react-app/domains/dashboard/retained-artifact-surface");
+const { RetainedArtifactSurface } = await import("../src/react-app/domains/mcp-apps/retained-artifact-surface");
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;

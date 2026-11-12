@@ -10,7 +10,7 @@ const previousAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT")
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true)
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 const { MessageList } = await import("../src/components/chat/message-list")
 let mounted: { root: Root; container: HTMLElement } | null = null
@@ -63,7 +63,7 @@ async function render(messages: UIMessage[]) {
   const root = createRoot(container)
   mounted = { root, container }
   await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -73,7 +73,7 @@ async function render(messages: UIMessage[]) {
       onMcpReconnect: async () => {}, onMcpReopenAuthorization: async () => {},
       children: createElement(MessageList, { messages, status: "ready", activityStatus: "idle" }),
     }),
-  }) }), })))
+  }), })))
   // Markdown decorations run after a microtask.
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
   return container
@@ -124,7 +124,7 @@ function turnWithCapability(): UIMessage[] {
   const [user, reply] = turn()
   if (!user || !reply) throw new Error("fixture")
   const parts = [...reply.parts]
-  parts.splice(parts.length - 1, 0, tool("call_org", "openwork-cloud_execute_capability", { name: "getOrg" }, JSON.stringify({ members: 2 })))
+  parts.splice(parts.length - 1, 0, tool("call_search", "openwork_query", { id: "session.search", args: { query: "plan" } }, JSON.stringify({ results: [] })))
   return [user, { ...reply, parts }]
 }
 
@@ -164,7 +164,6 @@ test("the OpenWork mark is recognised however the identity reaches the row", asy
   const { isOpenWorkIdentity, OPENWORK_IDENTITY } = await import("../src/components/chat/capability-call-line")
   const base = { name: "OpenWork", toolNamespace: null, connectionId: null }
   expect(isOpenWorkIdentity(OPENWORK_IDENTITY)).toBe(true)
-  expect(isOpenWorkIdentity({ ...base, id: "connection:c1", iconUrl: "https://www.google.com/s2/favicons?sz=64&domain=openworklabs.com", serviceUrl: "https://api.openworklabs.com/mcp/agent" })).toBe(true)
   expect(isOpenWorkIdentity({ ...base, id: "mcp:x", iconUrl: "/aiopc-sidebar-mark.svg", serviceUrl: null })).toBe(true)
   expect(isOpenWorkIdentity({ ...base, id: "connection:slack", name: "Slack", iconUrl: "https://cdn.simpleicons.org/slack", serviceUrl: "https://mcp.slack.com" })).toBe(false)
   expect(isOpenWorkIdentity({ ...base, id: "connection:evil", iconUrl: null, serviceUrl: "https://openworklabs.com.evil.example" })).toBe(false)
@@ -197,7 +196,7 @@ test("mid-turn: the Working line is the one shimmer and the group line carries o
   const root = createRoot(container)
   mounted = { root, container }
   await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -207,7 +206,7 @@ test("mid-turn: the Working line is the one shimmer and the group line carries o
       onMcpReconnect: async () => {}, onMcpReopenAuthorization: async () => {},
       children: createElement(MessageList, { messages, status: "streaming", activityStatus: "busy" }),
     }),
-  }) }), })))
+  }), })))
 
   const group = container.querySelector("[data-text-group-summary]")?.closest("button")
   expect(group).not.toBeNull()

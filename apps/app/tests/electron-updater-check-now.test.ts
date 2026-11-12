@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } 
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, createElement } from "react";
 
-import type { DenDesktopConfig } from "../src/app/lib/den";
 import type { ReleaseChannel } from "../src/app/types";
 import { formatBytes } from "../src/app/utils";
 import {
@@ -52,8 +51,6 @@ describe("Settings staged-update discovery", () => {
   let installReason: string | undefined;
   let checkResult: (() => Promise<CheckResult>) | undefined;
   let downloadResult: (() => Promise<{ ok: boolean; reason?: string }>) | undefined;
-  let config: DenDesktopConfig;
-  let refreshResult: (() => Promise<DenDesktopConfig>) | undefined;
   let autoCheck: boolean;
   let autoDownload: boolean;
   let activeRuns: boolean;
@@ -63,7 +60,6 @@ describe("Settings staged-update discovery", () => {
   const originalDev = process.env.DEV;
   const onReleaseChannelChange = () => {};
   const setError = () => {};
-  const refreshDesktopConfig = async () => refreshResult ? refreshResult() : config;
 
   function Harness() {
     updater = useElectronUpdaterState({
@@ -71,9 +67,6 @@ describe("Settings staged-update discovery", () => {
       onReleaseChannelChange,
       updateAutoCheck: autoCheck,
       updateAutoDownload: autoDownload,
-      allowedVersionsKnown: true,
-      desktopConfig: config,
-      refreshDesktopConfig,
       setError,
     });
     statuses.push(updater.updateStatus);
@@ -163,7 +156,6 @@ describe("Settings staged-update discovery", () => {
     downloadedStage = null;
     releaseChannel = "stable";
     currentVersion = installedVersion;
-    refreshResult = undefined;
     latestVersion = stagedVersion;
     selectedVersion = stagedVersion;
     totalBytes = artifactBytes;
@@ -172,15 +164,9 @@ describe("Settings staged-update discovery", () => {
     installReason = undefined;
     checkResult = undefined;
     downloadResult = undefined;
-    config = {};
     autoCheck = false;
     autoDownload = true;
     activeRuns = false;
-    window.__openworkReadDesktopVersionMetadataEval = () => ({
-      minAppVersion: "0.1.0",
-      latestAppVersion: releaseChannel === "alpha" ? "0.18.46" : latestVersion,
-      publishedDesktopVersions: releaseChannel === "alpha" ? ["0.18.46"] : [latestVersion],
-    });
     const bridge: Bridge = {
       getChannel: async () => ({ channel: releaseChannel, currentVersion, feedUrl: "" }),
       setChannel: async (channel) => ({ channel, currentVersion, feedUrl: "" }),
@@ -235,7 +221,7 @@ describe("Settings staged-update discovery", () => {
     expect(button("Download").disabled).toBe(true);
     expect(button("Install & restart").disabled).toBe(true);
     await click("Check now");
-    expect(checks).toEqual([{ channel: "stable", targetVersion: stagedVersion, options: undefined }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: undefined }]);
     expect(downloads).toEqual([stagedVersion]);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: stagedVersion });
     expect(host.querySelector('[data-testid="updates-latest-version"]')?.textContent).toBe(`v${stagedVersion}`);
@@ -268,7 +254,7 @@ describe("Settings staged-update discovery", () => {
     await stage();
     const staged = stagedFields(updater.updateStatus);
     await click("Check now");
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: { preserveStaged: true } }]);
     expect(downloads).toEqual([]);
     expect(statuses.length).toBeGreaterThan(0);
     for (const status of statuses) expect(stagedFields(status)).toEqual(staged);
@@ -368,7 +354,7 @@ describe("Settings staged-update discovery", () => {
     await stage();
     autoCheck = true;
     await act(async () => { root.render(createElement(Harness)); });
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: { preserveStaged: true } }]);
     expect(downloads).toEqual([newerVersion]);
     expect(downloadedStage).toBe(newerVersion);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: newerVersion });
@@ -394,7 +380,7 @@ describe("Settings staged-update discovery", () => {
     autoCheck = true;
     autoDownload = false;
     await act(async () => { root.render(createElement(Harness)); });
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: { preserveStaged: true } }]);
     expect(downloads).toEqual([]);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: stagedVersion, candidate: { version: newerVersion } });
     expect(button("Download").disabled).toBe(false);
@@ -415,7 +401,7 @@ describe("Settings staged-update discovery", () => {
   test("native menu request shares the staged-preserving manual check", async () => {
     await stage();
     await act(async () => { useUpdateCheckRequestStore.getState().requestUpdateCheck(); });
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: { preserveStaged: true } }]);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: stagedVersion });
     expect(downloads).toEqual([]);
   });
@@ -538,33 +524,11 @@ describe("Settings staged-update discovery", () => {
       expect(downloads).toEqual([]);
       checkResult = undefined;
       await click("Check now");
-      expect(checks[2]).toEqual({ channel: "stable", targetVersion: newerVersion, options: undefined });
+      expect(checks[2]).toEqual({ channel: "stable", targetVersion: undefined, options: undefined });
       expect(updater.updateStatus).toMatchObject({ state: "available", version: newerVersion });
       expect(downloads).toEqual([]);
     });
   }
-
-  test("losing staged confirmation invalidates an install awaiting A's policy", async () => {
-    await stage();
-    latestVersion = stagedVersion;
-    const deferred = Promise.withResolvers<DenDesktopConfig>();
-    let refreshCalls = 0;
-    // The install's newest-release lookup reads the policy first; hold the
-    // second read, which authorizes installing A.
-    refreshResult = async () => ++refreshCalls === 1 ? config : deferred.promise;
-    let installing: Promise<void> | undefined;
-    await act(async () => { installing = updater.installUpdateAndRestart(); });
-    refreshResult = undefined;
-    checkResult = async () => ({ available: false, stagedVersion: null, reason: "offline" });
-    await click("Check now");
-    await act(async () => {
-      deferred.resolve({ allowedDesktopVersions: [stagedVersion] });
-      await installing;
-    });
-    expect(installs).toBe(0);
-    expect(updater.updateStatus?.state).toBe("error");
-    expect(button("Check now").disabled).toBe(false);
-  });
 
   test("explicit Download B clears staged metadata and becomes ready B only on success", async () => {
     await stage();
@@ -602,60 +566,10 @@ describe("Settings staged-update discovery", () => {
     expect(updater.updateStatus?.candidate).toBeUndefined();
   });
 
-  test("install after B discovery checks A's policy and installs A", async () => {
-    await stage();
-    await click("Check now");
-    config = { allowedDesktopVersions: [stagedVersion] };
-    await click("Install & restart");
-    expect(installs).toBe(1);
-    expect(downloads).toEqual([]);
-    expect(updater.updateStatus).toMatchObject({ state: "ready", version: stagedVersion });
-  });
-
-  test.each([false, true])("deferred install authorization stays bound to A (replacement: %s)", async (replace) => {
-    await stage();
-    await click("Check now");
-    const deferred = Promise.withResolvers<DenDesktopConfig>();
-    let refreshCalls = 0;
-    // Only A is allowed when the install looks for a newer release, so it keeps
-    // A and then waits on the policy read that authorizes installing it.
-    refreshResult = async () => ++refreshCalls === 1 ? { allowedDesktopVersions: [stagedVersion] } : deferred.promise;
-    let installing: Promise<void> | undefined;
-    await act(async () => { installing = updater.installUpdateAndRestart(); });
-    expect(installs).toBe(0);
-    expect(downloads).toEqual([]);
-    if (replace) {
-      await click("Download");
-      expect(downloadedStage).toBe(newerVersion);
-    }
-    await act(async () => {
-      deferred.resolve({ allowedDesktopVersions: [stagedVersion] });
-      await installing;
-    });
-    expect(installedStages).toEqual(replace ? [] : [stagedVersion]);
-    expect(installs).toBe(replace ? 0 : 1);
-    expect(updater.updateStatus).toMatchObject({ state: "ready", version: replace ? newerVersion : stagedVersion });
-    if (replace) {
-      await click("Install & restart");
-      expect(updater.updateStatus).toMatchObject({ state: "blocked", version: newerVersion });
-      expect(installs).toBe(0);
-    }
-  });
-
-  test("install replaces a revoked staged A with the approved newer B", async () => {
-    await stage();
-    await click("Check now");
-    config = { allowedDesktopVersions: [newerVersion] };
-    await click("Install & restart");
-    expect(downloads).toEqual([newerVersion]);
-    expect(installedStages).toEqual([newerVersion]);
-    expect(updater.updateStatus).toMatchObject({ state: "ready", version: newerVersion });
-  });
-
   test("install fetches a release that shipped after the staged download and restarts once onto it", async () => {
     await stage();
     await click("Install & restart");
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: { preserveStaged: true } }]);
     expect(downloads).toEqual([newerVersion]);
     expect(installs).toBe(1);
     expect(installedStages).toEqual([newerVersion]);
@@ -711,7 +625,7 @@ describe("Settings staged-update discovery", () => {
   test("channel override still uses the ordinary manual path", async () => {
     await stage();
     await act(async () => { await updater.checkForUpdates("stable"); });
-    expect(checks).toEqual([{ channel: "stable", targetVersion: newerVersion, options: undefined }]);
+    expect(checks).toEqual([{ channel: "stable", targetVersion: undefined, options: undefined }]);
     expect(downloads).toEqual([newerVersion]);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: newerVersion });
   });
@@ -744,8 +658,8 @@ describe("Settings staged-update discovery", () => {
     installReason = "update-not-downloaded";
     await click("Install & restart");
     expect(checks).toEqual([
-      { channel: "stable", targetVersion: newerVersion, options: { preserveStaged: true } },
-      { channel: "stable", targetVersion: newerVersion, options: undefined },
+      { channel: "stable", targetVersion: undefined, options: { preserveStaged: true } },
+      { channel: "stable", targetVersion: undefined, options: undefined },
     ]);
     expect(downloads).toEqual([newerVersion]);
     expect(updater.updateStatus).toMatchObject({ state: "ready", version: newerVersion });

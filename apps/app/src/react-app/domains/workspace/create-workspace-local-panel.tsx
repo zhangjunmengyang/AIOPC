@@ -205,7 +205,7 @@ export function CreateWorkspaceLocalPanel(
                   <FolderPlus size={14} />
                 )}
                 {props.hasSelectedFolder
-                  ? t("dashboard.change")
+                  ? t("workspace.change")
                   : "Select folder"}
               </button>
             </div>
@@ -296,7 +296,7 @@ export function CreateWorkspaceLocalPanel(
         props.workerDisabledReason ? (
           <div className={warningBannerClass}>
             <div className="font-semibold text-amber-12">
-              {t("dashboard.sandbox_get_ready_title")}
+              {t("workspace.sandbox_get_ready_title")}
             </div>
             <div className="mt-1 leading-relaxed">
               {props.workerDisabledReason || props.workerCtaDescription}
@@ -370,18 +370,18 @@ export function CreateWorkspaceLocalPanel(
               }
               title={
                 !props.selectedFolder
-                  ? t("dashboard.choose_folder_continue")
+                  ? t("workspace.choose_folder_continue")
                   : props.workerDisabledReason || undefined
               }
             >
               {props.workerSubmitting ? (
                 <span className="inline-flex items-center gap-2">
                   <Loader2 size={16} className="animate-spin" />
-                  {t("dashboard.sandbox_checking_docker")}
+                  {t("workspace.sandbox_checking_docker")}
                 </span>
               ) : (
                 (props.workerLabel ??
-                  t("dashboard.create_sandbox_confirm"))
+                  t("workspace.create_sandbox_confirm"))
               )}
             </Button>
           ) : null}
@@ -391,7 +391,7 @@ export function CreateWorkspaceLocalPanel(
             disabled={!props.selectedFolder || props.submitting}
             title={
               !props.selectedFolder
-                ? t("dashboard.choose_folder_continue")
+                ? t("workspace.choose_folder_continue")
                 : undefined
             }
           >
@@ -402,7 +402,7 @@ export function CreateWorkspaceLocalPanel(
               </span>
             ) : (
               (props.confirmLabel ??
-                t("dashboard.create_workspace_confirm"))
+                t("workspace.create_workspace_confirm"))
             )}
           </Button>
         </div>

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 
-import { createDashboardLaunchScheduler } from "../src/react-app/domains/dashboard/dashboard-launch-scheduler"
+import { createDashboardLaunchScheduler } from "../src/react-app/domains/mcp-apps/dashboard-launch-scheduler"
 
 test("launches four dashboard tiles at once and starts visible tiles first", async () => {
   const schedule = createDashboardLaunchScheduler()

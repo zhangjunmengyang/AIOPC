@@ -842,8 +842,8 @@ export function OpenworkRouteControlActions() {
     },
     {
       id: "help.capabilities",
-      label: "What can OpenWork do?",
-      description: "List the main capabilities of OpenWork.",
+      label: "What can AIOPC do?",
+      description: "List the main capabilities of AIOPC.",
       kind: "query",
       effects: { data: "read", ui: "none", external: false },
       sideEffect: "none",
@@ -856,7 +856,6 @@ export function OpenworkRouteControlActions() {
           { id: "code", label: "Write and run code", description: "Generate, edit, and execute code with full tool access." },
           { id: "skills", label: "Skills", description: "Install specialized skill packs for specific workflows." },
           { id: "automations", label: "Automations", description: "Schedule recurring tasks and background agents." },
-          { id: "sharing", label: "Share sessions", description: "Share workspace sessions with collaborators via OpenWork Cloud." },
         ],
         hint: "Use settings.panel.open for settings such as AI providers, and route.extensions.skills to browse Library.",
       }),

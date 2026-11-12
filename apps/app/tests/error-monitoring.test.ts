@@ -138,7 +138,7 @@ describe("reportCaughtWebError", () => {
   // driven at runtime. Module state only opens once, so desktop runs first.
   // The boundary's componentDidCatch is the real caller, so the hand-off and
   // its redaction are exercised through it.
-  test("boundary-caught errors redact quoted identity, message and stack in web envelopes, dedupe, and stay inert on desktop", async () => {
+  test("local errors stay visible without sending telemetry in either bundle", async () => {
     GlobalRegistrator.register({ url: "https://app.openworklabs.com/signin?grant=secret-grant" });
     const actEnvironment = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT");
     Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
@@ -170,67 +170,11 @@ describe("reportCaughtWebError", () => {
       startWebErrorMonitoring();
       boundary.componentDidCatch(thrown, info);
       boundary.componentDidCatch(thrown, info);
-      expect(bodies).toHaveLength(1);
-      const event = JSON.parse(bodies[0].split("\n")[2]);
-      expect(event.exception.values).toEqual([{ type: "Error", value: "Deep link rejected: openwork://open" }]);
-      expect(event.tags).toEqual({ boot_phase: "runtime" });
-      expect(event.request).toEqual({ url: "https://app.openworklabs.com/signin" });
-      expect(event.extra.stack).toContain("Deep link rejected: openwork://open");
-      // Neither the page URL's grant nor the thrown URL's token leaves the page.
-      expect(bodies[0]).not.toContain("secret-grant");
-      expect(bodies[0]).not.toContain("eval-secret-token");
-
-      const fields = ["token", "grant", "code", "secret", "key"];
-      const opaque = ["r4Lb8xM2", "z7Qn3cV9", "p2Hs6wJ5", "f9Tk4aD7", "y3Bg8uN6"];
-      for (const [index, field] of fields.entries()) {
-        const canaries: string[] = [];
-        function assignments(part: string, selected: string[]) {
-          return selected.map((key, position) => {
-            const values = [0, 1, 2, 3].map((variant) => `${part}${index}${opaque[position]}${variant}`);
-            canaries.push(...values);
-            return `${key}="${values[0]}" ${key}='${values[1]}' "${key}":"${values[2]}" '${key}':'${values[3]}'`;
-          }).join(" ");
-        }
-        const error = new Error(`Recovery ${index} failed: ${assignments("m", fields)} status=502`);
-        error.name = `E ${assignments("n", [field])} end`;
-        error.stack = `Error: recovery trace ${assignments("s", fields)}\n    at restoreSession (session-route.tsx:42:7)`;
-        function Throws(): ReactNode {
-          throw error;
-        }
-        for (const attempt of [0, 1]) {
-          await act(async () => {
-            root.render(createElement(AppErrorBoundary, { key: `${index}-${attempt}` }, createElement(Throws)));
-          });
-          expect(container.textContent).toContain("OpenWork hit an unexpected error");
-          expect(bodies).toHaveLength(index + 2);
-        }
-        const body = bodies[index + 1];
-        const lines = body.split("\n");
-        expect(lines).toHaveLength(3);
-        const reported: WebErrorEvent = JSON.parse(lines[2]);
-        const identity = reported.exception.values[0].type;
-        const message = reported.exception.values[0].value;
-        const stack = reported.extra?.stack;
-        expect(identity).toStartWith("E ");
-        expect(identity).toEndWith(" end");
-        expect(message).toContain(`Recovery ${index} failed:`);
-        expect(message).toContain("status=502");
-        expect(stack).toContain("Error: recovery trace");
-        expect(stack).toContain("at restoreSession (session-route.tsx:42:7)");
-        expect(reported.tags).toEqual({ boot_phase: "runtime" });
-        expect(reported.request).toEqual({ url: "https://app.openworklabs.com/signin" });
-        for (const canary of canaries) {
-          expect(body).not.toContain(canary);
-          expect(identity).not.toContain(canary);
-          expect(message).not.toContain(canary);
-          expect(stack).not.toContain(canary);
-        }
-        expect(body).not.toContain("secret-grant");
-        expect(identity.match(/\[redacted\]/g)).toHaveLength(4);
-        expect(message.match(/\[redacted\]/g)).toHaveLength(20);
-        expect(stack?.match(/\[redacted\]/g)).toHaveLength(20);
-      }
-      expect(fetchSpy).toHaveBeenCalledTimes(6);
+      expect(bodies).toHaveLength(0);
+      function Throws(): ReactNode { throw thrown; }
+      await act(async () => { root.render(createElement(AppErrorBoundary, {}, createElement(Throws))); });
+      expect(container.textContent).toBeTruthy();
+      expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       await act(async () => { root.unmount(); });
       container.remove();

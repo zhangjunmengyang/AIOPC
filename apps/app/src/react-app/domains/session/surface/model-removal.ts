@@ -32,7 +32,7 @@ export function closestAvailableModel(
   });
   const ordered = [...shortcuts, ...modelGroups(options, [], []).flatMap((group) => group.items)];
   const candidates = [...new Map(ordered.map((option) => [modelRefKey(option), option])).values()]
-    .filter((option) => !option.disabled && modelRefKey(option) !== modelRefKey(unavailable) && !option.gatewayAuthorization && usable(option));
+    .filter((option) => !option.disabled && modelRefKey(option) !== modelRefKey(unavailable) && usable(option));
   const maker = modelMakerId(unavailable);
   const family = candidates.filter((option) => maker
     ? modelMakerId(option) === maker

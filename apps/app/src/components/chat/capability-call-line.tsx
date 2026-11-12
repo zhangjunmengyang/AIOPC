@@ -3,8 +3,6 @@
 import { useState } from "react"
 import type { DynamicToolUIPart } from "ai"
 import { ChevronRight, ExternalLink, LoaderCircle, Lock, RefreshCcw } from "lucide-react"
-
-import { useCreatedSkills } from "@/components/chat/created-skill-card"
 import { useOptionalMessageList } from "@/components/chat/message-list-provider"
 import { describeChatToolFailure } from "@/components/tools/error-attribution"
 import {
@@ -14,13 +12,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { getCapabilityCallSentence, type CapabilityCallSentence } from "@/lib/capability-call"
 import { codeModeScriptError } from "@/lib/code-mode-tools"
-import {
-  isOpenWorkSkillCall,
-  savedSkillSentence,
-  skillShareFailureReason,
-  skillShareRequest,
-  skillShareSentence,
-} from "@/lib/created-skill"
 import { OPENWORK_NATIVE_TOOL, openWorkNativeFailure, openWorkNativeSentence } from "@/lib/openwork-native-activity"
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src"
 import { RAIL_LINE, RAIL_ROW, TextSentenceLine } from "./activity-rail"
@@ -264,8 +255,6 @@ export function CapabilityCallLine({
   onReopenAuthorization,
 }: CapabilityCallLineProps) {
   const [open, setOpen] = useState(false)
-
-  const { shareLabels } = useCreatedSkills()
   const syncDegraded = useOptionalMessageList()?.syncDegraded === true
   const inFlight = !statusUnknown && isToolPartInFlight(part)
   const isFailed = part.state === "output-error"
@@ -276,47 +265,11 @@ export function CapabilityCallLine({
     : reconnectState === "authorization_opened"
       ? ExternalLink
       : RefreshCcw
-
-  // OpenWork's own skill steps name the skill and the person, from results.
-  const shareRequest = skillShareRequest(part)
-  const skillSentence = savedSkillSentence(part)
-    ?? (shareRequest ? skillShareSentence(shareLabels.get(part.toolCallId) ?? null) : null)
-  const mark = connector ?? (isOpenWorkSkillCall(part) || isOpenWorkActivity(part) ? OPENWORK_IDENTITY : null)
+  const mark = connector ?? (isOpenWorkActivity(part) ? OPENWORK_IDENTITY : null)
   const nativeSentence = openWorkNativeSentence(part)
-  const sentenceFor = (includeQuery: boolean): CapabilityCallSentence => skillSentence
-    ? { service: null, ...skillSentence }
-    : nativeSentence ?? getCapabilityCallSentence(part, { includeQuery, connectionName: connector?.name })
+  const sentenceFor = (includeQuery: boolean): CapabilityCallSentence => nativeSentence ?? getCapabilityCallSentence(part, { includeQuery, connectionName: connector?.name })
   // OpenWork's own commands report a refusal in their result; that is a failure, not a success.
   const reportedFailure = openWorkNativeFailure(part)
-
-  // A share whose answer never arrived: sharing is unverified, not done.
-  if (shareRequest && isToolPartInFlight(part) && (statusUnknown || syncDegraded)) {
-    return (
-      <div data-capability-call={part.toolName} data-skill-share="unverified" className={cn(RAIL_ROW, className)}>
-        <div className="flex min-h-6.5 min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="min-w-0 flex-1 truncate">Connection lost. Sharing status couldn't be verified.</span>
-          <DetailsToggle open={open} onToggle={() => setOpen(!open)} label="Sharing status" />
-        </div>
-        {open ? <TechnicalDetailsPanel part={part} /> : null}
-      </div>
-    )
-  }
-
-  // Blocked by policy is not an error: neutral ink, a lock, and who can change it.
-  if (shareRequest && skillShareFailureReason(part) === "blocked") {
-    const label = "Sharing is blocked by your organization"
-    return (
-      <div data-capability-call={part.toolName} data-skill-share="blocked" className={cn(RAIL_ROW, className)}>
-        <div className={RAIL_LINE}>
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          <Lock aria-label="Blocked by your organization" className="size-3.5 shrink-0" strokeWidth={1.5} />
-          <DetailsToggle open={open} onToggle={() => setOpen(!open)} label={label} />
-        </div>
-        <p className="pb-1 text-xs text-muted-foreground">An organization admin can change who may share skills.</p>
-        {open ? <TechnicalDetailsPanel part={part} /> : null}
-      </div>
-    )
-  }
 
   // Inner script failures are frequent and often recovered. Keep their place
   // in the rail without turning a failed call into a prominent card.

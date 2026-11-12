@@ -1,0 +1,9 @@
+{
+  "entry": "MCP run_job twice",
+  "schemaProjectScoped": true,
+  "lastRunSource": "manual",
+  "lastRunStatus": "failed",
+  "lastRunError": "timeout",
+  "lastRunExitCode": 124,
+  "starts": 1
+}

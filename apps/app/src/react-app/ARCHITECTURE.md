@@ -1,24 +1,25 @@
 # App Architecture (`src/react-app/` + `src/app/`)
 
-`apps/app` is a React 19 + Vite app. It is the UI for every OpenWork
-deployment: the Electron desktop shell loads it, plain web serves it, and it
-talks to openwork-server / opencode / Den over HTTP. (The Solid runtime it
-replaced is fully removed; `src/index.react.tsx` is the only entry.)
+`apps/app` is AIOPC’s React 19 + Vite interface. Electron loads this app and
+connects it to the local server, the selected agent engine, and the OPC
+business service. `src/index.react.tsx` is the entry. Upstream Den accounts,
+organization policies, hosted models, dashboards, and remote task runners
+are removed. User-configured model providers and project environment CDP
+providers remain available.
 
 ## Layers
 
 ```text
 src/
 ├── app/                       Framework-agnostic layer (no React imports — enforced invariant)
-│   ├── lib/                   Clients + bridges: opencode, openwork-server, den, desktop (IPC),
+│   ├── lib/                   Clients + bridges: opencode, openwork-server, desktop (IPC),
 │   │   │                      analytics, app-inspector
 │   │   ├── runtime-env.ts     Leaf: isElectronRuntime/isDesktopRuntime
 │   │   ├── desktop-types.ts   Leaf: desktop IPC wire types (WorkspaceInfo = shared WorkspaceWire)
-│   │   └── den-types.ts       Leaf: Den wire types (den.ts re-exports)
 │   ├── extensions.ts          Leaf: extension manifest contract (owns ReloadReason)
 │   ├── types.ts               Shared app types (type-only imports of leaves)
 │   ├── constants.ts, utils/   Shared constants/helpers
-│   └── cloud/, session/, …    Framework-free feature helpers
+│   └── session/, …    Framework-free feature helpers
 ├── i18n/                      Locales + t(); owns LANGUAGE_PREF_KEY; imports nothing from app/
 └── react-app/
     ├── shell/                 Bootstrap, providers composition, routes (session-route,
@@ -33,18 +34,19 @@ src/
         ├── workspace/         Create/rename workspace flows
         ├── settings/          state/ + pages/ + modals/ (settings shell)
         ├── connections/       MCP + provider auth UI
-        ├── cloud/             Den sign-in and cloud surfaces
+        ├── mcp-apps/          Local generated apps, result cache, sandbox views
+        ├── aiopc/             Project files, accounts, and environments
         └── onboarding/        Welcome + first-run flows
 ```
 
-## Dependency rules (enforced, all verified by `madge --circular`: zero cycles)
+## Dependency rules
 
 1. `src/app/` and `src/i18n/` never import from `src/react-app/` or
    `src/components/`. If something in the agnostic layer needs UI behavior,
    invert it (callback registration) or move the primitive down.
-2. Leaf modules (`runtime-env`, `desktop-types`, `den-types`, `extensions`)
+2. Leaf modules (`runtime-env`, `desktop-types`, `extensions`)
    import nothing (or types-only from other leaves). Low-level clients
-   (`opencode`, `openwork-server`, `den`) import leaves — never the `utils/`
+   (`opencode`, `openwork-server`) import leaves — never the `utils/`
    barrel (it drags in i18n).
 3. `kernel/` and `infra/` sit below `domains/`: they must not import domain
    code. Shared query/state infrastructure lives in `infra/`.
@@ -62,14 +64,14 @@ src/index.react.tsx                       React entry
   └─ QueryClientProvider + PlatformProvider
      └─ react-app/shell/providers.tsx     (AppProviders composition)
         BootStateProvider
-        └─ ServerProvider
-           └─ DenAuthProvider
-              └─ ConnectLink / DesktopConfig / BrandTheme / RestrictionNotice
-                 └─ LocalProvider
-                    └─ react-app/shell/app-root.tsx → routes
-                       ├─ shell/session-route.tsx   → domains/session
-                       ├─ shell/settings-route.tsx  → domains/settings, connections
-                       └─ domains/{workspace,cloud,onboarding} flows
+        └─ ServerProvider + ArchitectureMismatchGate
+           └─ LocalAppProviders
+              ├─ DesktopRuntimeBoot
+              └─ LocalProvider + ReloadCoordinatorProvider
+                 └─ react-app/shell/app-root.tsx → routes
+                    ├─ shell/session-route.tsx   → session, workspace, aiopc
+                    ├─ shell/settings-route.tsx  → settings, connections
+                    └─ domains/onboarding       → local first-run flow
 ```
 
 ## State ownership
@@ -87,7 +89,7 @@ src/index.react.tsx                       React entry
   upstream engine, not the renderer. `shell/use-engine-routing.ts` refreshes
   routing after a host-owned engine switch without migration progress,
   consent, or actions. `shell/engine-switch.tsx` keeps activity confirmations
-  for manual engine switches. Legacy Den policy values cannot revert the host.
+  for manual engine switches. The host owns engine selection; the renderer follows its state.
 
 ## Active workspace and session
 
@@ -187,3 +189,5 @@ an observable assertion there whenever a row changes.
 
 - Smoke/e2e: `pnpm test:e2e` and `scripts/*.mjs` (health, sessions, events).
 - UI E2E tests: `pnpm evals:e2e` from the repo root drives the real app.
+
+输入框保留本地技能、MCP 连接器、任务引用、文件和 Agent；已移除 Den Connect 技能及远程电脑任务入口。历史 MCP 连接错误卡片保留协议兼容，不请求 Den 服务。

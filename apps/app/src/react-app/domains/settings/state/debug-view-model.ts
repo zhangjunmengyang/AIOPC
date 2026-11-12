@@ -5,8 +5,6 @@ import {
   appBuildInfo as appBuildInfoCmd,
   engineInfo as engineInfoCmd,
   engineStart as engineStartCmd,
-  getDesktopBootstrapConfig,
-  debugDesktopBootstrapConfig,
   nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
   openDesktopUrl,
@@ -18,12 +16,10 @@ import {
   updaterEnvironment as updaterEnvironmentCmd,
   workspaceBootstrap as workspaceBootstrapCmd,
   type AppBuildInfo,
-  type DesktopBootstrapConfig,
   type EngineInfo,
   type NukeManifestPreview,
   type OpenworkServerInfo,
 } from "../../../../app/lib/desktop";
-import { createDenClient, readDenSettings } from "../../../../app/lib/den";
 import {
   ELECTRON_ALPHA_RELEASE_PAGE_URL,
   type ElectronAlphaArtifact,
@@ -46,7 +42,7 @@ import type { DebugViewProps } from "../pages/debug-view";
 import type { ReleaseChannel } from "../../../../app/types";
 import type { OpenworkServerStore, OpenworkServerStoreSnapshot } from "../../connections/openwork-server-store";
 
-type DebugViewModelProps = Omit<DebugViewProps, "agentContextDiagnostics">;
+type DebugViewModelProps = DebugViewProps;
 
 const STARTUP_PREFERENCE_KEY = "openwork.startupPreference";
 const ENGINE_SOURCE_KEY = "openwork.engineSource";
@@ -119,20 +115,6 @@ function clearOpenworkLocalStorageForReset(mode: ResetModalMode): void {
   } catch {
     // ignore persistence failures
   }
-}
-
-async function revokeDenSessionBeforeNuke(): Promise<void> {
-  const settings = readDenSettings();
-  const token = settings.authToken?.trim() ?? "";
-  if (!token) return;
-  const client = createDenClient({ baseUrl: settings.baseUrl, token });
-  const signOut = client.signOut().catch(() => undefined);
-  await Promise.race([
-    signOut,
-    new Promise<void>((resolve) => {
-      globalThis.setTimeout(resolve, NUKE_SIGN_OUT_TIMEOUT_MS);
-    }),
-  ]);
 }
 
 function readEngineSource(): "path" | "sidecar" | "custom" {
@@ -265,8 +247,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
 
   const [engineInfoState, setEngineInfoState] = useState<EngineInfo | null>(null);
   const [appBuild, setAppBuild] = useState<AppBuildInfo | null>(null);
-  const [bootstrapPrepared, setBootstrapPrepared] = useState<DesktopBootstrapConfig["prepared"]>(null);
-  const [bootstrapConfigDebug, setBootstrapConfigDebug] = useState<unknown>(null);
   const [runtimeConfigStatus, setRuntimeConfigStatus] = useState<OpenworkRuntimeConfigStatus | null>(null);
   const [runtimeConfigStatusError, setRuntimeConfigStatusError] = useState<string | null>(null);
   const [runtimeDebugStatus, setRuntimeDebugStatus] = useState<string | null>(null);
@@ -289,9 +269,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const [nukePreviewBusy, setNukePreviewBusy] = useState(false);
   const [nukeDialogOpen, setNukeDialogOpen] = useState(false);
   const [nukeConfirmationText, setNukeConfirmationText] = useState("");
-  // Opt-in: the bootstrap / organization server config is only wiped when the
-  // user explicitly asks for it. The IPC contract still speaks "preserve".
-  const [nukeDeleteBootstrap, setNukeDeleteBootstrap] = useState(false);
   const [nukeManifestPreview, setNukeManifestPreview] = useState<NukeManifestPreview | null>(null);
   const [engineSource, setEngineSourceState] = useState<"path" | "sidecar" | "custom">(readEngineSource);
   const [engineCustomBinPath, setEngineCustomBinPath] = useState<string>(() =>
@@ -341,22 +318,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     return () => window.clearInterval(interval);
   }, [developerMode, refreshEngineInfo]);
 
-  // Surface the agent-first install's non-secret prepared summary (org + first
-  // skill) in the runtime debug report so install verification has one place to
-  // read it without a dedicated diagnostics screen.
-  useEffect(() => {
-    if (!developerMode || !isDesktopRuntime()) return;
-    let cancelled = false;
-    void getDesktopBootstrapConfig()
-      .then((config) => {
-        if (!cancelled) setBootstrapPrepared(config.prepared ?? null);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [developerMode]);
-
   useEffect(() => {
     if (!developerMode) return;
     const client = openworkServerSnapshot.openworkServerClient;
@@ -384,25 +345,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       cancelled = true;
     };
   }, [developerMode, openworkServerSnapshot.openworkServerClient, runtimeWorkspaceId]);
-
-  useEffect(() => {
-    if (!developerMode || !isDesktopRuntime()) return;
-    let cancelled = false;
-    void debugDesktopBootstrapConfig()
-      .then((config) => {
-        if (!cancelled) setBootstrapConfigDebug(config);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setBootstrapConfigDebug({
-            error: error instanceof Error ? error.message : safeStringify(error),
-          });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [developerMode]);
 
   const pushDeveloperLog = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
@@ -442,11 +384,9 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       },
       runtimeWorkspaceId,
       selectedWorkspaceRoot,
-      bootstrap: bootstrapPrepared ? { prepared: bootstrapPrepared } : null,
     };
   }, [
     appBuild,
-    bootstrapPrepared,
     engineInfoState,
     openworkServerSnapshot.openworkServerCapabilities,
     openworkServerSnapshot.openworkServerDiagnostics,
@@ -461,10 +401,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const runtimeDebugReportJson = useMemo(
     () => safeStringify(runtimeDebugReport),
     [runtimeDebugReport],
-  );
-  const bootstrapConfigDebugJson = useMemo(
-    () => safeStringify(bootstrapConfigDebug),
-    [bootstrapConfigDebug],
   );
 
   const engineCard = useMemo(() => describeEngine(engineInfoState), [engineInfoState]);
@@ -930,10 +866,9 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     setNukePreviewBusy(true);
     setNukeConfigStatus(null);
     try {
-      const preview = await nukeOpenworkAndOpencodeConfigPreview({ preserveBootstrap: true });
+      const preview = await nukeOpenworkAndOpencodeConfigPreview({});
       setNukeManifestPreview(preview);
       setNukeConfirmationText("");
-      setNukeDeleteBootstrap(false);
       setNukeDialogOpen(true);
     } catch (error) {
       setNukeConfigStatus(error instanceof Error ? error.message : safeStringify(error));
@@ -941,22 +876,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       setNukePreviewBusy(false);
     }
   }, []);
-
-  const onSetNukeDeleteBootstrap = useCallback(async (deleteBootstrap: boolean) => {
-    if (nukeConfigBusy || nukePreviewBusy) return;
-    setNukeDeleteBootstrap(deleteBootstrap);
-    setNukePreviewBusy(true);
-    setNukeConfigStatus(null);
-    try {
-      const preview = await nukeOpenworkAndOpencodeConfigPreview({ preserveBootstrap: !deleteBootstrap });
-      setNukeManifestPreview(preview);
-    } catch (error) {
-      setNukeDeleteBootstrap(!deleteBootstrap);
-      setNukeConfigStatus(error instanceof Error ? error.message : safeStringify(error));
-    } finally {
-      setNukePreviewBusy(false);
-    }
-  }, [nukeConfigBusy, nukePreviewBusy]);
 
   const onCloseNukeDialog = useCallback(() => {
     if (nukeConfigBusy) return;
@@ -968,8 +887,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     setNukeConfigBusy(true);
     setNukeConfigStatus(null);
     try {
-      await revokeDenSessionBeforeNuke();
-      await nukeOpenworkAndOpencodeConfigAndExit({ preserveBootstrap: !nukeDeleteBootstrap });
+      await nukeOpenworkAndOpencodeConfigAndExit({});
     } catch (error) {
       setNukeConfigStatus(error instanceof Error ? error.message : safeStringify(error));
       setNukeConfigBusy(false);
@@ -977,7 +895,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     } finally {
       setNukeDialogOpen(false);
     }
-  }, [nukeConfirmationText, nukeDeleteBootstrap]);
+  }, [nukeConfirmationText]);
 
   const [workspaceDebugEventsStatus, setWorkspaceDebugEventsStatus] = useState<string | null>(null);
   const onClearWorkspaceDebugEvents = useCallback(async () => {
@@ -996,7 +914,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           : t("status.disconnected_label"),
       runtimeSummary,
       runtimeDebugReportJson,
-      bootstrapConfigDebugJson,
       runtimeConfigStatus,
       runtimeConfigStatusError,
       runtimeDebugStatus,
@@ -1077,12 +994,10 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       nukePreviewBusy,
       nukeDialogOpen,
       nukeConfirmationText,
-      nukeDeleteBootstrap,
       nukeManifestPreview,
       onOpenNukeDialog,
       onCloseNukeDialog,
       onSetNukeConfirmationText: setNukeConfirmationText,
-      onSetNukeDeleteBootstrap,
       onConfirmNukeOpenworkAndOpencodeConfig,
     }),
     [
@@ -1090,7 +1005,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       developerLog,
       developerLogStatus,
       developerMode,
-      bootstrapConfigDebugJson,
       electronMigrationBusy,
       electronMigrationArtifactLabel,
       electronMigrationSha256,
@@ -1108,13 +1022,11 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       nukeConfirmationText,
       nukeDialogOpen,
       nukeManifestPreview,
-      nukeDeleteBootstrap,
       nukePreviewBusy,
       onClearDeveloperLog,
       onClearEngineCustomBinPath,
       onClearWorkspaceDebugEvents,
       onCloseNukeDialog,
-      onSetNukeDeleteBootstrap,
       onCopyDeveloperLog,
       onCopyRuntimeDebugReport,
       onExportDeveloperLog,

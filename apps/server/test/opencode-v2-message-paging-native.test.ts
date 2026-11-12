@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createV2ReadAdapter } from "../src/opencode-v2-read-adapter.js";
 import type { ServerConfig } from "../src/types.js";
+import constants from "../../../constants.json" with { type: "json" };
 
 const binary = process.env.OPENWORK_TEST_OPENCODE2 ?? "/Applications/OpenWork.app/Contents/Resources/sidecars/opencode2";
 function record(value: unknown): value is Record<string, unknown> {
@@ -20,7 +21,8 @@ test("semantic search pages real v2 histories of 150, 200, 201, 400 and 450 mess
     t.skip("needs: pinned OpenCode v2 binary; set OPENWORK_TEST_OPENCODE2");
     return;
   }
-  assert.match(spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 15_000 }).stdout, /\bv2\.0\.26\b/);
+  assert.match(spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 15_000 }).stdout,
+    new RegExp(`\\bv${constants.opencodeV2Version.replaceAll(".", "\\.")}\\b`));
   const root = await realpath(await mkdtemp(join(tmpdir(), "openwork-message-paging-")));
   const overrides = {
     HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FAST_DEFAULT_VARIANT, fastVariantId } from "@openwork/types/cloud-model-fast";
+import { FAST_DEFAULT_VARIANT, fastVariantId } from "@openwork/types/model-fast";
 
 import type { ModelOption } from "../src/app/types";
 import { modelMakerId } from "../src/react-app/domains/models/model-catalog";

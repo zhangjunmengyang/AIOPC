@@ -4,7 +4,6 @@ import type { OpenworkSessionHistory } from "../../../../app/lib/openwork-server
 import { mergeSnapshotAndLiveMessages } from "../sync/message-merge";
 import { applyRevertCursor, dropDuplicateTurnErrors } from "../sync/transcript-reconcile";
 import { snapshotToUIMessages } from "../sync/usechat-adapter";
-import { parseConnectSkillToken } from "./composer/connect-skill-token";
 import { parseSessionReferenceToken, sessionReferenceText } from "./composer/session-reference-token";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 
@@ -203,8 +202,6 @@ export function deriveComposerHistory(messages: readonly UIMessage[]): string[] 
       const token = metadata && typeof metadata === "object" && "composerToken" in metadata
         ? metadata.composerToken : undefined;
       if (typeof token === "string") {
-        const skill = parseConnectSkillToken(token);
-        if (skill && part.text === `/${skill.slug}`) return [token];
         const session = parseSessionReferenceToken(token);
         if (session && part.text === sessionReferenceText(session)) return [token];
         unsafe = true;

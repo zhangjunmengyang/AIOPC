@@ -10,10 +10,7 @@ import { composeNativeSessionSnapshot, getNativeSession, getNativeSessionMessage
 import { hasTerminalSessionReply, sendSessionCommand, sessionHasPendingSubmission, sessionWorkHeld, submitAfterInterruption, submitImmediateSessionTurn } from "@/app/lib/opencode-interruption";
 import { createClientV2, isOpencodeV2BaseUrl } from "@/app/lib/opencode-v2-adapter";
 import type { ComposerDraft, ModelRef } from "@/app/types";
-import { isAutoModel } from "@/react-app/domains/models/model-catalog";
-import { AutoAccessRejected, autoAccessWallFromError, preflightAutoSubmission } from "@/app/lib/inference-access";
 import { rejectedTurnOwnerKey } from "./draft-store";
-import { retainRejectedTurn } from "./rejected-turn";
 import { queuedDraftTexts } from "./queued-draft-persistence";
 import { readStoredDefaultModel } from "@/react-app/kernel/model-config";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -132,15 +129,6 @@ async function performQueuedDraftSend(
     await shellInSession(opencodeClient, sessionId, text, { messageID: draft.messageId });
     return "sent";
   }
-
-  if (sendModel && isAutoModel(sendModel)) {
-    if (!context.rejectedOwner) return "cancelled";
-    const result = await preflightAutoSubmission({ model: sendModel, client: context.client,
-      isCurrent: () => getQueuedSendGeneration(sessionId) === generation && getQueuedSendContext(sessionId) === context && context.isCurrent?.() !== false,
-    });
-    if (result?.outcome === "cancelled") return "cancelled";
-    if (result?.outcome === "blocked") throw new AutoAccessRejected(result.wall);
-  }
   try {
     if (draft.command) {
       const result = await sendSessionCommand(context.opencodeBaseUrl, opencodeClient, {
@@ -148,7 +136,6 @@ async function performQueuedDraftSend(
         messageID: draft.messageId,
         command: draft.command.name,
         arguments: draft.command.arguments,
-        ...(sendModel && isAutoModel(sendModel) ? { model: `${sendModel.providerID}/${sendModel.modelID}` } : {}),
       });
       if (result.error) throw new Error(serializeSDKError(result.error));
       return "sent";
@@ -201,8 +188,6 @@ async function performQueuedDraftSend(
     }
     return "sent";
   } catch (error) {
-    const wall = isAutoModel(sendModel) ? autoAccessWallFromError(error, sendModel) : null;
-    if (wall && !isPromptAdmissionUnknown(error)) throw new AutoAccessRejected(wall);
     throw error;
   }
 }
@@ -460,23 +445,13 @@ async function attemptDrain(sessionId: string) {
     );
     markTaskRunStart(sessionId);
   } catch (error) {
-    if (error instanceof AutoAccessRejected && context.rejectedOwner && getQueuedSendGeneration(sessionId) === generation) {
-      await retainRejectedTurn({ owner: context.rejectedOwner, opencodeBaseUrl: context.opencodeBaseUrl, draft, wall: error.wall,
-        afterMessageId: context.afterMessageId?.() ?? null, queuedItemId: nextItem.id,
-        remainingQueued: queuedDraftTexts(getComposerQueuedDrafts(useComposerStateStore.getState(), sessionId).filter((item) => item.id !== nextItem.id)),
-        client: context.client, workspaceRoot: context.workspaceRoot, localRuntime: context.localRuntime === true,
-      });
-      dispatchQueuedDrain(sessionId, { type: "send_result", itemId: nextItem.id, outcome: "blocked", at: Date.now() });
-    } else if (isPromptAdmissionUnknown(error)) {
-      dispatchQueuedDrain(sessionId, {
-        type: "send_unknown", itemId: nextItem.id, messageID: draft.messageId, at: Date.now(), deferred: Boolean(draft.command),
-      });
+    if (isPromptAdmissionUnknown(error)) {
+      dispatchQueuedDrain(sessionId, { type: "send_unknown", itemId: nextItem.id, messageID: draft.messageId, at: Date.now(), deferred: Boolean(draft.command) });
     } else if (getQueuedSendGeneration(sessionId) !== generation) {
       dispatchQueuedDrain(sessionId, { type: "send_result", itemId: nextItem.id, outcome: "cancelled", at: Date.now() });
       draft.attachments.forEach(revokeAttachmentPreview);
     } else {
       dispatchQueuedDrain(sessionId, { type: "send_error", itemId: nextItem.id });
-      // The unaccepted row is still queued for explicit retry or draft recovery.
     }
   } finally {
     watched.sendInFlight = false;

@@ -4,8 +4,6 @@
 // lists exactly what the composer picker and the palette list.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Client, ModelOption } from "@/app/types";
-import type { CloudImportedProvider } from "@/app/cloud/import-state";
-import { pendingGatewayModelOptions, type GatewayConnectProvider } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import { useModelCatalog } from "@/react-app/domains/models/use-model-catalog";
 import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
 
@@ -20,12 +18,8 @@ export type UseModelPickerInput = {
   /** Member-scoped models available before a workspace OpenCode client exists. */
   fallbackOptions?: readonly ModelOption[];
   /** Account-scoped providers are hidden immediately after cloud sign-out. */
-  cloudProvidersEnabled?: boolean;
-  importedProviders?: Record<string, CloudImportedProvider>;
   /** Gateway providers whose models wait on the member's own sign-in. */
-  pendingProviders?: readonly GatewayConnectProvider[];
   disabledProviders?: readonly string[];
-  gatewayProviderIds?: ReadonlySet<string>;
 };
 
 function readSeenProviderIds(): Set<string> {
@@ -66,13 +60,12 @@ export function useModelPicker(input: UseModelPickerInput) {
     const seen = readSeenProviderIds();
     return (providerId: string) => !seen.has(providerId) || recentProviderIds.has(providerId);
   }, [recentProviderIds]);
-  const pendingOptions = useMemo(() => pendingGatewayModelOptions(input.pendingProviders ?? []), [input.pendingProviders]);
   // The provider query stays subscribed while the picker is open, so a startup
   // cloud import updates an already-open picker instead of a stale snapshot.
   const catalog = useModelCatalog({
     client: input.client, baseUrl: input.baseUrl, directory: input.workspaceRoot, enabled: open,
-    fallbackOptions: input.fallbackOptions, cloudProvidersEnabled: input.cloudProvidersEnabled, importedProviders: input.importedProviders, pendingOptions,
-    disabledProviders: input.disabledProviders, gatewayProviderIds: input.gatewayProviderIds, isNewProvider,
+    fallbackOptions: input.fallbackOptions,
+    disabledProviders: input.disabledProviders, isNewProvider,
   });
   const { catalogState } = catalog;
   useEffect(() => {

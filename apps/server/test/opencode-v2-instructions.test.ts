@@ -6,32 +6,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildOpenWorkV2Instructions, readConfiguredInstructions } from "../src/opencode-v2-instructions.js";
 
-test("V2 instructions support both individual Connect tools and capability search", () => {
-  const instructions = buildOpenWorkV2Instructions(true);
-  // AIOPC's base prompt has no Connect routing; only the Connect section carries it.
-  for (const text of [instructions.connect]) {
-    assert.match(text, /search\(\) to discover available tools/);
-    assert.match(text, /individual service tools, call them directly/);
-    // Both lists at once (OpenWork's engine with connectEngineTools): search covers what has no tool.
-    assert.match(text, /For anything without a tool of its own, use Connect's search_capabilities and execute_capability/);
-    assert.doesNotMatch(text, /bare search\(\) function only for other/);
-    assert.doesNotMatch(text, /discover services and Workflows with openwork-cloud\.search_capabilities/);
-  }
-});
-
-test("V2 Desktop instructions direct recurring work to a reviewable proposal", () => {
-  const instructions = buildOpenWorkV2Instructions(true);
-  assert.match(instructions.automations, /openwork_execute id automation\.propose/);
-  assert.match(instructions.automations, /review and create it in the app/);
-  assert.match(instructions.automations, /each occurrence requires the signed-in desktop runner/);
-  assert.match(instructions.automations, /never claim a Desktop Automation will run while the app is offline/);
-});
-
-test("V2 instructions do not claim Connect is available when disconnected", () => {
-  assert.equal(buildOpenWorkV2Instructions(false).connect,
-    "OpenWork Connect is not connected for this request. Do not claim remote capabilities are available.");
-});
-
 test("configured instructions load workspace files the engine skips", async () => {
   const base = await mkdtemp(join(tmpdir(), "openwork-configured-instructions-"));
   try {

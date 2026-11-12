@@ -1,4 +1,4 @@
-import { desktopConfigSchema, type DesktopConfig } from "@openwork/types/den/desktop-policies-runtime";
+
 import { aiopcMcpServers } from "./aiopc-runtime.js";
 import { existsSync } from "node:fs";
 import { importNodeSqlite, runtimeDbPath } from "./runtime-db.js";
@@ -8,14 +8,6 @@ import { createWorkspaceKvStore, isRecord } from "./workspace-kv-store.js";
 export { runtimeDbPath, runtimeStorageDir } from "./runtime-db.js";
 
 export type RuntimeOpencodeConfig = {
-  managedPolicy?: DesktopConfig;
-  /**
-   * The organization's Prompts for the signed-in member, already in order and
-   * joined, appended to OpenWork's agent instructions. Den-owned like
-   * managedPolicy: written only by the cloud provider sync and never sent to
-   * the engine as a config key.
-   */
-  managedPrompt?: string;
   default_agent?: string;
   plugin?: string[];
   disabled_providers?: string[];
@@ -28,9 +20,6 @@ export type RuntimeOpencodeConfig = {
 
 export const ENGINE_GLOBAL_RUNTIME_CONFIG_ID = "__openwork_engine_global__";
 
-/** Reserved Connect MCP name; kept in sync with OPENWORK_CLOUD_MCP_NAME in cloud-mcp-health.ts. */
-const OPENWORK_CLOUD_MCP_RESERVED_NAME = "openwork-cloud";
-
 export function isEngineGlobalRuntimeConfigId(workspaceId: string): boolean {
   return workspaceId === ENGINE_GLOBAL_RUNTIME_CONFIG_ID;
 }
@@ -42,15 +31,14 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const disabledProviders = Array.isArray(value.disabled_providers)
     ? value.disabled_providers.filter((item) => typeof item === "string")
     : undefined;
-  const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
+  // Ignore retired upstream service entries left by an earlier installation.
+  const mcp = isRecord(value.mcp) ? Object.fromEntries(Object.entries(value.mcp).filter(([name]) =>
+    name !== "openwork-cloud" && !/^openwork-(?:connect-|direct-|app-host-connect-)/.test(name))) as Record<string, Record<string, unknown>> : undefined;
   const permission = isRecord(value.permission) ? value.permission : undefined;
   const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : undefined;
-  const provider = isRecord(value.provider) ? value.provider : undefined;
-  const managedPrompt = typeof value.managedPrompt === "string" && value.managedPrompt.trim() ? value.managedPrompt : undefined;
+  const provider = isRecord(value.provider) ? Object.fromEntries(Object.entries(value.provider).filter(([id]) => !/^(?:lpr_|ipr_)|^openwork(?:-auto|-free)?$/i.test(id))) : undefined;
   return {
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
-    ...(value.managedPolicy !== undefined ? { managedPolicy: desktopConfigSchema.parse(value.managedPolicy) } : {}),
-    ...(managedPrompt ? { managedPrompt } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
     ...(mcp ? { mcp } : {}),
@@ -241,7 +229,7 @@ export async function listRuntimeOpencodeConfigRows(config: ServerConfig): Promi
 }
 
 /** What ordinary runtime writers may change: Den-owned fields are kept as they are. */
-export type EditableRuntimeOpencodeConfig = Omit<RuntimeOpencodeConfig, "managedPolicy" | "managedPrompt">;
+export type EditableRuntimeOpencodeConfig = RuntimeOpencodeConfig;
 
 export async function writeGlobalRuntimeOpencodeConfig(
   config: ServerConfig,
@@ -270,11 +258,6 @@ export function mergeRuntimeOpencodeConfigLayers(
     ...runtimeMcpMap(base),
     ...runtimeMcpMap(overlay),
   };
-  // The Connect MCP is account-scoped: the global row is authoritative, so a
-  // stale legacy per-workspace copy must not shadow it. Mirrors
-  // OPENWORK_CLOUD_MCP_NAME in cloud-mcp-health.ts (import would be cyclic).
-  const globalCloudMcp = runtimeMcpMap(base)[OPENWORK_CLOUD_MCP_RESERVED_NAME];
-  if (globalCloudMcp) mcp[OPENWORK_CLOUD_MCP_RESERVED_NAME] = globalCloudMcp;
   const basePermission = isRecord(base.permission) ? base.permission : {};
   const overlayPermission = isRecord(overlay.permission) ? overlay.permission : {};
   const externalDirectory = {
@@ -292,8 +275,6 @@ export function mergeRuntimeOpencodeConfigLayers(
   };
 
   return normalizeRuntimeOpencodeConfig({
-    ...(base.managedPolicy ? { managedPolicy: base.managedPolicy } : {}),
-    ...(base.managedPrompt ? { managedPrompt: base.managedPrompt } : {}),
     ...(base.default_agent || overlay.default_agent ? { default_agent: overlay.default_agent ?? base.default_agent } : {}),
     ...(plugin.length ? { plugin } : {}),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
@@ -598,35 +579,7 @@ export function writeRuntimeOpencodeConfig(
   workspaceId: string,
   updater: (current: EditableRuntimeOpencodeConfig) => EditableRuntimeOpencodeConfig,
 ): Promise<{ config: RuntimeOpencodeConfig; changed: boolean }> {
-  return updateRuntimeConfig(config, workspaceId, (current) => {
-    const { managedPolicy, managedPrompt, ...editable } = current;
-    return { ...updater(editable), managedPolicy, managedPrompt };
-  });
-}
-
-/**
- * Sets the member's organization Prompts text, or clears it with "". Only the
- * cloud provider sync, at the verified Den-session boundary, calls this.
- */
-export function writeManagedPrompt(config: ServerConfig, prompt: string) {
-  return updateRuntimeConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID, (current) => {
-    const { managedPrompt: _previous, ...rest } = current;
-    return prompt.trim() ? { ...rest, managedPrompt: prompt } : rest;
-  });
-}
-
-/** Signing out ends enforcement: a cached policy is not device enrollment (#5131). */
-export function clearManagedDesktopPolicy(config: ServerConfig) {
-  return updateRuntimeConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID, (current) => {
-    const { managedPolicy: _cleared, ...rest } = current;
-    return rest;
-  });
-}
-
-// Only the verified Den-session boundary may call this writer.
-export function writeManagedDesktopPolicy(config: ServerConfig, policy: DesktopConfig) {
-  const validated = desktopConfigSchema.parse(policy);
-  return updateRuntimeConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID, (current) => ({ ...current, managedPolicy: validated }));
+  return updateRuntimeConfig(config, workspaceId, updater);
 }
 
 export function mergeOpencodeConfigs(

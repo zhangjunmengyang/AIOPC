@@ -8,12 +8,11 @@ import { LocalProviderStatus } from "../src/react-app/domains/settings/pages/pro
 const status = {
   enabled: true,
   chatRouting: true,
-  mirroredProviderIds: ["anthropic", "lpr_team", "ipr_gateway"],
+  mirroredProviderIds: ["anthropic"],
   skippedProviders: [
-    { id: "openrouter", reason: "policy" as const },
+    { id: "openrouter", reason: "credentials" as const },
     { id: "openai", reason: "oauth" as const },
     { id: "google", reason: "unsupported" as const },
-    { id: "lpr_team", reason: "credentials" as const },
   ],
 };
 
@@ -25,12 +24,10 @@ test("a provider OpenCode v2 mirrored is ready, a skipped one is never ready and
   const states = localProviderEngineStates(status);
   expect([...states]).toEqual([
     ["anthropic", "ready"],
-    ["openrouter", "managed_by_organization"],
+    ["openrouter", "not_on_engine"],
     ["openai", "not_on_engine"],
     ["google", "not_on_engine"],
   ]);
-  expect(states.has("lpr_team")).toBe(false);
-  expect(states.has("ipr_gateway")).toBe(false);
 });
 
 test("On this device lists every provider the engine reports, even when v1's cached list has not caught up", () => {
@@ -56,19 +53,13 @@ test("nothing changes on v1, while v2 is not chat's engine, or when the server d
   expect(localProviderEngineStates(null).size).toBe(0);
 });
 
-test("rows read Ready to use, the organization's lock, or not available on the new engine", () => {
+test("rows distinguish usable providers from unavailable adapters", () => {
   const ready = renderToStaticMarkup(<LocalProviderStatus />);
   const mirrored = renderToStaticMarkup(<LocalProviderStatus state="ready" />);
-  const managed = renderToStaticMarkup(<LocalProviderStatus state="managed_by_organization" organizationName="Acme" />);
-  const unnamed = renderToStaticMarkup(<LocalProviderStatus state="managed_by_organization" />);
   const unavailable = renderToStaticMarkup(<LocalProviderStatus state="not_on_engine" />);
 
   expect(ready).toContain("Ready to use");
   expect(mirrored).toContain("Ready to use");
-  expect(managed).toContain("Acme manages AI providers");
-  expect(managed).toContain("lucide-lock");
-  expect(managed).not.toContain("text-red");
-  expect(unnamed).toContain("Your organization manages AI providers");
   expect(unavailable).toContain("Not available on the new engine yet");
   expect(unavailable).not.toContain("Ready to use");
 });

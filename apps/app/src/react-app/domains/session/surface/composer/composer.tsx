@@ -1,68 +1,57 @@
 /** @jsxImportSource react */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
-import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { Cloud, Monitor, Check, ChevronDown, FileText, RefreshCw, Terminal, Zap } from "lucide-react";
-import { ComposerSendButton } from "./composer-send-button";
-import fuzzysort from "fuzzysort";
-import { toast } from "@/components/ui/sonner";
-import type { CloudImportedPlugin, CloudImportedPluginFile } from "@/app/cloud/import-state";
-import type { ComposerAttachment, McpServerEntry, McpStatus, McpStatusMap, ModelOption, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
-import { t } from "@/i18n";
-import { useComposerStateStore } from "../composer-state-store";
-import {
-  composerConfigureSectionForMenu,
-  isLibraryCommand,
-  slugifyLibraryItemName,
-  type ComposerSettingsSection,
-} from "@/react-app/domains/settings/library";
-import { ModelSelect } from "@/components/model-select";
-import { ImageLightbox } from "@/components/chat/image-lightbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { LexicalPromptEditor, syncAttachmentChipStatus, type ComposerAttachmentToken, type LexicalPromptEditorHandle } from "./editor";
-import { COMPUTER_MENTIONS } from "./computer-mentions";
-import type { ComposerMentionKind } from "./mention-encoding";
-import {
-  connectSkillSlashCommandOptions,
-  getSlashCommandQuery,
-  skillSlashCommandName,
-  type ComposerSlashCommandOption,
-} from "./slash-command";
-import { encodeConnectSkillToken } from "./connect-skill-token";
-import { FILE_URL_RE, HTTP_URL_RE, type PastedTextChip } from "./pasted-text";
-import { loadSessionConnectCapabilities } from "@/react-app/domains/connections/cloud-inventory-cache";
-import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
-import {
-  composerConnectionSignIn,
-  mergeComposerConnectionInventory,
-} from "./composer-connections";
-import { DevProfiler } from "@/react-app/shell/dev-profiler";
-import { encodeConnectorToken } from "./connector-token";
-import { ComposerPlusMenu, type ComposerPlusMenuPick } from "./composer-plus-menu";
-import { ComposerSuggestionMenu, composerSuggestionRowClass } from "./composer-suggestion-menu";
-import type { PlusMenuAgent, PlusMenuConnector, PlusMenuSection } from "./composer-plus-menu-model";
-import { connectionDiagnosticHistory, type ConnectionDiagnosticSource, type SendDiagnosticReason } from "@/app/lib/connection-diagnostic-history";
-import { composerDiagnosticBlockers } from "./composer-diagnostics";
-import { resolveComposerSubmit } from "./composer-submit";
-import { ModelRecoveryNote } from "./model-recovery-note";
-import { modelRecoveryChatKey, useModelRecoveryStore } from "../model-recovery-store";
-import { useNativeDictation } from "@openwork/ui/react";
-import { useNativeDictationFeature } from "./use-native-dictation-feature";
-import { startNativeDictation } from "./start-native-dictation";
-import { useDesktopSpeechDictation } from "./desktop-speech-dictation";
+import { connectionDiagnosticHistory,type ConnectionDiagnosticSource,type SendDiagnosticReason } from "@/app/lib/connection-diagnostic-history";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
-import { NativeDictationControl } from "./native-dictation-control";
-import { useSessionReferencesMaybe, type SessionReferenceCandidate } from "@/components/chat/session-reference-context";
+import type { ComposerAttachment,McpServerEntry,McpStatus,McpStatusMap,ModelOption,ModelRef,SkillCard,SlashCommandOption } from "@/app/types";
 import { formatRelativeTime } from "@/app/utils";
-import { filterSessionReferenceCandidates } from "./session-reference-search";
+import { ImageLightbox } from "@/components/chat/image-lightbox";
+import { useSessionReferencesMaybe,type SessionReferenceCandidate } from "@/components/chat/session-reference-context";
+import { ModelSelect } from "@/components/model-select";
+import {
+DropdownMenu,
+DropdownMenuContent,
+DropdownMenuGroup,
+DropdownMenuItem,
+DropdownMenuLabel,
+DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "@/components/ui/sonner";
+import { t } from "@/i18n";
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
+import {
+composerConfigureSectionForMenu,
+isLibraryCommand,
+slugifyLibraryItemName,
+type ComposerSettingsSection,
+} from "@/react-app/domains/settings/library";
+import { DevProfiler } from "@/react-app/shell/dev-profiler";
+import type { Agent } from "@opencode-ai/sdk/v2/client";
+import { useNativeDictation } from "@openwork/ui/react";
+import fuzzysort from "fuzzysort";
+import { Check,ChevronDown,FileText,Terminal,Zap } from "lucide-react";
+import { memo,useCallback,useEffect,useMemo,useRef,useState,type ReactNode } from "react";
+import { flushSync } from "react-dom";
+import { useComposerStateStore } from "../composer-state-store";
+import { modelRecoveryChatKey,useModelRecoveryStore } from "../model-recovery-store";
+import { composerDiagnosticBlockers } from "./composer-diagnostics";
+import type { ComposerPlugin,ComposerPluginFile } from "./composer-plugin-types";
+import { ComposerPlusMenu,type ComposerPlusMenuPick } from "./composer-plus-menu";
+import type { PlusMenuAgent,PlusMenuConnector,PlusMenuSection } from "./composer-plus-menu-model";
+import { ComposerSendButton } from "./composer-send-button";
+import { resolveComposerSubmit } from "./composer-submit";
+import { ComposerSuggestionMenu,composerSuggestionRowClass } from "./composer-suggestion-menu";
+import { encodeConnectorToken } from "./connector-token";
+import { useDesktopSpeechDictation } from "./desktop-speech-dictation";
+import { LexicalPromptEditor,syncAttachmentChipStatus,type ComposerAttachmentToken,type LexicalPromptEditorHandle } from "./editor";
+import type { ComposerMentionKind } from "./mention-encoding";
+import { NativeDictationControl } from "./native-dictation-control";
+import { FILE_URL_RE,HTTP_URL_RE,type PastedTextChip } from "./pasted-text";
+import { filterSessionReferenceCandidates } from "./session-reference-search";
+import {
+getSlashCommandQuery,
+type ComposerSlashCommandOption,
+} from "./slash-command";
+import { startNativeDictation } from "./start-native-dictation";
+import { useNativeDictationFeature } from "./use-native-dictation-feature";
 
 type MentionItem = {
   id: string;
@@ -97,16 +86,12 @@ type ComposerProps = {
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
   modelRecoveryScope?: string;
-  organizationModelsEmpty?: boolean;
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
   modelOptions?: readonly ModelOption[];
   /** When set, the full model picker opened from here targets this session. */
   sessionId?: string;
-  openWorkModelsEntitled?: boolean;
-  openWorkModelsSyncing?: boolean;
-  onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef, variant?: string | null) => void;
   attachments: ComposerAttachment[];
@@ -132,8 +117,8 @@ type ComposerProps = {
   mcpServers?: McpServerEntry[];
   mcpStatus?: string | null;
   mcpStatuses?: McpStatusMap;
-  listImportedPlugins?: () => Promise<CloudImportedPlugin[]>;
-  importedPlugins?: CloudImportedPlugin[];
+  listImportedPlugins?: () => Promise<ComposerPlugin[]>;
+  importedPlugins?: ComposerPlugin[];
   onOpenSettingsSection?: (section: ComposerSettingsSection) => void;
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
@@ -216,7 +201,7 @@ function plusMenuConnectorNote(status: McpStatus | undefined) {
   }
 }
 
-function pluginSlashCommandName(file: CloudImportedPluginFile) {
+function pluginSlashCommandName(file: ComposerPluginFile) {
   const path = file.path.trim();
   if (file.objectType === "command") {
     const command = path.match(/^\.opencode\/(?:command|commands)\/(.+)\.md$/i)?.[1];
@@ -233,15 +218,13 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
   const latestProps = useRef(props);
   latestProps.current = props;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const orgMcp = useOrgMcpConnections();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
-  const [refreshingOrganizationModels, setRefreshingOrganizationModels] = useState(false);
   const [commands, setCommands] = useState<SlashCommandOption[]>([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skills, setSkills] = useState<SkillCard[]>(props.skills ?? []);
-  const [importedPlugins, setImportedPlugins] = useState<CloudImportedPlugin[]>(props.importedPlugins ?? []);
+  const [importedPlugins, setImportedPlugins] = useState<ComposerPlugin[]>(props.importedPlugins ?? []);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
@@ -341,18 +324,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
     }
   }, [props.modelPickerOpen, props.onModelPickerOpenChange, props.steering]);
 
-  const handleRefreshOrganizationModels = useCallback(async () => {
-    if (!props.onRefreshOrganizationModels || refreshingOrganizationModels) return;
 
-    setRefreshingOrganizationModels(true);
-    try {
-      await props.onRefreshOrganizationModels();
-    } catch {
-      toast.error(t("models.refresh_organization_models_failed"));
-    } finally {
-      setRefreshingOrganizationModels(false);
-    }
-  }, [props.onRefreshOrganizationModels, refreshingOrganizationModels]);
 
   // Input history recall (#2012): ArrowUp on an empty composer recalls the
   // previous sent prompt; repeated ArrowUp/ArrowDown walk the history.
@@ -572,7 +544,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
   useEffect(() => {
     if (!mentionOpen) return;
     let cancelled = false;
-    setMentionItems(COMPUTER_MENTIONS);
+    setMentionItems([]);
     void Promise.all([
       props.listAgents().catch(() => []),
       props.searchFiles(mentionQuery).catch(() => []),
@@ -580,14 +552,13 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
       if (cancelled) return;
       const recent = props.recentFiles.slice(0, 8);
       const next: MentionItem[] = [
-        ...COMPUTER_MENTIONS,
         ...agentList.map((agent) => ({ id: `agent:${agent.name}`, kind: "agent" as const, value: agent.name, label: agent.name })),
         ...recent.map((file) => ({ id: `file:${file}`, kind: "file" as const, value: file, label: file })),
         ...files.filter((file) => !recent.includes(file)).map((file) => ({ id: `file:${file}`, kind: "file" as const, value: file, label: file })),
       ];
       setMentionItems(next);
     }).catch(() => {
-      if (!cancelled) setMentionItems(COMPUTER_MENTIONS);
+      if (!cancelled) setMentionItems([]);
     });
     return () => {
       cancelled = true;
@@ -679,26 +650,6 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
   }, [toolMenuOpen]);
 
   useEffect(() => {
-    if (!toolMenuOpen) return;
-    void orgMcp.refresh();
-  }, [orgMcp.refresh, toolMenuOpen]);
-
-  const connectingId = orgMcp.connectingId;
-  const connectingIdRef = useRef(connectingId);
-  useEffect(() => {
-    const previous = connectingIdRef.current;
-    connectingIdRef.current = connectingId;
-    if (!previous || connectingId) return;
-    void listMcpRef.current?.();
-    void loadSessionConnectCapabilities();
-  }, [connectingId]);
-
-  useEffect(() => {
-    if (!toolMenuOpen || !orgMcp.error) return;
-    toast.warning(orgMcp.error);
-  }, [orgMcp.error, toolMenuOpen]);
-
-  useEffect(() => {
     if (!slashOpen && !toolMenuOpen) return;
     const openId = toolMenuLoadRef.current.openId;
     if (!toolMenuOpen || !toolMenuLoadRef.current.skills) {
@@ -732,8 +683,8 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
   }, [loadSkills, slashOpen, toolMenuOpen]);
 
   const slashItems = useMemo<ComposerSlashCommandOption[]>(
-    () => [...commands, ...connectSkillSlashCommandOptions(skills)],
-    [commands, skills],
+    () => commands,
+    [commands],
   );
   const slashFiltered = useMemo(() => {
     if (!slashOpen) return [];
@@ -792,34 +743,13 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
       origin: "local" as const,
     })),
     ...skills.filter((skill) =>
-      skill.origin === "openwork-connect" || !localCommandSkillNames.has(skill.name)
+      !localCommandSkillNames.has(skill.name)
     ),
   ];
-  const connectionInventory = useMemo(
-    () => mergeComposerConnectionInventory({
-      mcpServers: props.mcpServers ?? [],
-      mcpStatuses: props.mcpStatuses,
-      orgConnections: orgMcp.connections,
-    }),
-    [orgMcp.connections, props.mcpServers, props.mcpStatuses],
-  );
-  const plusMenuConnectors = useMemo<PlusMenuConnector[]>(
-    () => connectionInventory.servers.map((server) => {
-      const status = mcpEntryStatus(server, connectionInventory.statuses);
-      const connection = orgMcp.connections.find((entry) => entry.id === server.orgMcpConnectionId);
-      const signIn = composerConnectionSignIn({ server, status, connection });
-      const url = server.config.type === "remote" ? server.config.url : undefined;
-      return {
-        key: server.id ?? server.name,
-        name: server.name,
-        serviceUrl: url,
-        signIn,
-        connecting: Boolean(signIn && orgMcp.connectingId === signIn.connectionId),
-        note: signIn ? null : plusMenuConnectorNote(status),
-      };
-    }),
-    [connectionInventory, orgMcp.connectingId, orgMcp.connections],
-  );
+  const plusMenuConnectors = useMemo<PlusMenuConnector[]>(() => (props.mcpServers ?? []).map((server) => ({
+    key: server.id ?? server.name, name: server.name, serviceUrl: server.config.type === "remote" ? server.config.url : undefined,
+    signIn: null, connecting: false, note: plusMenuConnectorNote(mcpEntryStatus(server, props.mcpStatuses ?? {})),
+  })), [props.mcpServers, props.mcpStatuses]);
   const plusMenuAgents = useMemo<PlusMenuAgent[]>(
     () => [
       { name: null, label: t("composer.default_agent"), selected: props.selectedAgent === null },
@@ -890,29 +820,6 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
     const skill = typeof input === "string"
       ? { name: input, path: "", origin: "local" as const }
       : input;
-    if (skill.origin === "openwork-connect") {
-      const slug = skillSlashCommandName(skill);
-      const token = encodeConnectSkillToken({
-        slug,
-        name: skill.name,
-        marketplace: skill.marketplaceName ?? "assigned",
-        capability: skill.connectCapabilityName ?? skill.name,
-      });
-      if (options?.replaceSkillDraft) {
-        props.onDraftChange(`${token} `);
-      } else {
-        const editor = editorRef.current;
-        if (editor) {
-          editor.insertSkillAtSelection(slug, token);
-        } else {
-          const separator = props.draft.length > 0 && !/\s$/.test(props.draft) ? " " : "";
-          props.onDraftChange(`${props.draft}${separator}${token} `);
-        }
-      }
-      setSlashOpen(false);
-      setToolMenuOpen(false);
-      return;
-    }
     const name = skill.name;
     if (options?.replaceSkillDraft) {
       props.onDraftChange(`[skill ${name}] `);
@@ -929,18 +836,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
     setToolMenuOpen(false);
   };
 
-  const applyPluginFileSelection = (file: CloudImportedPluginFile) => {
-    if (file.skillOrigin === "openwork-connect") {
-      applySkillSelection({
-        name: file.skillName ?? file.title,
-        path: file.path,
-        origin: "openwork-connect",
-        marketplaceName: file.marketplaceName,
-        pluginName: file.pluginName,
-        connectCapabilityName: file.connectCapabilityName,
-      });
-      return;
-    }
+  const applyPluginFileSelection = (file: ComposerPluginFile) => {
     if (file.objectType === "command") {
       applyCommandSelection({
         id: `plugin:${file.configObjectId}`,
@@ -1325,9 +1221,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
               applyMentionSelection(item);
             }}
           >
-            {item.kind === "computer" ? (
-              item.value === "cloud" ? <Cloud size={14} className="mt-0.5 shrink-0 text-gray-9" /> : <Monitor size={14} className="mt-0.5 shrink-0 text-gray-9" />
-            ) : item.kind === "agent" ? (
+            {item.kind === "agent" ? (
               <Zap size={14} className="mt-0.5 shrink-0 text-gray-9" />
             ) : (
               <FileText size={14} className="mt-0.5 shrink-0 text-gray-9" />
@@ -1519,13 +1413,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
               }}
             />
 
-            <ModelRecoveryNote
-              scope={props.modelRecoveryScope}
-              sessionId={props.sessionId}
-              selectedModel={props.selectedModel}
-              onChange={() => props.onModelPickerOpenChange(true)}
-              onSwitchBack={(model) => props.onModelChange(model, null)}
-            />
+
             {/* Respond to the pane width, including desktop split views. */}
             {props.busy && !props.stopping && escapeArmed ? (
               <div data-composer-stop-confirmation role="status" className="mt-2 text-[12px] font-medium text-gray-10">
@@ -1556,7 +1444,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                     }
                     setToolMenuOpen(open);
                   }}
-                  loading={commandsLoading || skillsLoading || pluginsLoading || mcpLoading || (orgMcp.loading && !orgMcp.loaded)}
+                  loading={commandsLoading || skillsLoading || pluginsLoading || mcpLoading}
                   skills={skillMenuItems}
                   connectors={plusMenuConnectors}
                   plugins={importedPlugins}
@@ -1567,10 +1455,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                   attachmentsDisabledReason={props.attachmentsDisabledReason}
                   onAttach={openFilePicker}
                   onPick={handlePlusMenuPick}
-                  onConnect={(connector) => {
-                    if (!connector.signIn) return;
-                    void orgMcp.connect(connector.signIn.connectionId, { forceFreshAuthorization: connector.signIn.reconnect });
-                  }}
+                  onConnect={() => props.onOpenSettingsSection?.("connections")}
                   onManage={handlePlusMenuManage}
                   onQueryChange={setPlusMenuQuery}
                   returnFocus={() => rootRef.current?.querySelector<HTMLElement>("[contenteditable='true']") ?? null}
@@ -1611,7 +1496,6 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                 <ModelSelect
                   open={props.modelPickerOpen}
                   value={props.selectedModel}
-                  hideValue={props.organizationModelsEmpty}
                   onOpenChange={props.onModelPickerOpenChange}
                   onChange={(model, variant) => {
                     if (!props.steering) {
@@ -1621,8 +1505,6 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                   }}
                   disabled={props.steering}
                   sessionId={props.sessionId}
-                  openWorkModelsEntitled={props.openWorkModelsEntitled}
-                  openWorkModelsSyncing={props.openWorkModelsSyncing}
                   fallbackOptions={props.modelOptions}
                   behaviorValue={props.modelVariant}
                   behaviorLabel={props.modelVariantLabel}
@@ -1631,23 +1513,7 @@ export const ReactSessionComposer = memo(function ReactSessionComposer(props: Co
                     if (!props.steering) props.onModelVariantChange(value);
                   }}
                 />
-                {props.modelUnavailable ? props.onRefreshOrganizationModels ? (
-                  <button
-                    type="button"
-                    className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 px-2 text-xs text-dls-secondary transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-70 sm:max-w-80"
-                    onClick={() => void handleRefreshOrganizationModels()}
-                    disabled={refreshingOrganizationModels}
-                    title={t("models.refresh_organization_models")}
-                  >
-                    <span className="min-w-0 truncate">
-                      {props.modelUnavailableMessage ?? t("models.model_unavailable_short")}
-                    </span>
-                    <span className="inline-flex shrink-0 items-center gap-1">
-                      <RefreshCw size={11} className={refreshingOrganizationModels ? "animate-spin" : ""} />
-                      {refreshingOrganizationModels ? t("models.refreshing_organization_models") : t("models.retry_organization_models")}
-                    </span>
-                  </button>
-                ) : (
+                {props.modelUnavailable ? (
                   <span className="min-w-0 max-w-full truncate text-xs text-dls-secondary">
                     {props.modelUnavailableMessage ?? t("models.model_unavailable_short")}
                   </span>

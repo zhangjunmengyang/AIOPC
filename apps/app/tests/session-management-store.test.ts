@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
 
 const savedPreferences = new Map<string, string>();
@@ -12,8 +12,10 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 const { useSessionManagementStore } = await import("../src/react-app/domains/session/sidebar/session-management-store");
+afterAll(() => {
 if (originalLocalStorage) Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
 else Reflect.deleteProperty(globalThis, "localStorage");
+});
 
 const workspaceId = "workspace-1";
 

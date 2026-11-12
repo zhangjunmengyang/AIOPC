@@ -53,7 +53,7 @@ export function LibraryAddControl(props: {
   if (kinds.length === 0) return null;
   const size = props.size ?? "default";
   const variant = props.variant ?? "default";
-  const pendingLabel = t("den.checking_session");
+  const pendingLabel = "加载中…";
 
   const onlyKind = kinds[0];
   if (kinds.length === 1 && onlyKind) {

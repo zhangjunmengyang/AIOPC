@@ -9,7 +9,6 @@ import {
   providerListQueryKey,
 } from "../src/react-app/infra/provider-list-query";
 
-import { liveProviderSyncStatusQueryKey } from "../src/react-app/domains/connections/provider-auth/live-provider-sync";
 
 const baseUrl = "http://localhost:8787/opencode2";
 const directory = "/workspace";
@@ -60,34 +59,6 @@ describe("V2 native provider catalog events", () => {
     }
   });
 
-  for (const mode of ["off", "unknown", "v1"]) {
-    test(`native/reconnect notifications leave ${mode} behavior unchanged`, async () => {
-      const queryClient = new QueryClient();
-      const eventScope = mode === "v1" ? { ...scope, baseUrl: "http://localhost:4096" } : scope;
-      if (mode !== "unknown") queryClient.setQueryData(liveProviderSyncStatusQueryKey(eventScope.baseUrl), {
-        enabled: true, chatRouting: true, liveProviderSync: mode === "v1",
-      });
-      const invalidate = spyOn(queryClient, "invalidateQueries");
-      try {
-        handleProviderCatalogChange(queryClient, { ...eventScope, reason: "native" });
-        handleProviderCatalogChange(queryClient, { ...eventScope, reason: "reconnect" });
-        await pause();
-        expect(invalidate).toHaveBeenCalledTimes(0);
-        // Legacy catalog.updated still invalidates only connected providers,
-        // immediately and without introducing coalescing when the flag is off.
-        handleProviderCatalogChange(queryClient, eventScope);
-        handleProviderCatalogChange(queryClient, eventScope);
-        expect(invalidate).toHaveBeenCalledTimes(2);
-        expect(invalidate.mock.calls).toEqual([
-          [{ queryKey: providerListQueryKey(eventScope) }],
-          [{ queryKey: providerListQueryKey(eventScope) }],
-        ]);
-      } finally {
-        queryClient.clear();
-      }
-    });
-  }
-
   test("bursts invalidate connected and full catalogs once and only in scope", async () => {
     const queryClient = new QueryClient();
     const other = { ...scope, directory: "/other" };
@@ -95,9 +66,6 @@ describe("V2 native provider catalog events", () => {
       providerListQueryKey(other), providerCatalogQueryKey(other)]) {
       queryClient.setQueryData(key, { all: [], connected: [], default: {} });
     }
-    queryClient.setQueryData(liveProviderSyncStatusQueryKey(baseUrl), {
-      enabled: true, chatRouting: true, liveProviderSync: true,
-    });
     const invalidate = spyOn(queryClient, "invalidateQueries");
     try {
       for (let i = 0; i < 20; i += 1) handleProviderCatalogChange(queryClient, { ...scope, reason: "native" });
@@ -116,29 +84,10 @@ describe("V2 native provider catalog events", () => {
     }
   });
 
-  test("off keeps the existing full-catalog cache behavior after invalidation", async () => {
-    const queryClient = new QueryClient();
-    const cached = { all: [], connected: [], default: {} };
-    queryClient.setQueryData(providerCatalogQueryKey(scope), cached);
-    await queryClient.invalidateQueries({ queryKey: providerCatalogQueryKey(scope) });
-    const fetch = spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ items: [] }));
-    try {
-      const client = createClientV2(baseUrl, directory, {});
-      expect(await ensureProviderCatalogQuery(queryClient, { ...scope, client })).toEqual(cached);
-      expect(fetch).toHaveBeenCalledTimes(0);
-    } finally {
-      fetch.mockRestore();
-      queryClient.clear();
-    }
-  });
-
   test("invalidated full catalog is reread on the next provider-picker open", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(providerCatalogQueryKey(scope), { all: [], connected: [], default: {} });
     await queryClient.invalidateQueries({ queryKey: providerCatalogQueryKey(scope) });
-    queryClient.setQueryData(liveProviderSyncStatusQueryKey(baseUrl), {
-      enabled: true, chatRouting: true, liveProviderSync: true,
-    });
     const fetch = spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ items: [] }));
     try {
       const client = createClientV2(baseUrl, directory, {});

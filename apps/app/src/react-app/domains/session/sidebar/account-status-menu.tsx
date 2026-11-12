@@ -1,70 +1,14 @@
-/** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowUpRight,
-  BookOpen,
-  ChevronDown,
-  ChevronUp,
-  LogOut,
-  MessageCircleMore,
-  MoreHorizontal,
-  Settings,
-  Sparkles,
-  Stethoscope,
-  UserRound,
-} from "lucide-react";
-import { useNavigate } from "react-router";
-
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, MessageCircleMore, Settings, MoreHorizontal } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { usePlatform } from "../../../kernel/platform";
-import { isDenSessionRestoring, useDenAuth } from "../../cloud/den-auth-provider";
-import { useDesktopRestriction } from "../../cloud/desktop-config-provider";
-import { GatewayUsageMenuItem } from "../../cloud/gateway-usage-panel";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { useShellConfig } from "../../../shell/shell-config";
-import type { OpenworkServerStatus } from "../../../../app/lib/openwork-server";
-import {
-  clearDenSession,
-  createDenClient,
-  HOSTED_DEFAULT_DEN_BASE_URL,
-  readDenSettings,
-} from "../../../../app/lib/den";
-import {
-  formatControlPlaneHost,
-  isDefaultControlPlaneUrl,
-} from "../../settings/cloud/control-plane-url";
-import { markDesktopSignInInitiated } from "../../../../app/lib/den-sign-in-intent";
-import { useCloudSignIn, useRecordSignInReturnForPaste } from "../../cloud/sign-in-return";
-import { useManualSignInCode } from "../../cloud/use-manual-sign-in-code";
-import {
-  openWorkConnectAttentionTitle,
-  resolveOpenWorkConnectStatus,
-  type OpenWorkConnectStatus,
-} from "../../connections/openwork-connect-status";
-import type { SessionCloudMcpMaintenanceState } from "../../connections/use-session-mcp-maintenance";
-import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
-  openWorkModelsPromoChangedEvent,
-  useOpenWorkModelsPromoEligibility,
-} from "../../cloud/openwork-models-promo";
-
-const DOCS_URL = "https://openworklabs.com/docs";
+import type { OpenworkServerStatus } from "@/app/lib/openwork-server";
 const BOOT_STARTED_AT = Date.now();
 const INITIALIZING_MS = 15_000;
-
 type StatusDotVariant = "connected" | "loading" | "partial" | "disconnected";
 
 function StatusDot({ variant }: { variant: StatusDotVariant }) {
@@ -134,62 +78,6 @@ export function resolveRuntimeStatus(input: RuntimeStatusInput): RuntimeStatus {
   };
 }
 
-function connectDotVariant(status: OpenWorkConnectStatus): StatusDotVariant {
-  if (status.state === "ready") return "connected";
-  if (status.state === "checking") return "loading";
-  return "disconnected";
-}
-
-/**
- * Non-developer mode shows one status row: the runtime status, unless
- * OpenWork Connect needs attention (or is the only signal available).
- * Developer mode keeps the two separate rows.
- */
-export function resolveCollapsedStatus(
-  runtime: RuntimeStatus | null,
-  connect: OpenWorkConnectStatus | null,
-): RuntimeStatus | null {
-  if (runtime && runtime.variant !== "connected") return runtime;
-  if (connect && connect.state === "needs_attention") {
-    return {
-      variant: "disconnected",
-      label: `OpenWork Connect: ${connect.label}`,
-      detail: connect.description,
-    };
-  }
-  if (runtime) return runtime;
-  if (connect) {
-    return {
-      variant: connectDotVariant(connect),
-      label: `OpenWork Connect: ${connect.label}`,
-      detail: connect.description,
-    };
-  }
-  return null;
-}
-
-function accountInitials(name: string | null, email: string) {
-  const source = name?.trim() || email;
-  const parts = source.split(/[\s@._-]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function useOpenWorkModelsPromoVisible(hasOpenWorkModels: boolean) {
-  const { config } = useShellConfig();
-  const eligible = useOpenWorkModelsPromoEligibility();
-  const [hidden, setHidden] = useState(isOpenWorkModelsPromoHidden);
-
-  useEffect(() => {
-    const sync = () => setHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, sync);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, sync);
-  }, []);
-
-  return eligible && config.cloudSignin && !hasOpenWorkModels && !hidden;
-}
-
 export type AccountStatusMenuProps = {
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
@@ -200,397 +88,41 @@ export type AccountStatusMenuProps = {
   mcpConnectedCount: number;
   reloadBusy?: boolean;
   reloadError?: string | null;
-  openWorkConnectState?: SessionCloudMcpMaintenanceState;
   showSettingsButton?: boolean;
   onOpenAccountSettings?: () => void;
   onSendFeedback?: () => void;
 };
 
-/**
- * Sidebar footer control: the signed-in account plus the live status the app
- * used to show in a full-width bottom status bar.
- */
+
 export function AccountStatusMenu(props: AccountStatusMenuProps) {
-  const denAuth = useDenAuth();
   const platform = usePlatform();
-  const navigate = useNavigate();
-  const { config: shellConfig } = useShellConfig();
+  const { config } = useShellConfig();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const cloudSignIn = useCloudSignIn();
-  const recordSignInReturn = useRecordSignInReturnForPaste();
-  const manualCode = useManualSignInCode({ onBeforeExchange: recordSignInReturn });
-  const pasteCode = manualCode.code;
-  const pasteBusy = manualCode.busy;
-  const pasteError = manualCode.error;
-  const [manualAuthOpen, setManualAuthOpen] = useState(false);
-  const [initializing, setInitializing] = useState(
-    () => Date.now() - BOOT_STARTED_AT < INITIALIZING_MS,
-  );
-
-  const hasOpenWorkModels = useMemo(
-    () => hasOpenWorkModelsProvider(props.providerConnectedIds),
-    [props.providerConnectedIds],
-  );
-  const promoVisible = useOpenWorkModelsPromoVisible(hasOpenWorkModels);
-
+  const [initializing, setInitializing] = useState(() => Date.now() - BOOT_STARTED_AT < INITIALIZING_MS);
   useEffect(() => {
-    if (!initializing) return;
-    const remaining = Math.max(0, INITIALIZING_MS - (Date.now() - BOOT_STARTED_AT));
-    const timeout = window.setTimeout(() => setInitializing(false), remaining);
+    const timeout = window.setTimeout(() => setInitializing(false), Math.max(0, INITIALIZING_MS - (Date.now() - BOOT_STARTED_AT)));
     return () => window.clearTimeout(timeout);
-  }, [initializing]);
-
-  const openSettings = props.onOpenAccountSettings;
-  const openDocs = useCallback(() => platform.openLink(DOCS_URL), [platform]);
-  // When the organization blocks settings control, the settings surface is the
-  // Cloud account page only, so the entry is labelled for where it lands and
-  // the Debug shortcut is hidden.
-  // Reuses Den’s existing allowControlSettings boolean contract (PR #1838);
-  // no new response field is required. Missing values retain the hook’s default.
-  const controlSettingsBlocked = useDesktopRestriction("allowControlSettings");
-
-  const docsControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "status.docs.open",
-    label: "Open OpenWork docs",
-    description: "Open the documentation from the account menu.",
-    sideEffect: "external",
-    targetRef: triggerRef,
-    execute: openDocs,
-  }), [openDocs]);
-  useControlAction(docsControlAction);
-
-  const feedbackControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "status.feedback.open",
-    label: "Send feedback",
-    description: "Open the OpenWork feedback surface from the account menu.",
-    sideEffect: "external",
-    disabled: !props.onSendFeedback,
-    targetRef: triggerRef,
-    execute: () => props.onSendFeedback?.(),
-  }), [props.onSendFeedback]);
-  useControlAction(feedbackControlAction);
-
-  const settingsControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "status.settings.open",
-    label: "Open settings from the account menu",
-    description: "Use the account menu in the sidebar footer.",
-    sideEffect: "navigation",
-    disabled: props.showSettingsButton === false || !openSettings,
-    targetRef: triggerRef,
-    execute: () => openSettings?.(),
-  }), [openSettings, props.showSettingsButton]);
-  useControlAction(settingsControlAction);
-
-  const user = denAuth.user;
-  const signedIn = denAuth.isSignedIn && user !== null;
-  // A retained session still restores in the background; never flash "Sign
-  // in". This covers both the initial check and a retained session whose
-  // first check failed transiently (local server restart, control-plane
-  // blip) and is being retried.
-  const restoringSession = isDenSessionRestoring({
-    status: denAuth.status,
-    hasUser: user !== null,
-  });
-  // A self-hosted server is named by its host, as on the sign-in page.
-  const denBaseUrl = readDenSettings().baseUrl;
-  const serverLabel = isDefaultControlPlaneUrl(denBaseUrl, HOSTED_DEFAULT_DEN_BASE_URL)
-    ? "OpenWork Cloud"
-    : formatControlPlaneHost(denBaseUrl);
-  // Without cloud sign-in the row is the local app itself, never a "Sign in" prompt.
-  const localOnly = !shellConfig.cloudSignin && !signedIn;
-  const accountLabel = localOnly
-    ? shellConfig.appName
-    : signedIn
-    ? user.name?.trim() || user.email
-    : restoringSession ? serverLabel : "Sign in";
-  // The sidebar row shows the name only; the email stays inside the account
-  // menu so it is not permanently on screen (matches Claude Code and Codex).
-  const accountDetail = localOnly
-    ? t("account.local_only")
-    : signedIn
-    ? serverLabel
-    : restoringSession ? "Restoring your session" : "Sync with OpenWork Cloud";
-
-  const runtimeStatus = props.showConnectionStatus
-    ? resolveRuntimeStatus({
-      clientConnected: props.clientConnected,
-      openworkServerStatus: props.openworkServerStatus,
-      initializing,
-      reloadBusy: props.reloadBusy,
-      reloadError: props.reloadError,
-    })
-    : null;
-  const connectStatus = resolveOpenWorkConnectStatus(
-    denAuth.isSignedIn
-      || (denAuth.status === "checking" && Boolean(readDenSettings().authToken?.trim())),
-    props.openWorkConnectState,
-  );
-  const connectNeedsAttention = connectStatus?.state === "needs_attention";
-  const collapsedStatus = resolveCollapsedStatus(runtimeStatus, connectStatus);
-  const showStatus = shellConfig.statusBar && (runtimeStatus !== null || connectStatus !== null);
-
-  const openSignIn = () => {
-    cloudSignIn();
-  };
-
-  const submitPastedCode = async () => {
-    await manualCode.submit();
-  };
-
-  const logOut = () => {
-    const settings = readDenSettings();
-    if (settings.authToken) {
-      void createDenClient({
-        baseUrl: settings.baseUrl,
-        token: settings.authToken,
-      })
-        .signOut()
-        .catch(() => undefined);
-    }
-    clearDenSession();
-    void denAuth.refresh();
-  };
-
-  return (
-    <div className="flex w-full items-center gap-1">
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            ref={triggerRef}
-            type="button"
-            data-testid="account-status-menu"
-            data-runtime-state={runtimeStatus?.variant}
-            data-connect-state={connectStatus?.state}
-            /* ps-1.5 puts the 24px avatar 12px from the edge, so the name lands on the sidebar label lane. */
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg ps-1.5 pe-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent max-lg:min-h-11"
-            aria-label={signedIn ? `${accountLabel} — account and status` : "Account and status"}
-            title={connectNeedsAttention
-              ? openWorkConnectAttentionTitle(connectStatus.description)
-              : connectStatus
-                ? `${runtimeStatus ? `${runtimeStatus.label} · ` : ""}OpenWork Connect: ${connectStatus.label}`
-                : runtimeStatus?.label}
-          >
-              {signedIn ? (
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                  {accountInitials(user.name, user.email)}
-                </span>
-              ) : (
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
-                  <UserRound size={13} />
-                </span>
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium text-sidebar-foreground">
-                  {accountLabel}
-                </span>
-                <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">
-                  {accountDetail}
-                </span>
-              </span>
-              {connectNeedsAttention ? (
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  <StatusDot variant="disconnected" />
-                </span>
-              ) : null}
-          </button>
-        }
-      />
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Account menu"><MoreHorizontal size={14} /></Button>} />
-      <DropdownMenuContent side="top" align="start" className="w-72">
-        {signedIn ? (
-          <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{user.email}</div>
-        ) : null}
-        {signedIn ? (
-          <>
-            <GatewayUsageMenuItem key={`${denAuth.verifiedIdentity?.organizationId}:${user.id}`} />
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-
-        {showStatus ? (
-          <div className="mx-1 mb-1 flex flex-col gap-2 rounded-lg bg-muted/50 p-2">
-            {props.developerMode ? (
-              <>
-                {runtimeStatus ? (
-                  <div className="flex items-start gap-2">
-                    <span className="mt-1">
-                      <StatusDot variant={runtimeStatus.variant} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-[11.5px] font-medium text-foreground">{runtimeStatus.label}</div>
-                      {runtimeStatus.detail ? (
-                        <div className="text-[10.5px] leading-tight text-muted-foreground">
-                          {runtimeStatus.detail}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-                {connectStatus ? (
-                  <div data-testid="openwork-connect-status" className="flex items-start gap-2">
-                    <span className="mt-1">
-                      <StatusDot variant={connectDotVariant(connectStatus)} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-[11.5px] font-medium text-foreground">
-                        {`OpenWork Connect: ${connectStatus.label}`}
-                      </div>
-                      <div className="text-[10.5px] leading-tight text-muted-foreground">
-                        {connectStatus.description}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            ) : collapsedStatus ? (
-              <div data-testid="collapsed-status" className="flex items-start gap-2">
-                <span className="mt-1">
-                  <StatusDot variant={collapsedStatus.variant} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-[11.5px] font-medium text-foreground">{collapsedStatus.label}</div>
-                  {collapsedStatus.detail ? (
-                    <div className="text-[10.5px] leading-tight text-muted-foreground">
-                      {collapsedStatus.detail}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-            {props.showConnectionStatus && props.developerMode ? (
-              <div className="text-[10.5px] leading-tight text-muted-foreground">
-                {t("account.providers_connected", { count: props.providerConnectedIds.length })}
-                {" · "}
-                {t("account.mcp_connected", { count: props.mcpConnectedCount })}
-                {` · ${t("status.developer_mode")}`}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {connectNeedsAttention && !controlSettingsBlocked ? (
-          <DropdownMenuItem
-            onClick={() => navigate(props.developerMode ? "/settings/debug" : "/settings/advanced/agent-access")}
-          >
-            <Stethoscope className="size-3.5" />
-            Run diagnostics
-          </DropdownMenuItem>
-        ) : null}
-        {promoVisible ? (
-          <DropdownMenuItem
-            onClick={() => {
-              hideOpenWorkModelsPromo();
-              if (!denAuth.isSignedIn) {
-                navigate("/settings/cloud-account");
-                markDesktopSignInInitiated();
-              }
-              platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
-            }}
-          >
-            <Sparkles className="size-3.5 text-blue-11" />
-            <span className="flex min-w-0 flex-col">
-              <span>OpenWork Models</span>
-              <span className="text-[10.5px] text-muted-foreground">hosted frontier models</span>
-            </span>
-          </DropdownMenuItem>
-        ) : null}
-        {(connectNeedsAttention && !controlSettingsBlocked) || promoVisible ? <DropdownMenuSeparator /> : null}
-
-        {props.showSettingsButton !== false ? (
-          <DropdownMenuItem onClick={openSettings}>
-            <Settings className="size-3.5" />
-            {controlSettingsBlocked ? t("settings.tab_cloud_account") : t("status.settings")}
-          </DropdownMenuItem>
-        ) : null}
-        {shellConfig.docsButton ? (
-          <DropdownMenuItem onClick={openDocs}>
-            <BookOpen className="size-3.5" />
-            {t("status.docs")}
-          </DropdownMenuItem>
-        ) : null}
-        {shellConfig.feedbackButton && props.onSendFeedback ? (
-          <DropdownMenuItem onClick={props.onSendFeedback}>
-            <MessageCircleMore className="size-3.5" />
-            {t("status.feedback")}
-          </DropdownMenuItem>
-        ) : null}
-        {signedIn ? (
-          <DropdownMenuItem onClick={logOut}>
-            <LogOut className="size-3.5" />
-            Log out
-          </DropdownMenuItem>
-        ) : restoringSession || localOnly ? null : (
-          <div
-            className="flex flex-col gap-2 px-2 py-2"
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <Button
-              type="button"
-              className="h-11 w-full justify-between px-3 text-sm"
-              onClick={openSignIn}
-              data-testid="account-cloud-signin-button"
-            >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <UserRound className="size-3.5" />
-                <span className="truncate">Sign in to OpenWork Cloud</span>
-              </span>
-              <ArrowUpRight className="size-3.5" />
-            </Button>
-
-            <button
-              type="button"
-              className="flex h-8 w-full items-center justify-between rounded-xl px-2 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-              onClick={() => setManualAuthOpen((open) => !open)}
-              aria-expanded={manualAuthOpen}
-              aria-controls="account-manual-auth-panel"
-            >
-              <span>
-                {manualAuthOpen ? t("den.hide_signin_code") : t("den.paste_signin_code")}
-              </span>
-              {manualAuthOpen ? (
-                <ChevronUp className="size-3.5" />
-              ) : (
-                <ChevronDown className="size-3.5" />
-              )}
-            </button>
-
-            {manualAuthOpen ? (
-              <div id="account-manual-auth-panel" className="flex flex-col gap-2">
-                <label htmlFor="account-paste-signin-code" className="text-[11px] text-muted-foreground">
-                  {t("den.signin_link_label")}
-                </label>
-                <Input
-                  id="account-paste-signin-code"
-                  value={pasteCode}
-                  onChange={(event) => manualCode.setCode(event.currentTarget.value)}
-                  placeholder={t("den.signin_link_placeholder")}
-                  className="h-11 text-base lg:h-9 lg:text-sm"
-                  disabled={pasteBusy}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-11 max-lg:h-11"
-                  disabled={pasteBusy || !pasteCode.trim()}
-                  onClick={() => void submitPastedCode()}
-                >
-                  {pasteBusy ? t("den.finishing") : t("den.finish_signin")}
-                </Button>
-                {pasteError ? (
-                  <p className="text-[11px] text-destructive">{pasteError}</p>
-                ) : (
-                  <p className="text-[11px] leading-snug text-muted-foreground">
-                    {t("den.signin_link_hint")}
-                  </p>
-                )}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-    </div>
-  );
+  }, []);
+  const runtime = resolveRuntimeStatus({ ...props, initializing });
+  const openDocs = () => platform.openLink("https://github.com/zhangjunmengyang/AIOPC#readme");
+  const action = useMemo<OpenworkControlAction>(() => ({ id: "status.settings.open", label: "打开设置", description: "打开本地应用设置。",
+    sideEffect: "navigation", targetRef: triggerRef, execute: () => props.onOpenAccountSettings?.() }), [props.onOpenAccountSettings]);
+  useControlAction(action);
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<button ref={triggerRef} type="button" data-testid="account-status-menu" data-runtime-state={runtime.variant}
+      aria-label="AIOPC 状态与设置" title={runtime.detail ?? runtime.label}
+      className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-sidebar-accent max-lg:min-h-11">
+      <img src="/aiopc-mark.svg" alt="" className="size-6 dark:invert" />
+      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">AIOPC</span>
+        <span className="block truncate text-[10.5px] text-muted-foreground">{runtime.label}</span></span>
+      <StatusDot variant={runtime.variant} /><MoreHorizontal size={14} />
+    </button>} />
+    <DropdownMenuContent side="top" align="start" className="w-64">
+      <div className="px-2 py-1.5 text-xs text-muted-foreground">{runtime.detail ?? runtime.label}</div>
+      <DropdownMenuSeparator />
+      {props.showSettingsButton !== false ? <DropdownMenuItem onClick={props.onOpenAccountSettings}><Settings className="size-3.5" />{t("status.settings")}</DropdownMenuItem> : null}
+      {config.docsButton ? <DropdownMenuItem onClick={openDocs}><BookOpen className="size-3.5" />{t("status.docs")}</DropdownMenuItem> : null}
+      {config.feedbackButton && props.onSendFeedback ? <DropdownMenuItem onClick={props.onSendFeedback}><MessageCircleMore className="size-3.5" />{t("status.feedback")}</DropdownMenuItem> : null}
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }

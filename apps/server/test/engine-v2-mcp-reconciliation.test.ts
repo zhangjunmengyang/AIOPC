@@ -66,18 +66,16 @@ async function isolatedPreviewEnvironment(engineMode: string) {
   return { root, binary, environment, config, restore };
 }
 
-test("V2 reconciliation scopes protocol auto to managed Connect and fingerprints replacements", async () => {
+test("V2 reconciliation fingerprints configured MCP replacements", async () => {
   const { root, binary, environment, config, restore } = await isolatedPreviewEnvironment("sidecar");
   const remote = { type: "remote", url: "https://connect.example.test/mcp/agent", oauth: false,
     headers: { Authorization: "Bearer synthetic-test-token" } };
-  // Connect alone is told that the v2 engine lists organization skills natively.
-  const connect = (value: typeof remote) => ({ ...value, protocol: "auto",
-    headers: { ...value.headers, "x-openwork-mcp-client-capabilities": "native-skills-v1" } });
+  const connect = (value: typeof remote) => value;
   const preview = createEngineV2Preview({ config, deferStart: true });
   try {
     await mkdir(environment.XDG_CONFIG_HOME);
     await writeFile(binary, fakeEngine, { mode: 0o700 });
-    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "openwork-cloud": remote, generic: remote } }));
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "account": remote, generic: remote } }));
     await preview.setEnabled(true);
     const deadline = Date.now() + 10_000;
     while (!preview.status().running && !preview.status().lastError && Date.now() < deadline) {
@@ -97,7 +95,7 @@ test("V2 reconciliation scopes protocol auto to managed Connect and fingerprints
     // Independent registrations may be read from the runtime store in either
     // order. Assert both complete payloads, without prescribing their order.
     assert.deepEqual(new Set(await mutations()), new Set([
-      { method: "PUT", name: "openwork-cloud", config: connect(remote) },
+      { method: "PUT", name: "account", config: connect(remote) },
       { method: "PUT", name: "generic", config: remote },
     ]));
     await preview.syncWorkspaceMcp("workspace", directory);
@@ -105,21 +103,21 @@ test("V2 reconciliation scopes protocol auto to managed Connect and fingerprints
 
     const rotated = { ...remote, headers: { Authorization: "Bearer rotated-test-token" } };
     await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: {
-      "openwork-cloud": rotated,
+      "account": rotated,
       generic: { ...remote, protocol: "auto", unsupported: true },
     } }));
     await preview.syncWorkspaceMcp("workspace", directory);
     assert.deepEqual((await mutations()).slice(2), [
-      { method: "DELETE", name: "openwork-cloud" },
-      { method: "PUT", name: "openwork-cloud", config: connect(rotated) },
+      { method: "DELETE", name: "account" },
+      { method: "PUT", name: "account", config: connect(rotated) },
     ], "mapped credential changes replace Connect, while unsupported generic fields do not change its fingerprint");
 
     // A connection whose replacement the engine refuses fails only callers
     // that ask about it, not a Connect reconnect in the same folder.
-    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "openwork-cloud": rotated, generic: remote, broken: remote } }));
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "account": rotated, generic: remote, broken: remote } }));
     await preview.syncWorkspaceMcp("workspace", directory);
-    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "openwork-cloud": rotated, generic: remote, broken: rotated } }));
-    await preview.syncWorkspaceMcp("workspace", directory, { reconnect: ["openwork-cloud"] });
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: { "account": rotated, generic: remote, broken: rotated } }));
+    await preview.syncWorkspaceMcp("workspace", directory, { reconnect: ["account"] });
     await preview.syncWorkspaceMcp("workspace", directory, { servers: ["generic"] });
     await assert.rejects(preview.syncWorkspaceMcp("workspace", directory, { servers: ["broken"] }), /broken: OpenCode v2 MCP removal failed \(500\)$/);
     await assert.rejects(preview.syncWorkspaceMcp("workspace", directory), /broken: OpenCode v2 MCP removal failed \(500\)/);

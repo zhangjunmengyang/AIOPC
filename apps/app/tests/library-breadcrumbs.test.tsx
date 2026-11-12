@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { t } from "../src/i18n";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LibraryBreadcrumbs } from "../src/react-app/design-system/library-breadcrumbs";
@@ -60,7 +61,7 @@ test("detail pages keep the old back button when no breadcrumb rollout is suppli
     taxonomy="skill" presentation="page"
   />));
   expect(host.querySelector("nav")).toBeNull();
-  const back = [...host.querySelectorAll("button")].find(button => button.textContent === "Library");
+  const back = [...host.querySelectorAll("button")].find(button => button.textContent === t("settings.tab_extensions"));
   expect(back).toBeDefined();
   await act(async () => back?.click());
   expect(closed).toBe(1);

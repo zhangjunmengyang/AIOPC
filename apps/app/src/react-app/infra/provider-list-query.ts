@@ -5,7 +5,6 @@ import { z } from "zod";
 import type { Client, ModelRef, ProviderListItem } from "../../app/types";
 import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders, subscribeProviderCatalogChanges, type ProviderCatalogScope } from "../../app/lib/provider-events";
-import { liveProviderSyncStatusQueryKey, usesLiveProviderSync, type LiveProviderSyncStatus } from "../domains/connections/provider-auth/live-provider-sync";
 import type { ConfigProvidersResponse, ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
@@ -63,7 +62,7 @@ export async function refreshProviderListQueries(queryClient: QueryClient) {
   await queryClient.refetchQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT, type: "active" });
 }
 
-/** Drop account-sensitive provider snapshots when the Den session ends. */
+/** Drop cached providers when the local runtime configuration is reset. */
 export function clearProviderListQueries(queryClient: QueryClient) {
   queryClient.removeQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT });
   queryClient.removeQueries({ queryKey: PROVIDER_CATALOG_QUERY_ROOT });
@@ -124,11 +123,7 @@ export function ensureProviderCatalogQuery(
   };
   const state = queryClient.getQueryState(options.queryKey);
   const baseUrl = input.baseUrl ?? "";
-  const liveProviderSync = usesLiveProviderSync({
-    baseUrl,
-    status: queryClient.getQueryData<LiveProviderSyncStatus>(liveProviderSyncStatusQueryKey(baseUrl)),
-  });
-  if (liveProviderSync && (state?.isInvalidated || state?.fetchStatus === "fetching")) {
+  if (state?.isInvalidated || state?.fetchStatus === "fetching") {
     return queryClient.fetchQuery({ ...options, staleTime: 0 });
   }
   return queryClient.ensureQueryData({ ...options, staleTime: PROVIDER_LIST_CACHE_MS });
@@ -386,10 +381,6 @@ export function handleProviderCatalogChange(queryClient: QueryClient, scope: Pro
     void queryClient.invalidateQueries({ queryKey: providerListQueryKey(scope) });
     return;
   }
-  if (!usesLiveProviderSync({
-    baseUrl: scope.baseUrl,
-    status: queryClient.getQueryData<LiveProviderSyncStatus>(liveProviderSyncStatusQueryKey(scope.baseUrl)),
-  })) return;
   invalidateProviderCatalogScope(queryClient, scope);
 }
 

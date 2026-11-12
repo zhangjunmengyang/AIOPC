@@ -98,11 +98,9 @@ export type ComposerPart =
   | { type: "text"; text: string }
   | { type: "agent"; name: string }
   | { type: "skill"; name: string }
-  | { type: "connect-skill"; slug: string; name: string; marketplace: string; capability: string }
   /** A connection picked from the composer `+` menu (`[connector …]` pill). */
   | { type: "connector"; name: string }
   | { type: "file"; path: string; label?: string }
-  | { type: "computer"; target: "cloud" | "desktop" }
   /** Another task picked from the composer `#` menu (`[session …]` pill). */
   | { type: "session"; workspaceId: string; sessionId: string; title: string }
   | { type: "paste"; id: string; label: string; text: string; lines: number };
@@ -191,11 +189,7 @@ export const SETTINGS_TAB_VALUES = [
   "ollama",
   "preferences",
   "permissions",
-  "cloud-account",
-  "usage",
   "connect",
-  "cloud-marketplaces",
-  "cloud-providers",
   "skills",
   "extensions",
   "environment",
@@ -289,7 +283,7 @@ export type WorkspaceOpenworkConfig = {
   } | null;
 };
 
-export type CapabilityOrigin = "local" | "openwork-connect";
+export type CapabilityOrigin = "local";
 
 export type SkillCard = {
   name: string;
@@ -300,7 +294,6 @@ export type SkillCard = {
   scope?: "project" | "global";
   marketplaceName?: string;
   pluginName?: string;
-  connectCapabilityName?: string;
 };
 
 export type PluginInstallStep = {
@@ -355,9 +348,6 @@ export type McpServerEntry = {
   origin?: CapabilityOrigin;
   marketplaceName?: string;
   pluginName?: string;
-  connectCapabilityName?: string;
-  /** Den organization connection this MCP is backed by, when sign-in is member-owned. */
-  orgMcpConnectionId?: string;
   managedOAuth?: ManagedMcpOAuthConnection | null;
 };
 
@@ -443,10 +433,6 @@ export type ModelOption = {
   /** A free model of the engine's built-in OpenCode Zen provider that nobody configured: the silent fallback. */
   zenFallback?: boolean;
   isRecommended?: boolean;
-  /** "cloud" for org-managed providers (lpr_*), undefined for local. */
-  source?: "cloud" | "gateway" | "local";
-  organizationPinOrder?: number;
-  gatewayAuthorization?: { cloudProviderId: string; credentialSetId: string };
 };
 
 export type SelectedSessionSnapshot = {

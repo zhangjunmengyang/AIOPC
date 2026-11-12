@@ -2,7 +2,6 @@
 import { useEffect, useEffectEvent, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleCheck, CircleDashed, LoaderCircle, Lock, Monitor, MonitorCheck, MonitorCog, MonitorOff, MonitorX, type LucideIcon } from "lucide-react";
 import type { ComputerPermission, ComputerStatus, DesktopCommandResult } from "@openwork/types/desktop-ipc";
-import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import { desktopBridge } from "@/app/lib/desktop";
 import { isElectronRuntime, isMacPlatform } from "@/app/utils";
@@ -137,8 +136,7 @@ export function ComputerUseSettings({ enabled }: { enabled: boolean }) {
     return (
       <LayoutStack>
         <Summary state="off" detail="Computer use isn't turned on in this app." />
-        <RememberedFileSharing />
-      </LayoutStack>
+        </LayoutStack>
     );
   }
 
@@ -227,7 +225,6 @@ export function ComputerUseSettings({ enabled }: { enabled: boolean }) {
           </Group>
         </LayoutSection>
       ) : null}
-      <RememberedFileSharing />
     </LayoutStack>
   );
 }
@@ -283,103 +280,3 @@ function RowText({ children }: { children: ReactNode }) {
 }
 
 /** Main owns identity, feature checks and grants. The renderer only lists and revokes. */
-export function RememberedFileSharing() {
-  const [state, setState] = useState<DesktopCommandResult<"computerListFileGrants"> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [removing, setRemoving] = useState<string | null>(null);
-  const generation = useRef(0);
-
-  async function refresh(clearIdentity = false) {
-    const current = ++generation.current;
-    // Never retain one account's folders as a fallback for another account or a failed read.
-    setState((previous) => clearIdentity ? null : previous ? { enabled: previous.enabled, grants: [] } : null);
-    setLoading(true);
-    setError("");
-    try {
-      const next = await desktopBridge.computerListFileGrants();
-      if (current === generation.current) setState(next);
-    } catch (cause) {
-      if (current === generation.current) setError(`Couldn't check remembered file sharing. Try again. ${message(cause)}`);
-    } finally {
-      if (current === generation.current) setLoading(false);
-    }
-  }
-  const readLatest = useEffectEvent(refresh);
-  useEffect(() => {
-    if (!isElectronRuntime()) return;
-    void readLatest(true);
-    const focus = () => { if (document.visibilityState === "visible") void readLatest(); };
-    const identity = () => { void readLatest(true); };
-    window.addEventListener("focus", focus);
-    document.addEventListener("visibilitychange", focus);
-    window.addEventListener(denSessionUpdatedEvent, identity);
-    window.addEventListener(denSettingsChangedEvent, identity);
-    return () => {
-      generation.current++;
-      window.removeEventListener("focus", focus);
-      document.removeEventListener("visibilitychange", focus);
-      window.removeEventListener(denSessionUpdatedEvent, identity);
-      window.removeEventListener(denSettingsChangedEvent, identity);
-    };
-  }, []);
-
-  async function remove(id: string) {
-    if (removing) return;
-    const current = generation.current;
-    setRemoving(id);
-    setError("");
-    try {
-      const result = await desktopBridge.computerRemoveFileGrant(id);
-      if (!result.ok) throw new Error("Permission wasn't removed.");
-      if (current === generation.current) await refresh();
-    } catch (cause) {
-      if (current === generation.current) setError(`Couldn't remove permission. Try again. ${message(cause)}`);
-    } finally {
-      setRemoving(null);
-    }
-  }
-
-  if (!state?.enabled && !error) return null;
-  const grants = state?.grants ?? [];
-  return (
-    <LayoutSection id="remembered-file-sharing">
-      <Group
-        title="Remembered file sharing"
-        count={!loading && grants.length ? `${grants.length} ${grants.length === 1 ? "folder" : "folders"}` : undefined}
-      >
-        {loading ? (
-          <Row aria-label="Checking remembered file sharing" className="items-center">
-            <RowText>
-              <Skeleton className="my-1 h-3 w-48 rounded-sm motion-reduce:animate-none" />
-              <Skeleton className="my-1 h-3 w-72 max-w-full rounded-sm motion-reduce:animate-none" />
-            </RowText>
-            <Skeleton className="ml-auto h-8 w-18 shrink-0 rounded-xl motion-reduce:animate-none" />
-          </Row>
-        ) : grants.map((grant) => (
-          <Row key={grant.id} className="items-center">
-            <RowText>
-              <LayoutSectionItemTitle className="flex-wrap gap-x-3 break-all">
-                <span dir="ltr" className="font-mono">{grant.origin}</span>
-                {grant.blocked ? <span role="status" className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground"><Lock aria-hidden className="size-3" />Blocked by your organization</span> : null}
-              </LayoutSectionItemTitle>
-              <LayoutSectionItemDescription className="break-all font-mono text-xs"><span dir="ltr">{grant.folder}</span></LayoutSectionItemDescription>
-            </RowText>
-            <Button size="sm" variant="outline" className="ml-auto shrink-0" disabled={removing !== null} aria-busy={removing === grant.id} aria-label={`Remove file sharing with ${grant.origin} from ${grant.folder}`} onClick={() => void remove(grant.id)}>Remove</Button>
-          </Row>
-        ))}
-        {!loading && !error && state?.enabled && !grants.length ? (
-          <Row className="items-center">
-            <LayoutSectionItemDescription>No folders shared automatically. Choose a folder when approving a browser upload to remember it.</LayoutSectionItemDescription>
-          </Row>
-        ) : null}
-        {error ? (
-          <Row className="items-center">
-            <div role="alert" className="min-w-0 flex-1 basis-64 text-sm text-red-11">{error}</div>
-            <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => void refresh()}>Try again</Button>
-          </Row>
-        ) : null}
-      </Group>
-    </LayoutSection>
-  );
-}

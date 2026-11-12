@@ -1,25 +1,23 @@
 /** @jsxImportSource react */
-import { ArrowUp, GripVertical, ListPlus, LoaderCircle, X } from "lucide-react";
-import { Fragment, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { ArrowUp,GripVertical,ListPlus,LoaderCircle,X } from "lucide-react";
+import { Fragment,useRef,useState,type DragEvent,type ReactNode } from "react";
 
+import type { ComposerAttachment,ComposerDraft,ComposerPart } from "@/app/types";
+import { AttachmentFileChip,ComposerBadgeChip,ComposerPillChip } from "@/components/chat/composer-pill";
 import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge";
 import { t } from "@/i18n";
-import type { ComposerAttachment, ComposerDraft, ComposerPart } from "@/app/types";
-import { AttachmentFileChip, ComposerBadgeChip, ComposerPillChip } from "@/components/chat/composer-pill";
+import type { QueuedComposerItem } from "@/react-app/domains/session/surface/composer-state-store";
 import {
-  agentBadge,
-  fileMentionBadge,
-  pastedTextBadge,
-  type ComposerBadge,
+agentBadge,
+fileMentionBadge,
+pastedTextBadge,
+type ComposerBadge,
 } from "@/react-app/domains/session/surface/composer/composer-chips";
 import {
-  COMPOSER_DRAFT_TOKEN_RE,
-  composerPillFromPart,
-  parseComposerPillToken,
-  type ComposerPill,
+COMPOSER_DRAFT_TOKEN_RE,
+parseComposerPillToken
 } from "@/react-app/domains/session/surface/composer/composer-pills";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
-import type { QueuedComposerItem } from "@/react-app/domains/session/surface/composer-state-store";
 
 export type QueuedMessagesPanelProps = {
   items: QueuedComposerItem[];
@@ -40,17 +38,6 @@ function pastedLines(parts: ComposerPart[], label: string) {
     if (part.type === "paste" && part.label === label) return part.lines;
   }
   return 1;
-}
-
-function mentionPill(parts: ComposerPart[], segment: string): ComposerPill | null {
-  if (!segment.startsWith("@")) return null;
-  const value = decodeComposerMentionValue(segment.slice(1));
-  for (const part of parts) {
-    if (part.type === "computer" && part.target === value) {
-      return composerPillFromPart(part);
-    }
-  }
-  return null;
 }
 
 function mentionBadge(parts: ComposerPart[], segment: string): ComposerBadge | null {
@@ -99,7 +86,7 @@ function QueuedDraftContent(props: { draft: ComposerDraft }) {
       continue;
     }
 
-    const pill = parseComposerPillToken(segment) ?? mentionPill(props.draft.parts, segment);
+    const pill = parseComposerPillToken(segment);
     if (pill) {
       nodes.push(<ComposerPillChip key={key} pill={pill} />);
       continue;

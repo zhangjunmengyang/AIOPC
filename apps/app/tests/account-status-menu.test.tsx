@@ -2,6 +2,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
+import { t } from "../src/i18n";
 import type { Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -12,31 +13,19 @@ let ShellConfigProvider: typeof import("../src/react-app/shell/shell-config")["S
 let root: Root | null = null;
 let host: HTMLDivElement;
 let previousAct: unknown;
-let controlSettingsBlocked = false;
+let settingsOpened = 0;
 
 // Keep the router, menu primitives, status resolution, and shell config real.
 // Only replace context hooks that require the desktop/cloud application shell.
-mock.module("../src/react-app/domains/cloud/den-auth-provider", () => ({
-  useDenAuth: () => ({
-    isSignedIn: true,
-    status: "signed-in",
-    user: { id: "test-user", name: "Test User", email: "test@example.com" },
-    verifiedIdentity: null,
-  }),
-  isDenSessionRestoring: () => false,
-}));
+
 mock.module("../src/react-app/kernel/platform", () => ({
   usePlatform: () => ({ openLink: () => {} }),
 }));
 mock.module("../src/react-app/shell/control/control-provider", () => ({
   useControlAction: () => {},
 }));
-mock.module("../src/react-app/domains/cloud/desktop-config-provider", () => ({
-  useDesktopRestriction: (key: string) => key === "allowControlSettings" && controlSettingsBlocked,
-}));
-mock.module("../src/react-app/domains/cloud/use-gateway-usage", () => ({
-  useGatewayUsage: () => ({ authorized: false }),
-}));
+
+
 
 beforeAll(async () => {
   if (ownedDom) GlobalRegistrator.register({ url: "http://localhost/" });
@@ -48,7 +37,7 @@ afterAll(async () => { if (ownedDom) await GlobalRegistrator.unregister(); });
 beforeEach(() => {
   previousAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT");
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
-  controlSettingsBlocked = false;
+  settingsOpened = 0;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -75,41 +64,25 @@ async function openMenu(developerMode: boolean) {
           showConnectionStatus
           providerConnectedIds={["openwork"]}
           mcpConnectedCount={0}
-          openWorkConnectState={{ status: "failed", issue: null, attempt: 1, maxAttempts: 1 }}
+          onOpenAccountSettings={() => { settingsOpened += 1; }}
         />
         <LocationProbe />
       </ShellConfigProvider>
     </MemoryRouter>,
   ));
-  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Account menu"]');
+  const trigger = host.querySelector<HTMLButtonElement>('[data-testid="account-status-menu"]');
   expect(trigger).not.toBeNull();
   await act(async () => { trigger?.click(); });
   const menu = document.querySelector('[role="menu"]');
   expect(menu).not.toBeNull();
-  expect(menu?.textContent).toContain("OpenWork Connect: Needs attention");
+  expect(menu?.textContent).not.toContain("OpenWork Connect");
   return menu;
 }
 
-function diagnosticsAction() {
-  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find(item => item.textContent?.trim() === "Run diagnostics");
-}
-
-test.each([
-  [false, "/settings/advanced/agent-access"],
-  [true, "/settings/debug"],
-] satisfies [boolean, string][])("Run diagnostics with developerMode=%s navigates to %s", async (developerMode, destination) => {
-  await openMenu(developerMode);
-  const action = diagnosticsAction();
-  expect(action).toBeDefined();
-  await act(async () => { action?.click(); });
-  expect(host.querySelector('[data-testid="location"]')?.textContent).toBe(destination);
-});
-
-test.each([false, true])("allowControlSettings restriction hides Run diagnostics with developerMode=%s", async (developerMode) => {
-  controlSettingsBlocked = true;
+test.each([false, true])("local settings are reachable with developerMode=%s", async (developerMode) => {
   const menu = await openMenu(developerMode);
-  expect(diagnosticsAction()).toBeUndefined();
-  expect(menu?.textContent).toContain("Account");
-  expect(host.querySelector('[data-testid="location"]')?.textContent).toBe("/workspace/test/session/test");
+  const settings = [...menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === t("status.settings"));
+  expect(settings).toBeDefined();
+  await act(async () => { settings?.click(); });
+  expect(settingsOpened).toBe(1);
 });

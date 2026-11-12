@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 GlobalRegistrator.register({ url: "https://web.example/" })
 const previousAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT")
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true)
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
 const { MessageList } = await import("../src/components/chat/message-list")
@@ -32,7 +32,7 @@ afterAll(() => {
   GlobalRegistrator.unregister()
 })
 
-const meetingSkill = { kind: "connect-skill", slug: "meeting-analysis", name: "Meeting analysis", marketplace: "OpenWork", capability: "skill:meeting-analysis" } as const
+const meetingSkill = { kind: "skill", name: "meeting-analysis" } as const
 
 /** The turn as a one-string engine stores it and the transcript reads it back from history. */
 function reloadedTurn(): UIMessage {
@@ -50,7 +50,7 @@ async function render(messages: UIMessage[], onEditUserMessage: (...args: unknow
   document.body.append(container)
   const root = createRoot(container)
   mounted = { root, container }
-  await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient, children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+  await act(async () => root.render(createElement(QueryClientProvider, { client: queryClient, children: createElement(PlatformProvider, {
     value: createDefaultPlatform(),
     children: createElement(MessageListProvider, {
       workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -60,20 +60,19 @@ async function render(messages: UIMessage[], onEditUserMessage: (...args: unknow
       onMcpReconnect: async () => {}, onMcpReopenAuthorization: async () => {},
       children: createElement(MessageList, { messages, status: "ready", activityStatus: "idle" }),
     }),
-  }) }) })))
+  }) })))
   return container
 }
 
 test("a reloaded user turn draws the composer's skill and agent chips, not slash text", async () => {
   const container = await render([reloadedTurn()], () => {})
   const bubble = container.querySelector('[data-message-role="user"]')
-  const skill = bubble?.querySelector('[data-composer-badge="connect-skill"]')
+  const skill = bubble?.querySelector('[data-composer-badge="skill"]')
   expect(skill?.textContent).toBe("Meeting analysis")
-  expect(skill?.getAttribute("title")).toBe("Skill: Meeting analysis")
+  expect(skill?.getAttribute("title")).toBe("Skill: meeting-analysis")
   expect(bubble?.querySelector('[data-composer-badge="agent"]')?.textContent).toBe("Eexplore")
   expect(bubble?.textContent).toContain("today's meeting")
   expect(bubble?.textContent).not.toContain("/meeting-analysis")
-  expect(bubble?.textContent).not.toContain("openwork-cloud_get_skill")
 })
 
 test("Edit restores the chips as composer tokens and mentions", async () => {
@@ -82,6 +81,6 @@ test("Edit restores the chips as composer tokens and mentions", async () => {
   const edit = container.querySelector('button[aria-label="Edit message"]')
   await act(async () => (edit as HTMLButtonElement).click())
   expect(calls[0]?.[0]).toBe("msg_1")
-  expect(calls[0]?.[1]).toBe("[connect-skill meeting-analysis|Meeting analysis|OpenWork|skill:meeting-analysis] today's meeting@explore")
+  expect(calls[0]?.[1]).toBe("[skill meeting-analysis] today's meeting@explore")
   expect(calls[0]?.[2]).toMatchObject({ mentions: { explore: "agent" } })
 })

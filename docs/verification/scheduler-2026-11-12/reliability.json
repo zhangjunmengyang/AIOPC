@@ -1,0 +1,19 @@
+{
+  "test": "manual supervisor fault injection (not a calendar trigger)",
+  "firstExit": {
+    "code": 124,
+    "signal": null
+  },
+  "duplicateExit": {
+    "code": 0,
+    "signal": null
+  },
+  "lastRunSource": "manual",
+  "lastRunStatus": "failed",
+  "lastRunError": "timeout",
+  "lastRunExitCode": 124,
+  "starts": 1,
+  "overlapSkipped": true,
+  "timeoutKilled": true,
+  "lockRemoved": true
+}

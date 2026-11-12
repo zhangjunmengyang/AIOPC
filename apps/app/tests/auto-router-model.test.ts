@@ -2,15 +2,11 @@ import { expect, test } from "bun:test";
 
 import type { ModelOption } from "../src/app/types";
 import {
-  AUTO_MODEL_ID,
-  AUTO_PROVIDER_ID,
   AUTO_ROUTER_GROUP,
   fixedModelTitle,
-  isAutoModel,
   isAutoRouterModel,
   managesOwnBehavior,
   modelGroups,
-  modelSource,
   modelSubtitle,
   modelTitle,
   nonDefaultModelSummary,
@@ -23,7 +19,7 @@ function option(providerID: string, modelID: string, title: string, description:
 
 const router = option("openwork-auto", "openwork-smart-ar_engineering", "Smart: Engineering", "Smart Model Router");
 const design = option("openwork-auto", "openwork-smart-ar_design", "Smart: Design", "Smart Model Router");
-const free = { ...option(AUTO_PROVIDER_ID, AUTO_MODEL_ID, "GPT-6 Luna", "OpenWork Models (Free)"), isFree: true };
+const free = { ...option("openai", "gpt-6-luna", "GPT-6 Luna", "OpenAI"), isFree: true };
 const opus = option("anthropic", "opus", "Claude Opus", "Anthropic");
 
 test("Smart is the first entry, in its own group, even when pinned or recent", () => {
@@ -41,17 +37,13 @@ test("two Smart Routers are both listed first, by name, whatever order the engin
   }
 });
 
-test("Smart and OpenWork Free are told apart", () => {
+test("Smart and a direct model are told apart", () => {
   expect(isAutoRouterModel(router)).toBe(true);
   expect(isAutoRouterModel(design)).toBe(true);
-  expect(isAutoModel(router)).toBe(false);
   expect(isAutoRouterModel(free)).toBe(false);
-  expect(isAutoModel(free)).toBe(true);
   expect(modelTitle(router)).toBe("Smart: Engineering");
   expect(publicModelTitle(design)).toBe("Smart: Design");
   expect(fixedModelTitle(router)).toBe("Smart: Engineering");
-  expect(modelTitle(free)).toBe("OpenWork Free");
-  expect(publicModelTitle(free)).toBe("OpenWork Free");
   expect(modelSubtitle(router)).toBe("Picks the best model for each task");
 });
 
@@ -62,8 +54,7 @@ test("a Smart model without a name never shows its id", () => {
   expect(publicModelTitle({ ...unnamed, title: "openwork-smart-ar_x" })).toBe("Smart");
 });
 
-test("Smart is an OpenWork Gateway model with no effort of its own", () => {
-  expect(modelSource({ ...router, source: "cloud" })).toBe("gateway");
+test("Smart has no effort setting of its own", () => {
   expect(managesOwnBehavior(router)).toBe(true);
   expect(managesOwnBehavior(design)).toBe(true);
   expect(nonDefaultModelSummary(router, "high", "High")).toBeNull();

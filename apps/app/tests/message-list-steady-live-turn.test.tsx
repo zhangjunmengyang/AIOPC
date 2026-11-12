@@ -16,7 +16,7 @@ afterAll(() => {
 const { PlatformProvider, createDefaultPlatform } = await import("../src/react-app/kernel/platform")
 const { MessageListProvider } = await import("../src/components/chat/message-list-provider")
 const { MessageList } = await import("../src/components/chat/message-list")
-const { DenAuthProvider } = await import("../src/react-app/domains/cloud/den-auth-provider")
+
 const { useSteadyLiveTurnStore } = await import("../src/components/chat/steady-live-turn-store")
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 
@@ -53,7 +53,7 @@ const messages: UIMessage[] = [{
 
 function liveTurnView(status: "streaming" | "ready", content: UIMessage[] = messages) {
   return createElement(QueryClientProvider, { client: queryClient,
-    children: createElement(DenAuthProvider, { children: createElement(PlatformProvider, {
+    children: createElement(PlatformProvider, {
       value: createDefaultPlatform(),
       children: createElement(MessageListProvider, {
         workspaceId: "workspace_fixture", sessionId: "session_fixture",
@@ -64,7 +64,7 @@ function liveTurnView(status: "streaming" | "ready", content: UIMessage[] = mess
         onMcpReopenAuthorization: async () => {},
         children: createElement(MessageList, { messages: content, status, activityStatus: status === "streaming" ? "responding" : "idle" }),
       }),
-    }) }) })
+    }) })
 }
 
 async function renderLiveTurn(steady: boolean, status: "streaming" | "ready" = "streaming") {

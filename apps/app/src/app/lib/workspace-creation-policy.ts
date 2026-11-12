@@ -1,5 +1,1 @@
-import { isOpenworkGatewayRuntime } from "./gateway-runtime";
-
-export function canCreateWorkspaces() {
-  return !isOpenworkGatewayRuntime();
-}
+export function canCreateWorkspaces() { return true; }

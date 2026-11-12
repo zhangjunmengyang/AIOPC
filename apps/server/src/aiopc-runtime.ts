@@ -15,13 +15,14 @@ function serviceDirectory(environment: NodeJS.ProcessEnv): string | null {
 /** The OPC MCP server. It runs over stdio, so the engine starts one per workspace with that folder as its working directory. */
 export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): Record<string, Record<string, unknown>> {
   const serviceDir = serviceDirectory(environment);
-  if (!serviceDir) return {};
+  if (!serviceDir) return schedulerMcpServers(environment);
   const passthrough = ["AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT"] as const;
   const serviceEnvironment = Object.fromEntries(passthrough.flatMap((key) => {
     const value = environment[key]?.trim();
     return value ? [[key, value]] : [];
   }));
   return {
+    ...schedulerMcpServers(environment),
     aiopc: {
       type: "local",
       command: [environment.AIOPC_UV!.trim(), "run", "--project", serviceDir, "--frozen", "--no-dev", "--quiet",
@@ -32,6 +33,23 @@ export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): R
       timeout: 120_000,
     },
   };
+}
+
+/** The scheduler uses a host-owned launcher and works with both engine versions. */
+function schedulerMcpServers(environment: NodeJS.ProcessEnv): Record<string, Record<string, unknown>> {
+  const node = environment.AIOPC_SCHEDULER_NODE?.trim();
+  const entry = environment.AIOPC_SCHEDULER_ENTRY?.trim();
+  const launcher = environment.OPENCODE_SCHEDULER_OPENCODE_PATH?.trim();
+  const sdk = environment.AIOPC_SCHEDULER_SDK?.trim();
+  if (!node || !entry || !launcher || !sdk) return {};
+  const keys = ["AIOPC_SCHEDULER_NODE", "AIOPC_SCHEDULER_ENTRY", "OPENCODE_SCHEDULER_OPENCODE_PATH", "AIOPC_SCHEDULER_SDK", "AIOPC_HOME"] as const;
+  return { scheduler: {
+    type: "local", command: [node, entry], enabled: true,
+    environment: { ELECTRON_RUN_AS_NODE: "1", ...Object.fromEntries(keys.flatMap(key => {
+      const value = environment[key]?.trim();
+      return value ? [[key, value]] : [];
+    })) },
+  } };
 }
 
 export function aiopcSkillDirectories(environment: NodeJS.ProcessEnv = process.env): string[] {

@@ -1,5 +1,5 @@
 import type { ModelOption, ModelRef } from "@/app/types";
-import { managesOwnBehavior, modelSource, modelTitle, nextModelSource, nextPinnedModel, orderedModelPins, MODEL_SOURCE_LABELS } from "@/react-app/domains/models/model-catalog";
+import { managesOwnBehavior, modelTitle, nextPinnedModel, orderedModelPins } from "@/react-app/domains/models/model-catalog";
 
 export function commandPaletteModelTarget(workbench: { focusedPane: string; secondary: { sessionId: string; draftDestination?: unknown } | null }, primarySessionId: string | null) {
   if (workbench.focusedPane !== "secondary" || !workbench.secondary) return primarySessionId;
@@ -33,7 +33,6 @@ export type CommandPaletteModelControlsInput = {
 export function createCommandPaletteModelControls(input: CommandPaletteModelControlsInput) {
   const pins = orderedModelPins(input.options, input.favorites);
   const nextPin = nextPinnedModel(input.options, input.favorites, input.current ?? null);
-  const nextSource = nextModelSource(input.options, pins, input.current ?? null);
   const nextPinnedOption = input.options.find((option) => option.providerID === nextPin?.providerID && option.modelID === nextPin.modelID);
   const cycle = (option: ModelOption | undefined | null) => {
     if (!option || option.disabled) return null;
@@ -48,11 +47,7 @@ export function createCommandPaletteModelControls(input: CommandPaletteModelCont
     selectedModelBehavior: input.behavior,
     onSelectModel: input.onSelect,
     onNextPinnedModel: () => cycle(nextPinnedOption),
-    onCycleModelSource: () => cycle(nextSource),
     nextPinnedOption,
-    nextSourceOption: nextSource,
-    sourceCycleDetail: [...new Set([...pins, ...input.options.filter((option) => !option.disabled)].map(modelSource))]
-      .map((source) => MODEL_SOURCE_LABELS[source]).join(" · "),
   };
 }
 

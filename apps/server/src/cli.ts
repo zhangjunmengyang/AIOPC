@@ -25,10 +25,8 @@ import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace, resolveManagedEngineCwd, shouldStartManagedEngine } from "./workspaces.js";
 import { runtimeStorageDir } from "./runtime-db.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
-import { migrateOpenworkCloudMcpRuntimeConfig } from "./cloud-mcp-health.js";
 import { migrateWorkspaceRuntimeConfigToEngineGlobal } from "./runtime-opencode-config-store.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
-import { startWorkerActivityHeartbeat } from "./worker-activity-heartbeat.js";
 import {
   checkForUpdate,
   ensureManagedEngine,
@@ -116,7 +114,6 @@ let stopRuntimeConfigFileRefresh: (() => void) | undefined;
 
 if (!config.readOnly) {
   await ensureLocalWorkspaceFiles(config.workspaces);
-  await migrateOpenworkCloudMcpRuntimeConfig(config);
   await migrateWorkspaceRuntimeConfigToEngineGlobal(config);
 }
 
@@ -131,9 +128,6 @@ const manageEngine = !config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPEN
 const server = await startServer(config, { deferManagedEngineStartup: manageEngine });
 config.port = server.port;
 const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`;
-const workerActivityHeartbeat = startWorkerActivityHeartbeat(config, logger, {
-  onEnginePolicy: (policy) => { server.setEngineForcePolicy(policy); },
-});
 
 if (manageEngine) {
   // Reap engines recorded by servers that died without cleanup. Best
@@ -309,7 +303,6 @@ if (args.verbose) {
 }
 
 async function shutdown() {
-  workerActivityHeartbeat?.stop();
   stopRuntimeConfigFileRefresh?.();
   if (managedOpencodeIdentity && !enginePool) {
     clearTrustedOpencodeProcess(config, managedOpencodeIdentity);

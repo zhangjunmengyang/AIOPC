@@ -9,8 +9,6 @@ import { ModelPickerPanel } from "@/react-app/domains/models/model-picker-panel"
 import { useModelCatalog, useModelChoice } from "@/react-app/domains/models/use-model-catalog";
 import { useWorkspace } from "@/react-app/shell/workspace-provider";
 import { useSetWorkspaceDefaultModel } from "@/react-app/kernel/use-workspace-model-default";
-import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
-import { openAutoProviderSettings } from "@/react-app/domains/cloud/auto-access-ui";
 import { openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { openComposerModelPickerEvent } from "@/app/lib/inference-access";
 import { fixedModelTitle, managesOwnBehavior, modelTitle, modelTriggerSettings, type RetainedModelSelection } from "@/react-app/domains/models/model-catalog";
@@ -27,8 +25,6 @@ interface ModelSelectProps {
   onChange: (model: ModelRef, variant?: string | null) => void;
   disabled?: boolean;
   sessionId?: string;
-  openWorkModelsEntitled?: boolean;
-  openWorkModelsSyncing?: boolean;
   fallbackOptions?: readonly ModelOption[];
   behaviorValue?: string | null;
   behaviorLabel?: string;
@@ -40,20 +36,19 @@ interface ModelSelectProps {
 }
 
 export function ModelSelect({ open, value, hideValue = false, onOpenChange, onChange, disabled = false, sessionId,
-  openWorkModelsSyncing = false, fallbackOptions = [], behaviorValue = null, behaviorOptions = [], onBehaviorChange, onSetWorkspaceDefault, onReloadWorkspace, retainedSelection: savedSelection }: ModelSelectProps) {
+  fallbackOptions = [], behaviorValue = null, behaviorOptions = [], onBehaviorChange, onSetWorkspaceDefault, onReloadWorkspace, retainedSelection: savedSelection }: ModelSelectProps) {
   const [focusAlternative, setFocusAlternative] = React.useState(false);
   const isMobile = useIsMobile();
   const popupRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const workspace = useWorkspace();
   const setWorkspaceDefault = useSetWorkspaceDefaultModel();
-  const checkRestriction = useCheckDesktopRestriction();
   const plainFreeModel = useDesktopFeature("plainFreeModel");
   const choice = useModelChoice(JSON.stringify([sessionId, value, behaviorValue, disabled]));
   const catalog = useModelCatalog({ client: workspace.client, baseUrl: workspace.opencodeBaseUrl, directory: workspace.selectedWorkspaceRoot,
-    enabled: true, refreshWhen: open, fallbackOptions, pendingOptions: choice.pendingOptions, disabledProviders: choice.disabledProviders,
-    current: value, savedSelection, sessionScoped: Boolean(sessionId), openWorkModelsSyncing });
-  const { options, catalogState, retainedSelection, restrictToCloud, autoVisible } = catalog;
+    enabled: true, refreshWhen: open, fallbackOptions,
+    current: value, savedSelection, sessionScoped: Boolean(sessionId) });
+  const { options, catalogState, retainedSelection } = catalog;
   React.useEffect(() => {
     const recover = (event: Event) => {
       // The New Task composer has no session; its requests carry none either.
@@ -77,7 +72,7 @@ export function ModelSelect({ open, value, hideValue = false, onOpenChange, onCh
   // Fast shows on its own as a quiet "· Fast" after the model name. Nothing follows "Select model", and a
   // setting the list does not show is only called out once the list is the engine's answer for a verified sign-in.
   const { summary, fast: fastOn } = modelTriggerSettings({ model: value, named: name !== undefined,
-    verified: catalogState.state === "ready" && !catalog.restoring,
+    verified: catalogState.state === "ready",
     options: selected?.behaviorOptions ?? catalog.currentOption?.behaviorOptions ?? behaviorOptions, value: behaviorValue });
   const select = (option: ModelOption, behavior?: { variant: string | null }) => choice.choose(option, () => {
     onChange({ providerID: option.providerID, modelID: option.modelID }, behavior?.variant);
@@ -86,10 +81,8 @@ export function ModelSelect({ open, value, hideValue = false, onOpenChange, onCh
     onOpenChange(false);
   });
   const openProvider = () => { onOpenChange(false); window.dispatchEvent(new Event(openProviderAuthEvent)); };
-  const openSettings = () => { onOpenChange(false); openAutoProviderSettings(); };
+  const openSettings = () => { onOpenChange(false); window.dispatchEvent(new Event(openProviderAuthEvent)); };
   return <Popover open={open} onOpenChange={(next) => {
-    // A provider sign-in opened from this picker owns focus until it finishes or is cancelled.
-    if (!next && choice.loginOpen) return;
     setFocusAlternative(false); onOpenChange(next);
   }}>
     <PopoverTrigger type="button" disabled={disabled} aria-label="Change model"
@@ -99,8 +92,8 @@ export function ModelSelect({ open, value, hideValue = false, onOpenChange, onCh
     <PopoverContent ref={popupRef} tabIndex={-1} align="start" initialFocus={() => isMobile || focusAlternative ? popupRef.current : searchInputRef.current} data-testid="composer-model-picker" className="flex max-h-[min(var(--available-height),36rem)] w-90 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl p-0">
       <ModelPickerPanel searchInputRef={searchInputRef} options={options} current={value} behaviorValue={behaviorValue} fallbackBehaviorOptions={behaviorOptions}
         onSelect={select} onBehaviorChange={onBehaviorChange} focusAlternative={focusAlternative} catalogState={catalogState} retainedSelection={retainedSelection}
-        onConnectProvider={!restrictToCloud ? openProvider : undefined} onOpenProviderSettings={!checkRestriction({ restriction: "allowControlSettings" }) ? openSettings : undefined}
-        onSetWorkspaceDefault={onSetWorkspaceDefault ?? setWorkspaceDefault} openWorkModelsSyncing={openWorkModelsSyncing} autoVisible={autoVisible} onReloadWorkspace={onReloadWorkspace} />
+        onConnectProvider={openProvider} onOpenProviderSettings={openSettings}
+        onSetWorkspaceDefault={onSetWorkspaceDefault ?? setWorkspaceDefault} onReloadWorkspace={onReloadWorkspace} />
     </PopoverContent>
   </Popover>;
 }

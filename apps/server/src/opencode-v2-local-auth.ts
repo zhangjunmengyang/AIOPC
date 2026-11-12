@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { opencodeDataDirs, resolveGlobalOpencodeConfigPath } from "@openwork/paths";
 import { readJsoncFile } from "./jsonc.js";
-import { ORGANIZATION_PROVIDER_ID } from "./organization-provider-gate.js";
+// Ignore retired upstream provider IDs when reading older local state.
+const ORGANIZATION_PROVIDER_ID = /^(?:lpr_|ipr_|openwork$|openwork-auto$)/i;
 import { loopbackFetch } from "./server-fetch.js";
 import type { ServerConfig } from "./types.js";
 

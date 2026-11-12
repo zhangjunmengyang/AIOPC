@@ -43,12 +43,9 @@ import { isDesktopRuntime } from "@/app/utils";
 import { compareProviders } from "@/app/utils/providers";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "../../../design-system/provider-icon";
-import { OrganizationMark, ProviderSectionLabel, ProviderStatus, ProviderTile } from "../../settings/pages/provider-rows";
-import { autoProviderSubtitle } from "../../models/model-catalog";
-import { showsRetiredOpencodeZen } from "@/app/cloud/desktop-app-restrictions";
+import { ProviderSectionLabel, ProviderStatus, ProviderTile } from "../../settings/pages/provider-rows";
 import type { SecretFieldHandle } from "@/components/secret-field";
 import { SecretTextInput } from "../../../design-system/secret-text-input";
-import { reportActivationEvent } from "../../cloud/activation/use-activation";
 import { TextInput } from "../../../design-system/text-input";
 import type {
   ProviderAuthMethod,
@@ -103,7 +100,6 @@ export type ProviderAuthModalProps = {
   connectedProviderIds: string[];
   /** Listed by the engine but without the person's own key (built-in Zen): offered under "Available to add". */
   keylessProviderIds?: ReadonlySet<string>;
-  gatewayProviderIds?: ReadonlySet<string>;
   authMethods: Record<string, ProviderAuthMethod[]>;
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
@@ -113,11 +109,6 @@ export type ProviderAuthModalProps = {
     code?: string,
   ) => Promise<{ connected: boolean; pending?: boolean; message?: string }>;
   onRefreshProviders?: () => Promise<unknown>;
-  openWorkModelsState?: "included" | "off" | "unavailable";
-  organizationName?: string;
-  organizationProviderIds?: ReadonlySet<string>;
-  organizationProviderCount?: number;
-  onOpenDen?: () => void;
   onClose: () => void;
 };
 
@@ -222,7 +213,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     const providersById = new Map(providers.map((provider) => [provider.id, provider]));
     const nextEntries = Object.keys(methods)
-      .filter((id) => !props.gatewayProviderIds?.has(id))
       .flatMap((id) => {
         const provider = providersById.get(id);
         const entryMethods = (methods[id] ?? []).filter((method) => {
@@ -245,7 +235,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       .sort(compareProviders);
 
     return nextEntries.filter((entry) => entry.id !== OPENWORK_MODELS_PROVIDER_ID && entry.id !== "openwork-free");
-  }, [props.authMethods, props.connectedProviderIds, props.gatewayProviderIds, props.keylessProviderIds, props.providers]);
+  }, [props.authMethods, props.connectedProviderIds, props.keylessProviderIds, props.providers]);
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedProviderId) ?? null,
@@ -615,7 +605,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
-    if (method.type === "cloud") return;
     if (method.type === "external") { setView("external"); return; }
 
     setView("api");
@@ -652,7 +641,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setLocalError(null);
     try {
       await props.onSubmitApiKey(selectedEntry.id, trimmed);
-      void reportActivationEvent("own_provider");
       toast.success(`${selectedEntry.name} connected`, {
         description: "API key saved locally by OpenCode.",
       });
@@ -687,7 +675,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       const result = await connect();
       // No message means the check was dropped (the workspace changed); nothing to report.
       if (typeof result !== "string") return;
-      void reportActivationEvent("own_provider");
       toast.success(result);
       props.onClose();
     } catch {
@@ -795,7 +782,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (method.type === "oauth") {
       return "Continue in the browser and let OpenWork finish the connection automatically.";
     }
-    if (method.type === "cloud") return "Managed by your organization.";
     if (method.type === "external") return "Use your Claude plan through Claude Code on this computer.";
     if (isOpencodeZenProvider(entry.id)) {
       return "Sign in to OpenCode Zen with an API key to unlock paid models alongside the free tier.";
@@ -804,10 +790,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   const searchText = searchQuery.trim().toLowerCase();
-  const showIncludedAuto = Boolean(props.openWorkModelsState || props.connectedProviderIds.includes("openwork-free"))
-    && (!searchText || "openwork models auto free".includes(searchText));
-  const showRetiredZen = showsRetiredOpencodeZen({ providerIds: entries.map((entry) => entry.id), query: searchText });
-
   const entrySubtitle = (entry: ProviderAuthEntry) => {
     if (entry.connected) return entry.methods.some((method) => method.type === "oauth") ? "Signed in on this device" : "API key on this device";
     const oauth = entry.methods.some((method) => method.type === "oauth");
@@ -815,7 +797,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const external = entry.methods.some((method) => method.type === "external");
     const signIn = external ? `Sign in with ${CLAUDE_CODE_NAME}` : isOpenAiProvider(entry.id, entry.name) ? "Sign in with ChatGPT" : isAnthropicProvider(entry.id, entry.name) ? "Sign in with Claude" : "Sign in";
     const how = (oauth || external) && apiKey ? `${signIn} or paste an API key` : external ? signIn : oauth ? `${signIn} in the browser` : "Paste an API key";
-    return props.organizationProviderIds?.has(entry.id) ? `${how} · also available from ${props.organizationName || "your organization"}` : how;
+    return how;
   };
 
   const renderEntry = (entry: ProviderAuthEntry, index: number) => {
@@ -863,7 +845,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         <DialogHeader className="pr-8">
           <DialogTitle ref={titleRef} tabIndex={-1}>Connect a provider</DialogTitle>
           <DialogDescription className="text-pretty">
-            Connects a provider on this device only.{props.organizationName ? ` Providers from ${props.organizationName} are already included and managed in Den.` : ""}
+            Connects a provider on this device.
           </DialogDescription>
         </DialogHeader>
 
@@ -902,21 +884,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     />
                   </div>
 
-                  {showIncludedAuto || connectedCount ? (
+                  {connectedCount ? (
                     <div role="group" aria-labelledby="connect-provider-device">
-                      <ProviderSectionLabel id="connect-provider-device" count={connectedCount + Number(showIncludedAuto)}>On this device</ProviderSectionLabel>
-                      {showIncludedAuto ? (
-                        <div className="flex items-center gap-3 rounded-xl px-2 py-2" data-testid="included-openwork-provider">
-                          <ProviderTile providerId="openwork" size="sm" />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-dls-text">OpenWork Models</div>
-                            <div className="line-clamp-2 text-xs text-muted-foreground">{autoProviderSubtitle()}</div>
-                          </div>
-                          {props.openWorkModelsState === "off" || props.openWorkModelsState === "unavailable" ? (
-                            <ProviderStatus tone="neutral">{props.openWorkModelsState === "off" ? "Turned off" : "Unavailable"}</ProviderStatus>
-                          ) : null}
-                        </div>
-                      ) : null}
+                      <ProviderSectionLabel id="connect-provider-device" count={connectedCount}>On this device</ProviderSectionLabel>
+
                       {filteredEntries.slice(0, connectedCount).map((entry, index) => renderEntry(entry, index))}
                     </div>
                   ) : null}
@@ -928,18 +899,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : null}
 
-                  {showRetiredZen ? (
-                    <div className="flex items-center gap-3 rounded-xl px-2 py-2" data-testid="retired-opencode-zen">
-                      <ProviderTile providerId="opencode" name="OpenCode Zen" size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-dls-text">OpenCode Zen</div>
-                        <div className="line-clamp-2 text-xs text-muted-foreground">Use OpenCode Go with your OpenCode key</div>
-                      </div>
-                      <ProviderStatus tone="locked">No longer offered</ProviderStatus>
-                    </div>
-                  ) : null}
 
-                  {!filteredEntries.length && !showIncludedAuto && !showRetiredZen ? (
+
+                  {!filteredEntries.length ? (
                     <div className="px-2 py-6 text-center text-sm text-muted-foreground">
                       {entries.length ? "No providers match your search." : "No providers available."}
                     </div>
@@ -1218,13 +1180,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
         {resolvedView === "list" ? (
           <DialogFooter className="shrink-0 flex-row items-center justify-between gap-3 sm:flex-row sm:justify-between">
-            {props.organizationProviderCount !== undefined ? (
-              <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                {props.organizationName ? <OrganizationMark name={props.organizationName} size="sm" /> : null}
-                <span className="truncate" title={`${props.organizationProviderCount === 1 ? "1 provider" : `${props.organizationProviderCount} providers`} already included by ${props.organizationName || "your organization"}`}>{props.organizationProviderCount} included by {props.organizationName || "your organization"}</span>
-                {props.onOpenDen ? <><span aria-hidden>·</span><button type="button" className="shrink-0 font-medium text-dls-text underline-offset-2 hover:underline" onClick={props.onOpenDen}>Manage in Den</button></> : null}
-              </div>
-            ) : <span className="text-xs text-muted-foreground">{props.submitting ? submittingLabel() : "Keys stay on this device."}</span>}
+            <span className="text-xs text-muted-foreground">{props.submitting ? submittingLabel() : "Keys stay on this device."}</span>
             <div className="hidden shrink-0 items-center gap-1 sm:flex" aria-hidden>
               {["↑↓", "↵", "esc"].map((key) => <kbd key={key} className="rounded-md border border-dls-border bg-dls-surface px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground">{key}</kbd>)}
             </div>

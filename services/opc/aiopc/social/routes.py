@@ -105,7 +105,7 @@ PAGES: dict[str, dict[str, str]] = {
 class BrowserRoute(Route):
     """Fills the platform's composer (MultiPost) for the person to publish; reads the account's own pages."""
 
-    id, kind, name = "browser", "browser", "内置浏览器"
+    id, kind, name = "browser", "browser", "项目环境"
 
     def __init__(self, browser_for: Any):
         # await browser_for(account) -> the browser wherever that account is logged in.
@@ -121,9 +121,8 @@ class BrowserRoute(Route):
         browser = await self._browser(account)
         result = await browser.compose(account["platform"], post.form, text=post.text, title=post.title,
                                        media=post.media, tags=post.tags)
-        where = "项目环境的画面里" if account.get("engine") == "sandbox" else "右侧内置浏览器"
         return {"status": "composer_filled", **result,
-                "message": f"已在{where}填好发布页。请检查后点发布；发布后把链接告诉我，会记录到项目。"}
+                "message": "已在项目环境里填好发布页，等待你点击发布。发布后把链接告诉我，会记录到项目。"}
 
     def reads(self, account: dict[str, Any], what: str) -> bool:
         return what in PAGES.get(account["platform"], {})

@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { DynamicToolUIPart } from "ai";
 import { mcpAppResourceUri } from "@openwork/types/mcp-app";
-import type { AppCreationRun } from "../src/react-app/domains/apps/app-creation-progress";
+import type { AppCreationRun } from "../src/react-app/domains/mcp-apps/app-creation-progress";
 
 const ownedDom = typeof window === "undefined";
 if (ownedDom) GlobalRegistrator.register({ url: "http://localhost/" });
@@ -14,7 +14,7 @@ const previousAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT");
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 const lifecycle = await import("../src/components/chat/current-tool-lifecycle-context");
 const messageList = await import("../src/components/chat/message-list-provider");
-const previews = await import("../src/react-app/domains/apps/built-app-chat-preview");
+const previews = await import("../src/react-app/domains/mcp-apps/built-app-chat-preview");
 const { AppBuilderStep } = await import("../src/components/chat/app-builder-step");
 let root: Root;
 let host: HTMLDivElement;

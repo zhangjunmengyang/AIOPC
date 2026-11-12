@@ -4,10 +4,9 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
-import { dispatchDenSettingsChanged } from "../src/app/lib/den-session-events";
 import type { ResolvedWorkspaceEndpoint } from "../src/app/lib/workspace-endpoint";
 import type { RouteSession, RouteSessionListTransport, RouteWorkspace } from "../src/react-app/shell/route-workspaces";
-import type { DenAuthStore } from "../src/react-app/domains/cloud/den-auth-provider";
+
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
@@ -26,9 +25,6 @@ const defaultWorkspaces: RouteWorkspace[] = [
 ];
 let workspaces = defaultWorkspaces;
 let connection = { baseUrl: "http://localhost:4100", token: "token-1" };
-let denAuth: Pick<DenAuthStore, "status" | "isSignedIn" | "verifiedIdentity" | "user"> = {
-  status: "signed_out", isSignedIn: false, verifiedIdentity: null, user: null,
-};
 let localStatus = deferred<{ enabled: boolean; chatRouting: boolean }>();
 let bootReadyCalls = 0;
 const markRouteReady = () => { bootReadyCalls += 1; };
@@ -102,7 +98,7 @@ mock.module("@/react-app/shell/openwork-connection", () => ({
   }),
 }));
 mock.module("@/react-app/kernel/local-provider", () => ({ useLocal: () => ({ prefs: { hasCompletedOnboarding: true } }) }));
-mock.module("@/react-app/domains/cloud/den-auth-provider", () => ({ useDenAuth: () => denAuth }));
+
 mock.module("@/react-app/shell/boot-state", () => ({ useBootState: () => ({ markRouteReady, phase: "ready", routeReady: true }) }));
 mock.module("@/app/lib/app-inspector", () => ({
   publishInspectorOpencodeClient: () => () => undefined,
@@ -187,7 +183,6 @@ beforeEach(() => {
   probeUnmounts = 0;
   bootReadyCalls = 0;
   connection = { baseUrl: "http://localhost:4100", token: "token-1" };
-  denAuth = { status: "signed_out", isSignedIn: false, verifiedIdentity: null, user: null };
   localStatus = deferred();
 });
 
@@ -234,16 +229,7 @@ test("first-send publication updates the inventory ref before a stale list respo
   expect(route().sessionsByWorkspaceId.ws_1.map((session) => session.id)).toEqual(["ses_created"]);
 });
 
-const unchangedDenSettings = {
-  settings: { baseUrl: "https://den.invalid", authToken: "den-token", activeOrgId: "org_1" },
-};
-
 async function returnFromSettings(v2: boolean) {
-  denAuth = {
-    status: "signed_in", isSignedIn: true,
-    verifiedIdentity: { principalId: "user_1", organizationId: "org_1" },
-    user: { id: "user_1", email: "user@example.invalid", name: "Test User" },
-  };
   workspaces = [defaultWorkspaces[0]];
   await mount("ws_1", "selected");
   await publishRouting(v2);
@@ -256,7 +242,7 @@ async function returnFromSettings(v2: boolean) {
   await navigate("/workspace/ws_1/settings/general");
   expect(handle.current).toBeNull();
   expect(probeUnmounts).toBe(1);
-  await act(async () => { dispatchDenSettingsChanged(unchangedDenSettings); });
+  await act(async () => { window.dispatchEvent(new Event("openwork-server-settings-changed")); });
   expect(requests).toHaveLength(1);
   await navigate(-1);
   expect(probeMounts).toBe(2);
@@ -312,15 +298,14 @@ for (const v2 of [false, true]) {
     expect(hydrationRequests).toHaveLength(2);
   });
 
-  for (const refresh of ["server", "Den"]) {
+  for (const refresh of ["server"]) {
     test(`${engine} same-identity ${refresh} settings refresh retains a directly hydrated session through an empty replacement inventory`, async () => {
       const { inventory, hydration } = await returnFromSettings(v2);
       await act(async () => { hydration.response.resolve(session("ws_1", "selected")); });
       const endpointBefore = route().opencodeBaseUrl;
       const tokenBefore = route().selectedWorkspaceServerToken;
       await act(async () => {
-        if (refresh === "Den") dispatchDenSettingsChanged(unchangedDenSettings);
-        else window.dispatchEvent(new Event("openwork-server-settings-changed"));
+        window.dispatchEvent(new Event("openwork-server-settings-changed"));
       });
       expect(route().opencodeBaseUrl).toBe(endpointBefore);
       expect(route().selectedWorkspaceServerToken).toBe(tokenBefore);

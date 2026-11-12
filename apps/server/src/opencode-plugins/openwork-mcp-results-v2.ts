@@ -7,15 +7,6 @@ type ToolResult = { output?: unknown; content?: unknown; metadata?: Record<strin
 type ToolCall = { readonly messageID: string; readonly id: string; progress(metadata: Record<string, unknown>): Promise<void> };
 type EditableTool = { options?: Record<string, unknown>; execute(input: unknown, call: ToolCall): Promise<ToolResult> };
 
-/**
- * Connect's own search, execute, and skill reader stay in the Code Mode
- * catalog. When the catalog is full the engine still lists pinned tools but
- * hides the rest behind `search()`; without the pin, other MCP servers push
- * these out and the model would have to search for Connect's search.
- */
-export const PINNED_CONNECT_TOOL_IDS: ReadonlySet<string> = new Set(
-  ["search_capabilities", "execute_capability", "get_skill"].map(name => mcpToolId("openwork-cloud", name)));
-
 type ExecuteAfter = CallEvent & { readonly input: unknown } & (
   | { readonly status: "completed"; result: { output?: unknown; metadata?: Record<string, unknown> } }
   | { readonly status: "error"; readonly error: unknown }
@@ -32,12 +23,11 @@ type Context = {
   };
 };
 
-/** One OpenWork Cloud call made inside a Code Mode `execute`, kept because it reports a connection or an App build. */
+/** One MCP call made inside a Code Mode `execute`, kept because it reports a connection or an App build. */
 export type PreservedMcpResult =
   | { tool: string; input: unknown; status: "completed"; output: unknown }
   | { tool: string; input: unknown; status: "error"; error: string };
 
-const OPENWORK_CLOUD_TOOL = /^(?:openwork|openwork-cloud)_/;
 const MAX_ENTRY_BYTES = 64 * 1_024;
 const MAX_ENTRIES = 20;
 const MAX_OPEN_CALLS = 200;
@@ -90,14 +80,13 @@ function stableJson(value: unknown): string | undefined {
   }
 }
 
-/** Code Mode reports inner calls as `openwork-cloud.create_app`; older engines used `_`. */
+/** Code Mode reports inner calls as `server.tool`; older engines used `_`. */
 function normalizedTool(tool: string): string {
-  return tool.replace(/^(openwork(?:-cloud)?)\./, "$1_");
+  return tool.replace(/^([^.]+)\./, "$1_");
 }
 
 export function preservedEntry(rawEvent: ExecuteAfter): PreservedMcpResult | null {
   const event = { ...rawEvent, tool: normalizedTool(rawEvent.tool) };
-  if (!OPENWORK_CLOUD_TOOL.test(event.tool)) return null;
   const appBuilder = /_(?:search_capabilities|prepare_app|create_app|update_app)$/.test(event.tool);
   const appLaunch = event.status === "completed" && isRecord(event.result.output) && isRecord(event.result.output.launch);
   const input = jsonCopy(event.input);
@@ -283,7 +272,6 @@ export default {
       for (const info of editor.list()) {
         if (info.id === "execute") continue;
         editor.update(info.id, tool => {
-          if (PINNED_CONNECT_TOOL_IDS.has(info.id)) tool.options = { ...tool.options, pinned: true };
           const execute = tool.execute;
           tool.execute = async (input, call) => {
             const event = { tool: info.id, messageID: call.messageID, id: call.id, input };

@@ -5,7 +5,6 @@ const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "openwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "openwork:native-menu:zoom";
-const AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT = "openwork:automation-runner:credential-rejected";
 let windowFullscreen = ipcRenderer.sendSync("openwork:window-fullscreen-sync") === true;
 
 function normalizePlatform(value) {
@@ -106,16 +105,6 @@ window.addEventListener("contextmenu", (event) => {
   ipcRenderer.send("openwork:link:contextMenu", { url: url.href, point: { x: event.clientX, y: event.clientY } });
 }, { capture: true });
 
-let desktopBootstrap = null;
-let desktopDistribution = null;
-try {
-  desktopBootstrap = ipcRenderer.sendSync("openwork:desktop-bootstrap-sync");
-  desktopDistribution = ipcRenderer.sendSync("openwork:desktop-distribution-sync");
-} catch {
-  desktopBootstrap = null;
-  desktopDistribution = null;
-}
-
 contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("openwork:desktop", command, ...args);
@@ -137,13 +126,6 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
       const handler = (_event, payload) => callback(payload);
       ipcRenderer.on("openwork:dictation:event", handler);
       return () => ipcRenderer.removeListener("openwork:dictation:event", handler);
-    },
-  },
-  automationRunner: {
-    onCredentialRejected(callback) {
-      const handler = () => callback();
-      ipcRenderer.on(AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT, handler);
-      return () => ipcRenderer.removeListener(AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT, handler);
     },
   },
   fileSystem: {
@@ -252,8 +234,6 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
     },
   },
   meta: {
-    desktopBootstrap,
-    distribution: desktopDistribution,
     initialDeepLinks: [],
     platform: normalizePlatform(process.platform),
     version: process.versions.electron,
@@ -298,11 +278,6 @@ ipcRenderer.on(NATIVE_MENU_CHECK_UPDATES_EVENT, () => {
 ipcRenderer.on(NATIVE_MENU_ZOOM_EVENT, (_event, action) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NATIVE_MENU_ZOOM_EVENT, { detail: action }));
-});
-
-ipcRenderer.on(BROWSER_BOUNDS_INVALIDATED_EVENT, () => {
-  lastBrowserGeometry = null;
-  window.dispatchEvent(new Event(BROWSER_BOUNDS_INVALIDATED_EVENT));
 });
 
 ipcRenderer.on("openwork:window-fullscreen", (_event, fullscreen) => {
