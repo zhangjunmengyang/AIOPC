@@ -5,17 +5,24 @@ from .review import PublishReview
 from .service import SocialService
 
 
-def publish_review_routes(workspace_of, respond):
+def publish_review_routes(workspace_of, resolve_context, respond):
+    def owned_project(company, value):
+        root = company.resolve_project(value)
+        resolved, owner = resolve_context(str(root))
+        return resolved if owner.root == company.root else None
+
     async def collection(request: Request):
         workspace = workspace_of(request)
-        company = workspace.company
+        _, company = resolve_context(str(workspace.root))
         roots = [workspace.root]
         if workspace.root == company.root:
             base = company.root / "projects"
             if base.is_dir() and not base.is_symlink():
                 for candidate in base.iterdir():
                     try:
-                        roots.append(company.resolve_project(candidate.name))
+                        owned = owned_project(company, str(candidate))
+                        if owned is not None:
+                            roots.append(owned)
                     except ValueError:
                         continue
         items = []
@@ -29,9 +36,10 @@ def publish_review_routes(workspace_of, respond):
 
     async def item(request: Request):
         workspace = workspace_of(request)
+        _, company = resolve_context(str(workspace.root))
         project = request.query_params.get("project", "")
-        root = workspace.company.resolve_project(project) if project else workspace.root
-        if workspace.root not in (root, workspace.company.root):
+        root = owned_project(company, project) if project else workspace.root
+        if root is None or workspace.root not in (root, company.root):
             return respond({"error": "稿件不在当前项目"}, 404)
         review = PublishReview(SocialService(workspace.home, root)).read(request.path_params["review_id"], include_media=True)
         return respond(review) if review is not None else respond({"error": "稿件不存在"}, 404)

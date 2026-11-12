@@ -510,11 +510,12 @@ class SocialService:
                                 "page_url": result.get("page_url", ""), **origin})
         return {"account": info["name"], "account_id": account["id"], "route": route.name, **result}
 
-    def record_published(self, account_id: str, url: str, note: str = "") -> dict[str, Any]:
+    def record_published(self, account_id: str, url: str, note: str = "", *, audit_session_id: str = "") -> dict[str, Any]:
         account = self._account(account_id)
         if not str(url).startswith("https://"):
             raise SocialError("请提供帖子的 https 链接")
-        self._log(account, {"action": "published", "status": "published", "url": url, "note": note[:500]})
+        origin = {"session_id": audit_session_id} if audit_session_id else {}
+        self._log(account, {"action": "published", "status": "published", "url": url, "note": note[:500], **origin})
         return {"recorded": True, "account": self.describe(account)["name"], "url": url}
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -144,6 +144,51 @@ describe("MCP App launch sessions", () => {
     await expect(verify("ses_project_app")).resolves.toBeUndefined();
     await expect(verify("ses_archived_app")).rejects.toMatchObject({ code: "inactive_session" });
     await expect(verify("ses_foreign_app")).rejects.toMatchObject({ code: "inactive_session" });
+  });
+
+  test("only the managed AIOPC stdio command can serve a conversation's local publish approval", async () => {
+    const { callMcpAppTool, releaseMcpAppLaunch, resolveMcpAppResource } = await import("../src/mcp-app-host.js");
+    const command = join(dir, "fixture-uv");
+    const receipt = join(dir, "local-publish.json");
+    const resourceUri = "ui://aiopc/publish-review";
+    writeFileSync(command, `#!${process.execPath}
+const uri = ${JSON.stringify(resourceUri)};
+for await (const line of console) {
+  const body = JSON.parse(line);
+  if (body.id === undefined) continue;
+  const tool = (name, annotations, visibility) => ({ name, annotations, inputSchema: { type: "object" }, _meta: { ui: { resourceUri: uri, visibility } } });
+    const responses = {
+    initialize: { protocolVersion: "2025-06-18", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "aiopc", version: "1" } },
+    "tools/list": { tools: [tool("social_publish", {}, ["model", "app"]), tool("social_confirm_publish", {}, ["app"]), tool("other_tool", {}, ["app"])] },
+    "resources/read": { contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: "<p>Review</p>" }] },
+    "tools/call": { content: [], structuredContent: { status: "composer_filled" } },
+  };
+  if (body.method === "tools/call") await Bun.write(${JSON.stringify(receipt)}, JSON.stringify({ cwd: process.cwd(), ...body.params }));
+  console.log(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: responses[body.method] }));
+}
+`);
+    chmodSync(command, 0o700);
+    const base = { serverConfig: config, workspaceId: "ws_launch_session", workspaceRoot };
+    const launch = { ...base, projectedToolName: "aiopc_social_publish" };
+    try {
+      process.env.AIOPC_SERVICE_DIR = dir;
+      process.env.AIOPC_UV = command;
+      expect(await resolveMcpAppResource(launch)).toBeNull();
+      const app = await resolveMcpAppResource({ ...launch, context: { sessionId: "ses_publish", readOnly: false } });
+      expect(app?.launchId).toBeString();
+      const call = { ...base, launchId: app!.launchId, sessionId: "ses_publish", serverName: "aiopc", name: "social_confirm_publish",
+        resourceUri, assertSessionActive: async () => {}, arguments: { decision: "approve" } };
+      await expect(callMcpAppTool(call)).rejects.toMatchObject({ code: "tool_requires_approval" });
+      await expect(callMcpAppTool({ ...call, name: "other_tool", approved: true })).rejects.toMatchObject({ code: "tool_not_visible" });
+      expect((await callMcpAppTool({ ...call, approved: true })).structuredContent).toEqual({ status: "composer_filled" });
+      const executed = JSON.parse(readFileSync(receipt, "utf8"));
+      expect(executed.cwd).toBe(realpathSync(workspaceRoot));
+      expect(executed._meta).toEqual({ "ai.opencode/sessionID": "ses_publish", "io.aiopc/app-action": { approved: true, resourceUri } });
+      releaseMcpAppLaunch(config, base.workspaceId, app!.launchId!);
+    } finally {
+      delete process.env.AIOPC_SERVICE_DIR;
+      delete process.env.AIOPC_UV;
+    }
   });
 
   test("a read-only open still resolves, without a launch", async () => {

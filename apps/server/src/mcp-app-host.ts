@@ -3,12 +3,14 @@ import { timeMcpApp } from "@openwork/types/mcp-app-timing";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StdioClientTransport, type StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { CallToolResultSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { connectionActionAppResourceUri, connectionActionIntentSchema, type ConnectionActionIntent } from "@openwork/types/connection-action-app";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerConfig } from "./types.js";
+import { aiopcMcpServers } from "./aiopc-runtime.js";
 import { join } from "node:path";
 import { runtimeStorageDir } from "./runtime-db.js";
 import { createMcpAppResourceCache } from "./mcp-app-resource-cache.js";
@@ -38,6 +40,7 @@ const MAX_RESOURCE_BYTES = MCP_APP_RESOURCE_MAX_BYTES;
 const MAX_RESULT_BYTES = 1024 * 1024;
 /** Same cap Den applies to provider-declared error excerpts before relaying them. */
 const MAX_PROVIDER_ERROR_CHARS = 512;
+const AIOPC_PUBLISH_APP_RESOURCE = "ui://aiopc/publish-review";
 
 type McpAppCsp = {
   connectDomains: string[];
@@ -338,6 +341,26 @@ function remoteUrl(config: Record<string, unknown>): URL | null {
   }
 }
 
+function managedPublishServer(serverName: string, config: Record<string, unknown>, workspaceRoot: string): StdioServerParameters | null {
+  if (serverName !== "aiopc" || config.type !== "local" || config.enabled === false) return null;
+  const builtin = aiopcMcpServers().aiopc;
+  if (!builtin || !Array.isArray(builtin.command) || JSON.stringify(config.command) !== JSON.stringify(builtin.command)) return null;
+  const [command, ...args] = builtin.command as string[];
+  if (!command) return null;
+  return { command, args, cwd: workspaceRoot, env: stringHeaders(builtin.environment), stderr: "ignore" };
+}
+
+async function connectManagedPublishApp(options: StdioServerParameters): Promise<Client> {
+  const client = new Client({ name: "openwork-mcp-app-host", version: "1.0.0" }, clientOptions());
+  try {
+    await timeMcpApp("desktop.client-connect", () => client.connect(new StdioClientTransport(options)));
+    return client;
+  } catch (error) {
+    await client.close().catch(() => undefined);
+    throw new McpAppHostError("mcp_unreachable", connectionFailure(error));
+  }
+}
+
 function clientOptions() {
   return {
     capabilities: {
@@ -446,8 +469,9 @@ async function withRemoteClient<T>(
 async function withResolveClient<T>(
   config: Record<string, unknown>,
   run: (client: Client) => Promise<T>,
+  connect: () => Promise<Client> = () => connectRemoteClient(config),
 ): Promise<{ value: T; client: Client }> {
-  const client = await connectRemoteClient(config);
+  const client = await connect();
   try {
     return { value: await run(client), client };
   } catch (error) {
@@ -533,12 +557,12 @@ function adoptLaunchSession(key: string, client: Client): void {
 
 async function withLaunchSession<T>(
   key: string,
-  config: Record<string, unknown>,
+  connect: () => Promise<Client>,
   run: (client: Client) => Promise<T>,
 ): Promise<T> {
   let session = launchSessions.get(key);
   if (!session) {
-    const created: LaunchSession = { client: connectRemoteClient(config), inFlight: 0 };
+    const created: LaunchSession = { client: connect(), inFlight: 0 };
     created.client.catch(() => { if (launchSessions.get(key) === created) launchSessions.delete(key); });
     addLaunchSession(key, created);
     session = created;
@@ -790,7 +814,9 @@ export async function resolveMcpAppResource(input: {
   const resolutionErrors: McpAppHostError[] = [];
   try {
     for (const item of candidates) {
-      if (!remoteUrl(item.config)) continue;
+      const local = input.context?.sessionId && input.projectedToolName === "aiopc_social_publish"
+        ? managedPublishServer(item.name, item.config, input.workspaceRoot) : null;
+      if (!local && !remoteUrl(item.config)) continue;
       const fingerprint = await launchFingerprint(input, item.name, item.config);
       const match = await withResolveClient(item.config, async (client) => {
         const tool = (await listTools(client)).find((candidate) => (
@@ -799,7 +825,7 @@ export async function resolveMcpAppResource(input: {
         if (!tool) return null;
         if (!toolVisibility(tool, "model")) return null;
         const resourceUri = toolUiResourceUri(tool);
-        if (!resourceUri) return null;
+        if (!resourceUri || (local && resourceUri !== AIOPC_PUBLISH_APP_RESOURCE)) return null;
         if ((await diagnoseMcpToolDenies(input.workspaceRoot, item.name, [input.projectedToolName])).length > 0) {
           throw new McpAppHostError("tool_denied", "This MCP App tool is denied by the workspace tool policy.");
         }
@@ -822,7 +848,7 @@ export async function resolveMcpAppResource(input: {
           } satisfies McpAppResource,
           tool,
         };
-      }).then(({ value, client }) => {
+      }, local ? () => connectManagedPublishApp(local) : undefined).then(({ value, client }) => {
         if (value) return { ...value, client };
         void client.close().catch(() => undefined);
         return null;
@@ -1046,7 +1072,12 @@ export async function callMcpAppTool(input: {
     return item.config;
   };
   const config = await currentConfig();
-  return await withLaunchSession(`${launchId}\n${launch.fingerprint}`, config, async (client) => {
+  const local = managedPublishServer(input.serverName, config, input.workspaceRoot);
+  if (local && (launch.sessionId === null || launch.toolName !== "social_publish" || launch.resourceUri !== AIOPC_PUBLISH_APP_RESOURCE
+    || input.name !== "social_confirm_publish")) {
+    throw new McpAppHostError("tool_not_visible", "The local publishing App only accepts a decision on its conversation's draft.");
+  }
+  return await withLaunchSession(`${launchId}\n${launch.fingerprint}`, local ? () => connectManagedPublishApp(local) : () => connectRemoteClient(config), async (client) => {
     const tools = await listTools(client);
     const original = tools.find((candidate) => candidate.name === launch.toolName);
     if (!original || !toolVisibility(original, "app") || toolUiResourceUri(original) !== launch.resourceUri) throw staleLaunch();
@@ -1095,7 +1126,7 @@ export async function callMcpAppTool(input: {
     await input.assertSessionActive?.();
     const hostConnectionAction = input.name === "connection_action_intent"
       && await supportsHostConnectionActions(input.serverName, config, launch.toolName, launch.resourceUri);
-    if ((toolRequiresApproval(tool) || hostConnectionAction) && input.approved !== true) {
+    if ((local || toolRequiresApproval(tool) || hostConnectionAction) && input.approved !== true) {
       throw new McpAppHostError(
         "tool_requires_approval",
         "This MCP App tool requires user approval before OpenWork can call it.",
@@ -1110,7 +1141,7 @@ export async function callMcpAppTool(input: {
     // For a cached read: the call would be allowed now without approval, so
     // the host may show the result it kept from this same server. Nothing reaches the tool.
     if (input.checkOnly) {
-      if (input.approved === true || toolRequiresApproval(tool) || hostConnectionAction) {
+      if (input.approved === true || local || toolRequiresApproval(tool) || hostConnectionAction) {
         throw new McpAppHostError("tool_requires_approval", "Only a read-only App tool's kept result can be shown.");
       }
       return { content: [], _meta: { [MCP_APP_READ_ONLY_RESULT_META]: true, [MCP_APP_PROVIDER_IDENTITY_META]: providerIdentity } };

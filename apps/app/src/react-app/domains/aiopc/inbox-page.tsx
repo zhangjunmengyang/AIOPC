@@ -102,7 +102,7 @@ export function InboxPage(props: Props) {
   const workspaceId = props.workspaceId ?? workspace?.workspaceId ?? "";
   const client = props.client === undefined ? workspace?.client : props.client;
   const host = props.openworkServerClient === undefined ? workspace?.openworkServerClient : props.openworkServerClient;
-  const { ready, request } = useAiopc(workspaceRoot);
+  const { connection, ready, request } = useAiopc(workspaceRoot);
   const [tab, setTab] = useState("pending");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -153,7 +153,8 @@ export function InboxPage(props: Props) {
   const pending = (reviews.data ?? []).filter(review => review.status === "awaiting_approval" || review.status === "filling");
   const handled = (reviews.data ?? []).filter(review => review.status !== "awaiting_approval" && review.status !== "filling");
   const pendingCount = pending.length + (permissions.data?.length ?? 0) + (questions.data?.length ?? 0);
-  const loadError = tab === "pending" ? permissions.error ?? questions.error ?? reviews.error : receipts.error ?? reviews.error;
+  const loadError = connection?.status === "unavailable"
+    || (tab === "pending" ? permissions.error ?? questions.error ?? reviews.error : receipts.error ?? reviews.error);
   const loading = tab === "pending" ? permissions.isLoading || questions.isLoading || reviews.isLoading : receipts.isLoading || reviews.isLoading;
   const pendingReady = Boolean(client && workspaceRoot && ready && !loading && !loadError);
   const resultsReady = ready && !loading && !loadError;

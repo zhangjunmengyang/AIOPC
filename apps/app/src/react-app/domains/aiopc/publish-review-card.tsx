@@ -36,7 +36,7 @@ const mcpResultSchema = z.object({
 });
 
 export function readPublishReviewPart(part: DynamicToolUIPart) {
-  if (part.toolName !== toolName || part.state !== "output-available") return null;
+  if ((part.toolName !== toolName && part.toolName !== "aiopc.social_publish") || part.state !== "output-available") return null;
   const metadata = part.callProviderMetadata?.openwork;
   const parsed = mcpResultSchema.safeParse(metadata?.mcpResult ?? metadata?.mcpApp);
   if (!parsed.success || parsed.data.isError) return null;
