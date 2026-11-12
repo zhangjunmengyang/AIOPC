@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from mcp.shared.memory import create_connected_server_and_client_session
 from starlette.testclient import TestClient
 
 from aiopc.accounts import AccountStore
@@ -110,7 +111,7 @@ async def test_all_project_tools_have_project_schema_and_scope_restores_on_error
     assert scope.current().root == company.root
 
 
-async def test_publish_card_confirmation_uses_its_original_project(tmp_path):
+async def test_publish_card_confirmation_uses_its_original_project(tmp_path, project_mcp_metadata):
     company = company_fixture(tmp_path)
     home = tmp_path / "home"
     account = AccountStore(home).upsert("x", {"id": "alpha-id", "name": "甲账号"},
@@ -121,15 +122,19 @@ async def test_publish_card_confirmation_uses_its_original_project(tmp_path):
     await pool.bind(resource["id"], str(company.resolve_project("alpha")))
     AccountStore(home).assign_legacy_environment(str(company.resolve_project("alpha")), resource["id"])
     server = create_server(home, company.root)
-    prepared = await server.call_tool("social_publish", {"account_id": account["id"], "text": "只准备不发布", "project": "alpha"})
-    card = prepared.structuredContent
-    ctx = SimpleNamespace(request_context=SimpleNamespace(meta=SimpleNamespace(
-        model_dump=lambda: {"io.aiopc/app-action": {"approved": True, "resourceUri": RESOURCE}})))
-    confirm = server._tool_manager.get_tool("social_confirm_publish").fn
-    with pytest.raises(ValueError, match="稿件不存在"):
-        await confirm(card["id"], card["digest"], "reject", ctx, project="beta")
-    result = await confirm(card["id"], card["digest"], "reject", ctx, project=card["project"])
-    assert result["status"] == "rejected"
+    origin = project_mcp_metadata(company, "alpha")
+    action = {**origin, "io.aiopc/app-action": {"approved": True, "resourceUri": RESOURCE}}
+    async with create_connected_server_and_client_session(server) as client:
+        prepared = await client.call_tool("social_publish", {
+            "account_id": account["id"], "text": "只准备不发布", "project": "alpha",
+        }, meta=origin)
+        assert not prepared.isError
+        card = prepared.structuredContent
+        args = {"review_id": card["id"], "revision": card["digest"], "decision": "reject"}
+        denied = await client.call_tool("social_confirm_publish", {**args, "project": "beta"}, meta=action)
+        assert denied.isError and "工具项目与会话所属项目不一致" in denied.content[0].text
+        result = await client.call_tool("social_confirm_publish", {**args, "project": card["project"]}, meta=action)
+        assert not result.isError and result.structuredContent["status"] == "rejected"
 
 
 def test_project_brief_ignores_voice_through_linked_account_directory(tmp_path):
