@@ -132,7 +132,9 @@ function GoalBranch({ goal, children, selectedId, projects, openGoal }: {
             <ChevronRight className={`size-3.5 ${expanded ? "rotate-90" : ""}`} aria-hidden />
           </Button>
         ) : <span className="w-7 shrink-0" />}
-        <GoalRow goal={goal} active={selectedId === goal.id} onOpen={() => openGoal(goal.id)} />
+        <div className="min-w-0 flex-1">
+          <GoalRow goal={goal} active={selectedId === goal.id} onOpen={() => openGoal(goal.id)} />
+        </div>
       </div>
       {children.length > 0 ? (
         <ul id={childListId} hidden={!expanded} className="ms-7 mt-1 space-y-1 border-s border-border ps-2">
