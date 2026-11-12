@@ -13,7 +13,7 @@ test("AIOPC adds nothing until the desktop app names its service", () => {
 
 test("AIOPC's MCP runs the service over stdio with only its own settings", () => {
   const servers = aiopcMcpServers({ AIOPC_SERVICE_DIR: "/svc", AIOPC_UV: "/bin/uv", AIOPC_HOME: "/home/.aiopc", SECRET: "x" });
-  assert.deepEqual(servers.aiopc.command, ["/bin/uv", "run", "--project", "/svc", "--frozen", "--no-dev", "--quiet", "python", "-m", "aiopc.server", "--stdio"]);
+  assert.deepEqual(servers.aiopc.command, ["/bin/uv", "run", "--project", "/svc", "--frozen", "--no-dev", "--quiet", "python", "-I", "-m", "aiopc.server", "--stdio"]);
   assert.deepEqual(servers.aiopc.environment, { AIOPC_HOME: "/home/.aiopc" });
   assert.deepEqual(aiopcSkillDirectories({ AIOPC_SERVICE_DIR: "/svc", AIOPC_UV: "/bin/uv" }), ["/svc/skills"]);
 });
@@ -43,4 +43,10 @@ test("AIOPC configures the same local scheduler MCP for either engine without fo
     environment: { ...schedulerEnv, ELECTRON_RUN_AS_NODE: "1" },
   });
   assert.deepEqual(aiopcMcpServers({ ...schedulerEnv, AIOPC_SCHEDULER_SDK: "" }), {});
+});
+
+test("MCP receives only the scoped runtime discovery path", () => {
+  const servers = aiopcMcpServers({ AIOPC_SERVICE_DIR: "/svc", AIOPC_UV: "/bin/uv",
+    AIOPC_RUNTIME_CONTEXT_FILE: "/private/runtime.json", OPENWORK_HOST_TOKEN: "never-in-MCP-config" });
+  assert.deepEqual(servers.aiopc.environment, { AIOPC_RUNTIME_CONTEXT_FILE: "/private/runtime.json" });
 });

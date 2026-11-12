@@ -17,7 +17,7 @@ export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): R
   const serviceDir = serviceDirectory(environment);
   if (!serviceDir) return schedulerMcpServers(environment);
   const passthrough = [
-    "AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT",
+    "AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT", "AIOPC_RUNTIME_CONTEXT_FILE",
     "AIOPC_QMD_NODE", "AIOPC_QMD_RUNNER", "AIOPC_QMD_VECTOR_EXTENSION",
   ] as const;
   const serviceEnvironment = Object.fromEntries(passthrough.flatMap((key) => {
@@ -29,7 +29,7 @@ export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): R
     aiopc: {
       type: "local",
       command: [environment.AIOPC_UV!.trim(), "run", "--project", serviceDir, "--frozen", "--no-dev", "--quiet",
-        "python", "-m", "aiopc.server", "--stdio"],
+        "python", "-I", "-m", "aiopc.server", "--stdio"],
       environment: serviceEnvironment,
       enabled: true,
       // The first start may still be installing the service's Python packages.

@@ -111,6 +111,20 @@ describe("MCP App launch sessions", () => {
     releaseMcpAppLaunch(config, base.workspaceId, opened!.launchId!);
   });
 
+  test("conversation App actions carry only the host-verified session identity", async () => {
+    const { callMcpAppTool, releaseMcpAppLaunch, resolveMcpAppResource } = await import("../src/mcp-app-host.js");
+    const base = { serverConfig: config, workspaceId: "ws_launch_session", workspaceRoot };
+    const opened = await resolveMcpAppResource({ ...base, context: { sessionId: "ses_trusted", readOnly: false }, projectedToolName: "board_open_app" });
+    let checks = 0;
+    const call = { ...base, launchId: opened!.launchId, sessionId: "ses_trusted", serverName: "board", name: "list_items", resourceUri: RESOURCE_URI,
+      assertSessionActive: async () => { checks++; }, arguments: { _meta: { "ai.opencode/sessionID": "ses_spoofed" } } };
+    await callMcpAppTool(call);
+    expect(checks).toBe(1);
+    expect(app.calls.at(-1)?._meta).toEqual({ "ai.opencode/sessionID": "ses_trusted", "io.aiopc/app-action": { approved: false, resourceUri: RESOURCE_URI } });
+    await expect(callMcpAppTool({ ...call, sessionId: "ses_spoofed" })).rejects.toMatchObject({ code: "stale_launch_context" });
+    releaseMcpAppLaunch(config, base.workspaceId, opened!.launchId!);
+  });
+
   test("a read-only open still resolves, without a launch", async () => {
     const { resolveMcpAppResource } = await import("../src/mcp-app-host.js");
     const before = app.methods.length;

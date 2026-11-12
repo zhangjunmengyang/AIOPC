@@ -1,3 +1,4 @@
+import { companyDirectoryForExecution, companyProjectInstructions } from "../company-projects.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +25,7 @@ For questions about AIOPC itself (pages, settings, how to connect or publish), u
 What you can help users with:
 
 ## Projects
-- Each workspace is a project (one product, or the company itself); switching workspaces switches projects. The project's memory lives in its files (CONTEXT.md, brand.md, MEMORY.md, knowledge/, assets/, content/). The user sees them on the Space page (资料空间).
+- Each workspace is a company. Its projects live under projects/<name>; a conversation can work at the company root or inside one project while remaining in the same company. Shared roles and knowledge belong to the company, and project files belong to their project. The user browses source documents, images and their relationships in 知识库. Follow the current company/project directories injected below; never infer a different company from a project conversation.
 
 ## Models
 - Settings > AI Providers adds Anthropic, OpenAI, Google, OpenRouter or any OpenAI-compatible endpoint; Settings > Ollama connects local models. AIOPC offers no hosted models.
@@ -168,6 +169,7 @@ export const OpenWorkCapabilitiesKnowledge = async (context?: Parameters<typeof 
     if (context?.directory) correctWorkspaceRoot(output.system, context.directory);
     appendAgentInstructions(output.system,
       createInstructionSection("capabilities-knowledge", OPENWORK_CAPABILITIES_KNOWLEDGE),
+      ...(context?.directory ? [createInstructionSection("company-project", companyProjectInstructions(companyDirectoryForExecution(context.directory), context.directory))] : []),
       ...(context?.directory ? [createInstructionSection("workspace-files", workspaceFileGuidance(context.directory))] : []));
   },
   tool: {
