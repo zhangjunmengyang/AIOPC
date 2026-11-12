@@ -311,6 +311,14 @@ class SocialService:
             return {"checked": []}
         checked = []
         for account in due:
+            if self._browser is None:
+                environment = account.get("environment")
+                if not environment:
+                    continue
+                try:
+                    self.sandboxes.resolve(self.project_path, environment)
+                except SandboxError:
+                    continue
             browser = await self.browser_for(account)
             async with self._browser_operation(browser):
                 found = None
