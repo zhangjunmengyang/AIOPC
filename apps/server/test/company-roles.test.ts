@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { listCompanyProjectSkillNames } from "../src/company-role-admission.js";
 import { applyCompanyRoleSkillsV1 } from "../src/opencode-plugins/company-role-skills-v1.js";
 import {
   ensureCompanyRolePacks,
@@ -96,4 +97,18 @@ test("v1 role permission materializes named rules without removing an existing g
   expect(agent.permission).toMatchObject({ edit: "ask", skill: {
     "*": "deny", "brand-naming": "allow", "brand-logo": "deny", adopted: "allow",
   } });
+}));
+
+
+test("company role catalog excludes another registered company under projects", () => temporaryCompany(async company => {
+  const project = join(company, "projects", "own");
+  const nestedCompany = join(company, "projects", "registered-company");
+  await mkdir(project, { recursive: true });
+  await skill(nestedCompany, "separate-company-skill");
+  await put(join(nestedCompany, ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: {
+    "separate-company-skill": locked("separate-company-skill"),
+  } }));
+  const registeredAlias = join(company, "registered-alias");
+  await symlink(nestedCompany, registeredAlias);
+  expect(await listCompanyProjectSkillNames(company, [company, registeredAlias])).toEqual({ "proj:own": [] });
 }));

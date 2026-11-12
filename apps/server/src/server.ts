@@ -113,8 +113,8 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
-import { assertCompanyRoleSkillInput, companyRoleV1Prompt } from "./company-role-admission.js";
-import { listCompanyRoles, readAdoptedProjectSkillNames, readRoleSkillPolicy } from "./company-roles.js";
+import { assertCompanyRoleSkillInput, companyRoleV1Prompt, listCompanyProjectSkillNames } from "./company-role-admission.js";
+import { listCompanyRoles, readRoleSkillPolicy } from "./company-roles.js";
 import { readSessionGroupState, registerCreatedSessionGroup, resolveSessionProject } from "./session-groups.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
@@ -3813,9 +3813,10 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/roles", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const [items, projects] = await Promise.all([listCompanyRoles(workspace.path), listCompanyProjects(workspace.path)]);
-    const projectSkills = Object.fromEntries(await Promise.all(projects.map(async project =>
-      [project.id, await readAdoptedProjectSkillNames(project.directory)])));
+    const [items, projectSkills] = await Promise.all([
+      listCompanyRoles(workspace.path),
+      listCompanyProjectSkillNames(workspace.path, config.workspaces.map(entry => entry.path)),
+    ]);
     return jsonResponse({ items, projectSkills });
   });
 

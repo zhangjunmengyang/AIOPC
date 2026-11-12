@@ -60,7 +60,7 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
       const projects = [join(company, "projects", "A"), join(company, "projects", "B")];
       await mkdir(projects[0], { recursive: true }); await mkdir(projects[1]);
       await ensureWorkspaceFiles(company, "starter");
-      for (const [folder, name] of [[lane, "global-user"], [join(lane, "outer"), "outside-company"], [company, "company-common"], [projects[0], "project-a"], [projects[1], "project-b"]]) {
+      for (const [folder, name] of [[lane, "global-user"], [join(lane, "outer"), "outside-company"], [company, "company-common"], [projects[0], "project-a"], [projects[0], "project-later"], [projects[1], "project-b"]]) {
         const skill = join(folder!, ".opencode", "skills", name!);
         await mkdir(skill, { recursive: true });
         await writeFile(join(skill, "SKILL.md"), `---\nname: ${name}\ndescription: isolated test skill\n---\nLocal test.\n`);
@@ -241,7 +241,7 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
           const [visible] = await roleTurn(roleId, "列出当前角色可以使用的技能。", { skills: [{ id: "project-a" }] });
           assert.ok(visible?.includes("brand-naming"), visible?.slice(-7000));
           assert.ok(visible?.includes("project-a"), visible?.slice(-7000));
-          for (const hidden of ["company-common", "trusted-bundle", "global-user", "project-b"]) {
+          for (const hidden of ["company-common", "trusted-bundle", "global-user", "project-b", "project-later"]) {
             assert.ok(!visible?.includes(hidden), `unexpected role skill: ${hidden}`);
           }
           const denied = await roleTurn(await roleChat(), "TEST_ROLE_TOOL_DENIED");
@@ -256,7 +256,20 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
             await assert.rejects(() => proxyOpencodeV2Request({ actor: { type: "host" }, config, request, url, workspace, proxyPath: path,
               connection: { url: baseUrl, username: "opencode", password: "native-test" } }), /company-common/);
           }
-          console.log("GREEN native v2 role: resident + adopted catalog, skill tool allow/deny, explicit attachments + activation denied");
+          const deniedNative = await fetch(`${baseUrl}/api/session/${roleId}/prompt`, {
+            method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: "Native forbidden attachment", skills: [{ id: "company-common" }] }),
+          });
+          assert.ok(deniedNative.status >= 400, await deniedNative.text());
+          await writeFile(join(projects[0], ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: {
+            "project-a": { id: "audited-project-a", hash: "a".repeat(64) },
+            "project-later": { id: "audited-project-later", hash: "b".repeat(64) },
+          } }));
+          const [refreshed] = await roleTurn(await roleChat(), "检查刚采纳的技能。", { skills: [{ id: "project-later" }] });
+          assert.ok(refreshed?.includes("project-later"));
+          assert.ok(refreshed?.includes("brand-naming"));
+          assert.ok(!refreshed?.includes("company-common"));
+          console.log("GREEN native v2 role: resident + adopted catalog, skill tool allow/deny, explicit attachments + activation denied, adoption refresh");
         }
         await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta, [ids[0]!]: { ...state.sessionMeta[ids[0]!], agentName: "designer" } } }));
         const forked = await call("POST", `/session/${ids[0]}/fork`, {});

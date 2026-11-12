@@ -1,6 +1,20 @@
+import { realpath } from "node:fs/promises";
+import { listCompanyProjects } from "./company-projects.js";
 import { ApiError } from "./errors.js";
-import { roleAllowsSkill, type RoleSkillPolicy } from "./company-roles.js";
+import { readAdoptedProjectSkillNames, roleAllowsSkill, type RoleSkillPolicy } from "./company-roles.js";
 import { isRecord } from "./workspace-kv-store.js";
+
+
+export async function listCompanyProjectSkillNames(company: string, workspaceRoots: readonly string[]): Promise<Record<string, string[]>> {
+  const [projects, registeredRoots] = await Promise.all([
+    listCompanyProjects(company),
+    Promise.all(workspaceRoots.filter(path => path.trim()).map(path => realpath(path).catch(() => null))),
+  ]);
+  const companies = new Set(registeredRoots);
+  const entries = await Promise.all(projects.filter(project => !companies.has(project.directory)).map(async project =>
+    [project.id, await readAdoptedProjectSkillNames(project.directory)] as const));
+  return Object.fromEntries(entries);
+}
 
 export async function assertCompanyRoleSkillInput(
   policy: RoleSkillPolicy,
