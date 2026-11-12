@@ -22,13 +22,14 @@ type UseSessionGroupSyncInput = {
 };
 
 function hasGroupData(state: SessionGroupServerState | WorkspaceGroupState | undefined): boolean {
-  return Boolean(state && (state.groups.length > 0 || Object.keys(state.assignments).length > 0));
+  return Boolean(state && (state.groups.length > 0 || Object.keys(state.assignments).length > 0 || Object.keys(state.sessionMeta ?? {}).length > 0));
 }
 
 function serverStateFromWorkspaceState(state: WorkspaceGroupState): OpenworkSessionGroupState {
   return {
     groups: state.groups.map((group) => ({ id: group.id, label: group.label })),
     assignments: { ...state.assignments },
+    sessionMeta: { ...state.sessionMeta },
   };
 }
 
@@ -104,6 +105,18 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
 
   useEffect(() => {
     setSessionGroupSyncHandler({
+      getGroups: async (workspaceId) => {
+        const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
+        const endpoint = endpointForWorkspaceRef.current(workspace);
+        return endpoint ? (await endpoint.client.getSessionGroups(endpoint.workspaceId)).state : null;
+      },
+      setSessionAgent: async (workspaceId, sessionId, agentName) => {
+        const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
+        const endpoint = endpointForWorkspaceRef.current(workspace);
+        if (!endpoint) return null;
+        const response = await endpoint.client.setSessionAgent(endpoint.workspaceId, sessionId, agentName);
+        return response.state;
+      },
       createGroup: async (workspaceId: string, group: SessionGroupDefinition) => {
         const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
         const endpoint = endpointForWorkspaceRef.current(workspace);

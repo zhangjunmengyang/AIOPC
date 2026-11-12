@@ -1,3 +1,4 @@
+import { workspaceProjectsRoute } from "./workspace-routes";
 // The session route's data + navigation core: workspace/session loading
 // (refreshRouteState + background session fetch), endpoint and opencode
 // client resolution, URL-derived selection, redirects (fallback workspace,
@@ -92,7 +93,7 @@ export type UseWorkspaceRouteStateInput = {
   /** A local first-send owner must survive workspace preparation until it has a real session. */
   preservePendingConversationRoute?: boolean;
   developerMode: boolean;
-  workspaceRoute?: "session" | "activity" | "space" | "accounts" | "team" | "inbox";
+  workspaceRoute?: "session" | "activity" | "space" | "accounts" | "projects" | "team" | "inbox";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -183,6 +184,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     navigate(workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
   const normalizeWorkspaceRoute = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
+    if (workspaceRoute === "projects") {
+      const path = workspaceProjectsRoute(workspaceId);
+      if (location.pathname === path || location.pathname.startsWith(`${path}/`)) return;
+      navigate(path, options);
+      return;
+    }
     if (extensionsRouteActive) {
       navigate(workspaceExtensionsRoute(workspaceId, extensionsRoutePath), options);
       return;

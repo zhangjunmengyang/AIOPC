@@ -1,3 +1,4 @@
+import { isProjectSessionGroup } from "@/react-app/domains/aiopc/company-project";
 /** @jsxImportSource react */
 import {
   useEffect,
@@ -132,6 +133,8 @@ export type CommandPaletteProps = {
   sessionGroups?: SessionGroupOption[];
   currentSessionForGroupMove?: { title: string } | null;
   currentSessionGroupId?: string | null;
+  allowProjectSelection?: boolean;
+  currentSessionProjectId?: string | null;
   onMoveCurrentSessionToGroup?: (groupId: string | null) => void;
   onCreateGroup?: () => void;
   extraItems?: PaletteItem[];
@@ -301,12 +304,13 @@ export function CommandPalette(props: CommandPaletteProps) {
       ? [{
           id: "move-to-group",
           title: t("session_management.move_to_group"),
-          detail: props.currentSessionForGroupMove?.title,
+          detail: !props.allowProjectSelection && isProjectSessionGroup(props.currentSessionProjectId) ? t("session.project_fixed") : props.currentSessionForGroupMove?.title,
+          disabled: !props.allowProjectSelection && isProjectSessionGroup(props.currentSessionProjectId),
           meta: sessionGroupCount > 0 ? `${sessionGroupCount.toLocaleString()} groups` : "No groups",
           searchText: "move to group add task session folder organize",
           group: ACTIONS_GROUP,
           action: () => {
-            setMode("groups");
+            if (props.allowProjectSelection || !isProjectSessionGroup(props.currentSessionProjectId)) setMode("groups");
           },
         }]
       : []),
@@ -483,6 +487,8 @@ export function CommandPalette(props: CommandPaletteProps) {
   const groupItems = useMemo<PaletteItem[]>(() => sessionGroupActionsToPalette(buildSessionGroupActions({
     groups: props.sessionGroups ?? [],
     assignedGroupId: props.currentSessionGroupId ?? null,
+    allowProjectSelection: props.allowProjectSelection,
+    projectId: props.currentSessionProjectId,
     onAssignGroup: (groupId) => props.onMoveCurrentSessionToGroup?.(groupId),
     onCreateGroup: props.onCreateGroup,
   }), props.onClose), [props]);

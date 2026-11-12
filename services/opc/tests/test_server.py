@@ -13,8 +13,8 @@ async def _ready(value):
 TOKEN = "test-token"
 
 
-def client(tmp_path: Path) -> TestClient:
-    return TestClient(create_api(tmp_path / "home", TOKEN))
+def client(tmp_path: Path, *roots: Path) -> TestClient:
+    return TestClient(create_api(tmp_path / "home", TOKEN, authorized_roots=list(roots) or [tmp_path]))
 
 
 def auth() -> dict:
@@ -29,11 +29,12 @@ def test_api_requires_token(tmp_path):
 
 def test_api_needs_a_real_workspace(tmp_path):
     response = client(tmp_path).get("/api/project", params={"workspace": "relative/path"}, headers=auth())
-    assert response.status_code == 400
+    assert response.status_code == 403
 
 
 def test_workspace_is_the_project(tmp_path):
-    api, workspace = client(tmp_path), tmp_path / "笔记应用"
+    workspace = tmp_path / "笔记应用"
+    api = client(tmp_path, workspace)
     workspace.mkdir()
     params = {"workspace": str(workspace)}
     assert api.get("/api/project", params=params, headers=auth()).json()["name"] == "笔记应用"
@@ -68,7 +69,7 @@ def test_an_account_belongs_to_the_project_it_logged_in_from(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
     AccountStore(tmp_path / "home").upsert("小红书", {"id": "5f00", "name": "官方号"}, project=str(tmp_path / "a"))
-    api = client(tmp_path)
+    api = client(tmp_path, tmp_path / "a", tmp_path / "b")
 
 
     def listed(name):
@@ -119,7 +120,11 @@ def test_social_connect_shows_the_login_page_in_chat(tmp_path, monkeypatch):
         async def open_login(self, platform, screenshot=True):
             return {"tab_id": "t1", "screenshot": png if screenshot else ""}
 
-    monkeypatch.setattr(SocialService, "browser", lambda self: _ready(FakeBrowser()))
+    monkeypatch.setattr(SocialService, "browser", lambda self, environment="": _ready(FakeBrowser()))
+    from aiopc.runtime_context import RuntimeContextResolver, RuntimeIdentity
+    async def resolve(self, meta, project=""):
+        return RuntimeIdentity("test", "test", tmp_path.resolve(), None, tmp_path.resolve(), "test")
+    monkeypatch.setattr(RuntimeContextResolver, "resolve", resolve)
     server = create_server(tmp_path / "home", tmp_path)
     content = asyncio.run(server.call_tool("social_connect", {"platform": "小红书"}))
     if isinstance(content, tuple):  # newer mcp returns (content, structured)

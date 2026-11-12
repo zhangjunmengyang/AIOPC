@@ -701,6 +701,8 @@ export type SessionSurfaceProps = {
   client: OpenworkServerClient;
   environmentClient?: OpenworkServerClient | null;
   workspaceId: string;
+  /** Sidebar owner id can differ from the runtime id on a remote server. */
+  roleWorkspaceId?: string;
   workspaceRoot: string;
   sandboxBackend?: string | null;
   sessionId: string;
@@ -1233,6 +1235,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const rejectedTurns = useRejectedTurns(rejectedOwner);
   const queuedItems = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const sessionAgent = useSessionAgentSelection({
+    workspaceId: props.roleWorkspaceId ?? props.workspaceId,
     sessionId: props.sessionId,
     fallbackAgent: props.selectedAgent,
     onFallbackAgentChange: props.onSelectAgent,
@@ -2300,7 +2303,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     options: { consumeQueuedItem?: boolean; agent?: string | null } = {},
   ): Promise<SessionSubmissionResult | { outcome: "unknown" }> => {
     // Capture before interruption/readiness waits; later selections affect only later sends.
-    const agent = options.agent !== undefined ? options.agent : getSessionAgentSelection(props.sessionId, props.selectedAgent);
+    const agent = options.agent !== undefined ? options.agent : getSessionAgentSelection(props.sessionId, props.selectedAgent, props.roleWorkspaceId ?? props.workspaceId);
     const messageId = nextDraft.messageId ?? createPromptMessageID();
     const generation = getQueuedSendGeneration(props.sessionId);
     const submissionId = Symbol();
@@ -2374,7 +2377,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       pendingSendsRef.current.delete(submissionId);
       setPendingSendSessions([...pendingSendsRef.current.values()]);
     }
-  }, [snapshot?.session.parentID, archived, archiveStateKnown, interruptionClient, openingHistory.readSendHistory, props.onSendDraft, props.opencodeBaseUrl, props.selectedAgent, props.sessionId, props.workspaceId, props.workspaceRoot, removeQueuedDraftFromStore, renderedMessages.length, sessionOwner, setError, props.client, sessionModel.selectedModel, rejectedOwner, localRejectedRuntime, baseRenderedMessages]);
+  }, [snapshot?.session.parentID, archived, archiveStateKnown, interruptionClient, openingHistory.readSendHistory, props.onSendDraft, props.opencodeBaseUrl, props.selectedAgent, props.roleWorkspaceId, props.sessionId, props.workspaceId, props.workspaceRoot, removeQueuedDraftFromStore, renderedMessages.length, sessionOwner, setError, props.client, sessionModel.selectedModel, rejectedOwner, localRejectedRuntime, baseRenderedMessages]);
 
   const clearComposer = useCallback(() => {
     clearPersistedDraft();
@@ -2541,10 +2544,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     appendQueuedDraft(props.sessionId, queuedDraft, steer ? {
       owner: sessionOwner,
       generation: getQueuedSendGeneration(props.sessionId),
-      agent: getSessionAgentSelection(props.sessionId, props.selectedAgent),
+      agent: getSessionAgentSelection(props.sessionId, props.selectedAgent, props.roleWorkspaceId ?? props.workspaceId),
     } : undefined);
     clearComposer();
-  }, [archived, archiveStateKnown, appendQueuedDraft, buildDraft, clearComposer, handleSend, props.opencodeBaseUrl, props.selectedAgent, props.sessionId, sessionOwner]);
+  }, [archived, archiveStateKnown, appendQueuedDraft, buildDraft, clearComposer, handleSend, props.opencodeBaseUrl, props.selectedAgent, props.roleWorkspaceId, props.sessionId, sessionOwner]);
 
   const handleSteer = useCallback(async () => {
     if (pendingStopsRef.current.has(sessionOwner)) return;
@@ -2586,7 +2589,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const drain = getQueuedDrainState(props.sessionId);
     if (drain.phase.kind !== "ready" && drain.phase.kind !== "halted" && drain.phase.itemId === id) return;
     useComposerStateStore.getState().requestQueuedDraftSend(props.sessionId, id, {
-      owner: sessionOwner, generation, agent: getSessionAgentSelection(props.sessionId, props.selectedAgent),
+      owner: sessionOwner, generation, agent: getSessionAgentSelection(props.sessionId, props.selectedAgent, props.roleWorkspaceId ?? props.workspaceId),
     });
     if (canAdmitNextQueuedItem(drain, true) || (drain.phase.kind !== "ready" && drain.phase.kind !== "halted")) return;
     if (!claimQueuedSend(props.sessionId, item.id, true)) return;
@@ -2998,12 +3001,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useControlAction(props.isControlTarget ? composerStopControlAction : null);
 
   const listSkills = useCallback(async (): Promise<SkillCard[]> => {
-    const response = await props.client.listSkills(props.workspaceId, { includeGlobal: true });
+    const response = await props.client.listSkills(props.workspaceId, { includeGlobal: true, directory: props.workspaceRoot });
     const skills = (response.items ?? []).map(skill => ({ name: skill.name, path: skill.path,
       description: skill.description, trigger: skill.trigger, scope: skill.scope, origin: "local" } satisfies SkillCard));
     setToolSkills(skills);
     return skills;
-  }, [props.client, props.workspaceId]);
+  }, [props.client, props.workspaceId, props.workspaceRoot]);
 
   const listMcp = useCallback(async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
     const pushId = ++mcpConnectPushRef.current;

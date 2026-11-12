@@ -108,6 +108,8 @@ def test_switched_browser_account_blocks_fill(tmp_path):
     with pytest.raises(SocialError, match="当前登录的账号"):
         asyncio.run(reviews.decide(draft["id"], draft["digest"], "approve", app_action=ACTION))
     assert not browser.calls
+    saved = reviews.social.store.get(draft["payload"]["account_id"])
+    assert reviews.social.describe(saved)["status"] == "needs_login"
 
 
 def test_fill_uses_frozen_media_even_if_original_changes_during_identity_check(tmp_path):

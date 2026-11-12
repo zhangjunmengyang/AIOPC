@@ -1,4 +1,6 @@
 /** @jsxImportSource react */
+import { canAssignSessionGroup, sessionProjectId } from "../../aiopc/company-project";
+import { requestSessionGroupMove } from "./session-project-move";
 import { useNewTaskDraftState } from "../sync/draft-store";
 import { newSessionDraftOwnerKey, newSessionDraftSlot } from "../chat/new-session-destination";
 import { persistableComposerDraftText, useComposerStateStore } from "../surface/composer-state-store";
@@ -110,6 +112,7 @@ import {
 } from "@/components/ui/select";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
+import { isProjectSessionGroup, projectNameFromGroupId } from "@/react-app/domains/aiopc/company-project";
 import { AccountStatusMenu, type AccountStatusMenuProps } from "./account-status-menu";
 import { usePlatform } from "../../../kernel/platform";
 import {
@@ -434,8 +437,9 @@ function useSessionMenuActions({
   return buildSessionMenuActions({
     isPinned, isArchived,
     groups, assignedGroupId,
+    projectId: sessionProjectId(store.getState().groupsByWorkspace[workspaceId], sessionId),
     onTogglePin: () => store.getState().togglePin(sessionId),
-    onAssignGroup: (groupId) => store.getState().assignGroup(workspaceId, sessionId, groupId),
+    onAssignGroup: (groupId) => requestSessionGroupMove(workspaceId, sessionId, groupId),
     onCreateGroup: ctx.onOpenCreateGroupModal ? () => ctx.onOpenCreateGroupModal?.(workspaceId) : undefined,
     onOpenSplit: canOpenInSplit ? openInSplitView : undefined,
     onCloseSplit: isInSplit ? closeSplitView : undefined,
@@ -472,6 +476,7 @@ function SessionRowMenu({ className, sessionId, workspaceId, sessionTitle, works
         <MoreHorizontal className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-56">
+
         <ActionMenuItems actions={actions} variant="dropdown" />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -578,6 +583,9 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-56">
+        {ctx.onOpenProjects ? <DropdownMenuItem onClick={() => ctx.onOpenProjects?.(workspace.id)}>
+          <Blocks className="size-4" />{t("aiopc.projects.title")}
+        </DropdownMenuItem> : null}
         <DropdownMenuItem onClick={() => ctx.onOpenRenameWorkspace(workspace.id)}>
           <Pencil className="size-4" />
           {t("workspace_list.edit_name")}
@@ -637,6 +645,10 @@ export type AppSidebarProps = {
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  onOpenProject?: (workspaceId: string, projectName: string) => void;
+  onOpenProjects?: (workspaceId: string) => void;
+  projectsActive?: boolean;
+
   spaceActive?: boolean;
   onOpenSpace?: () => void;
   accountsActive?: boolean;
@@ -757,6 +769,8 @@ export function AppSidebar(props: AppSidebarProps) {
     onArchiveSession: props.onArchiveSession,
     archiveDisabledReason: props.archiveDisabledReason,
     onOpenCreateGroupModal: props.onOpenCreateGroupModal,
+    onOpenProject: props.onOpenProject,
+    onOpenProjects: props.onOpenProjects,
     onOpenRenameWorkspace: props.onOpenRenameWorkspace,
     onRevealWorkspace: props.onRevealWorkspace,
     onForgetWorkspace: props.onForgetWorkspace,
@@ -832,6 +846,10 @@ export function AppSidebar(props: AppSidebarProps) {
                 </kbd>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            {props.onOpenProjects ? (
+              <SidebarDestination active={props.projectsActive === true} icon={Blocks} label={t("aiopc.projects.title")}
+                onSelect={() => props.onOpenProjects?.(props.selectedWorkspaceId)} />
+            ) : null}
             {props.onOpenSpace ? (
               <SidebarDestination
                 active={props.spaceActive === true}
@@ -1837,13 +1855,14 @@ function SessionGroupActions({ group, groups, workspaceId, count }: {
   count: number;
 }) {
   const ctx = useSidebarContext();
+  const project = isProjectSessionGroup(group.id);
   const [expanded, setExpanded] = React.useState(false);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameLabel, setRenameLabel] = React.useState(group.label);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteDestination, setDeleteDestination] = React.useState(UNGROUPED_GROUP_ID);
   const pinnedToFeed = useSessionManagementStore((state) => state.feedFolders.some((folder) => folder.workspaceId === workspaceId && folder.groupId === group.id));
-  const otherGroups = groups.filter((candidate) => candidate.id !== group.id);
+  const otherGroups = groups.filter((candidate) => candidate.id !== group.id && !isProjectSessionGroup(candidate.id));
   const trimmedRenameLabel = renameLabel.trim();
   const deleteDestinationLabel = deleteDestination === UNGROUPED_GROUP_ID
     ? t("session_management.ungrouped")
@@ -1865,7 +1884,7 @@ function SessionGroupActions({ group, groups, workspaceId, count }: {
         data-session-group-actions={group.id}
         className={cn(
           "relative ml-auto flex h-5 shrink-0 items-center justify-end overflow-hidden transition-[width] duration-150",
-          expanded ? (ctx.feedEnabled ? "w-20" : "w-15") : "w-4",
+          expanded ? (project ? (ctx.feedEnabled ? "w-10" : "w-5") : ctx.feedEnabled ? "w-20" : "w-15") : "w-4",
         )}
         onMouseLeave={() => setExpanded(false)}
       >
@@ -1912,6 +1931,7 @@ function SessionGroupActions({ group, groups, workspaceId, count }: {
             >
               <Plus className="size-3" />
             </button>
+            {!project ? <>
             <button
               type="button"
               className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
@@ -1936,6 +1956,7 @@ function SessionGroupActions({ group, groups, workspaceId, count }: {
             >
               <Trash2 className="size-3" />
             </button>
+            </> : null}
           </span>
         )}
       </span>
@@ -2020,17 +2041,20 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
   group?: SessionGroupDefinition;
   groups?: SessionGroupDefinition[];
   workspaceId?: string;
-  onTitlePointerDown?: React.PointerEventHandler<HTMLSpanElement>;
+  onTitlePointerDown?: React.PointerEventHandler<HTMLElement>;
 }) {
   // Dragging the title to reorder releases on this same header, which the
   // browser reports as a click. Only a press that stayed put toggles.
+  const ctx = useSidebarContext();
+  const projectName = projectNameFromGroupId(group?.id);
+  const project = Boolean(projectName && workspaceId);
   const pressedAt = React.useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div
       data-session-group={group?.id}
-      role="button"
-      tabIndex={0}
+      role={project ? undefined : "button"}
+      tabIndex={project ? undefined : 0}
       onPointerDown={(event) => {
         pressedAt.current = { x: event.clientX, y: event.clientY };
       }}
@@ -2038,26 +2062,33 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
         const pressed = pressedAt.current;
         pressedAt.current = null;
         if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 3) return;
-        onToggle();
+        if (!project) onToggle();
       }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
         event.preventDefault();
-        onToggle();
+        if (!project) onToggle();
       }}
       className={cn("group/separator flex h-8 w-full items-center gap-2 rounded-md pe-2 text-left transition-colors hover:bg-sidebar-accent/50")}
       style={{ paddingInlineStart: sidebarRowPaddingInlineStart(0) }}
-      aria-expanded={expanded}
+      aria-expanded={project ? undefined : expanded}
     >
-      <SidebarGlyphSlot>
-        <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
-      </SidebarGlyphSlot>
-      <span
-        className={cn("min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate active:cursor-grabbing", SIDEBAR_SECTION_LABEL)}
+      {project ? <button type="button" className="flex shrink-0 items-center rounded hover:bg-sidebar-accent"
+        aria-label={t(expanded ? "aiopc.projects.collapse" : "aiopc.projects.expand", { name: label })} aria-expanded={expanded}
+        onClick={(event) => { event.stopPropagation(); onToggle(); }}>
+        <SidebarGlyphSlot><ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} /></SidebarGlyphSlot>
+      </button> : <SidebarGlyphSlot><ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} /></SidebarGlyphSlot>}
+      {project ? <button type="button" data-project-title={group?.id}
+        className={cn("min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate text-left active:cursor-grabbing", SIDEBAR_SECTION_LABEL)}
         onPointerDown={onTitlePointerDown}
-      >
-        {label}
-      </span>
+        onClick={(event) => {
+          event.stopPropagation();
+          const pressed = pressedAt.current; pressedAt.current = null;
+          if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 3) return;
+          ctx.onOpenProject?.(workspaceId!, projectName!);
+        }}>{label}</button> : <span
+        className={cn("min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate active:cursor-grabbing", SIDEBAR_SECTION_LABEL)}
+        onPointerDown={onTitlePointerDown}>{label}</span>}
       {group && groups && workspaceId ? (
         <SessionGroupActions group={group} groups={groups} workspaceId={workspaceId} count={count} />
       ) : (
@@ -2074,7 +2105,7 @@ function GroupDropZone({ groupId, workspaceId, children }: {
   children: React.ReactNode;
 }) {
   const [dragOver, setDragOver] = React.useState(false);
-  const store = useSessionManagementStore;
+  const canMove = (sessionId: string) => canAssignSessionGroup(sessionProjectId(useSessionManagementStore.getState().groupsByWorkspace[workspaceId], sessionId), groupId);
   const drag = useDraggedSession();
 
   React.useEffect(() => {
@@ -2088,7 +2119,7 @@ function GroupDropZone({ groupId, workspaceId, children }: {
         dragOver && "bg-accent/40 ring-1 ring-accent/60",
       )}
       onDragOver={(e) => {
-        if (drag.session?.workspaceId === workspaceId && e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+        if (drag.session?.workspaceId === workspaceId && canMove(drag.session.id) && e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
           e.preventDefault();
           setDragOver(true);
         }
@@ -2102,10 +2133,10 @@ function GroupDropZone({ groupId, workspaceId, children }: {
       onDrop={(e) => {
         setDragOver(false);
         const sessionId = e.dataTransfer.getData(SESSION_DRAG_TYPE);
-        if (sessionId && drag.session?.workspaceId === workspaceId && drag.session.id === sessionId) {
+        if (sessionId && drag.session?.workspaceId === workspaceId && drag.session.id === sessionId && canMove(sessionId)) {
           e.preventDefault();
           e.stopPropagation();
-          store.getState().assignGroup(workspaceId, sessionId, groupId);
+          requestSessionGroupMove(workspaceId, sessionId, groupId);
           drag.setSession(null);
         }
       }}
@@ -2197,7 +2228,7 @@ export function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds
       >
         {groups.map(renderGroup)}
       </Reorder.Group>
-      {ungroupedRows.length > 0 || ungroupedDraft.hasDraft ? (
+      {groups.length > 0 || ungroupedRows.length > 0 || ungroupedDraft.hasDraft ? (
         <GroupDropZone groupId={null} workspaceId={workspaceId}>
           <Collapsible
             open={ungroupedExpanded}

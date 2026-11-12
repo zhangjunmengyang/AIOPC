@@ -1,10 +1,13 @@
+import { requestSessionGroupMove } from "@/react-app/domains/session/sidebar/session-project-move";
+import { ProjectsPage } from "@/react-app/domains/aiopc/projects-page";
+import { executionDirectoryForGroup, projectNameFromGroupId, sessionProjectContext } from "@/react-app/domains/aiopc/company-project";
 import { submitSessionDraft,type SessionSubmissionResult } from "@/react-app/domains/session/surface/session-submission";
 /** @jsxImportSource react */
 import { toast } from "@/components/ui/sonner";
 import { newSessionDraftOwnerKey,newSessionDraftSlot,openNewSessionDraft } from "@/react-app/domains/session/chat/new-session-destination";
 import { PendingConversationView } from "@/react-app/domains/session/chat/pending-conversation";
-import { acknowledgePendingSession,beginPendingConversation,bindPendingConversationWorkspace,createPendingConversation,ensurePendingConversationGroup,pendingConversationAutoSendPayload,pendingConversationForRoute,publishPendingSideChat,usePendingConversationStore,withPendingSessionPublication,type PendingConversation } from "@/react-app/domains/session/chat/pending-conversation-store";
-import { assignNewSessionGroup } from "@/react-app/domains/session/sidebar/session-management-store";
+import { acknowledgePendingSession,beginPendingConversation,bindPendingConversationWorkspace,createPendingConversation,ensurePendingConversationContext,pendingConversationAutoSendPayload,pendingConversationForRoute,publishPendingSideChat,usePendingConversationStore,withPendingSessionPublication,type PendingConversation } from "@/react-app/domains/session/chat/pending-conversation-store";
+import { assignNewSessionGroup, createProjectSessionGroup, refreshSessionGroupState } from "@/react-app/domains/session/sidebar/session-management-store";
 import { clearSessionDraft,getSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import {
@@ -15,7 +18,7 @@ useReducer,
 useRef,
 useState,
 } from "react";
-import { useLocation,useNavigate } from "react-router";
+import { useLocation,useNavigate,useParams } from "react-router";
 
 import { DEFAULT_MODEL } from "@/app/constants";
 import { captureAnalyticsEvent,markTaskRunStart } from "@/app/lib/analytics";
@@ -220,6 +223,7 @@ mergeWorkspaceRouteSession,
 spaceRoute,
 workspaceExtensionsRoute,
 workspaceSessionRoute,
+workspaceProjectsRoute,
 workspaceSettingsRoute
 } from "./workspace-routes";
 
@@ -229,6 +233,16 @@ workspaceSettingsRoute
  * so the session surface can detect ProviderModelNotFoundError and offer
  * recovery actions like "Change model".
  */
+async function refreshForkMetadata(workspaceId: string): Promise<void> {
+  try {
+    await refreshSessionGroupState(workspaceId);
+  } catch (error) {
+    // The server has already registered the fork. Retry its snapshot, never create a second fork.
+    toast.error(t("session.metadata_refresh_failed"), { description: serializeSDKError(error),
+      action: { label: t("common.retry"), onClick: () => { void refreshForkMetadata(workspaceId); } } });
+  }
+}
+
 function serializeSDKError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -325,7 +339,9 @@ export function SessionRoute() {
   const accountsRouteActive = location.pathname === "/accounts";
   const teamRouteActive = location.pathname === "/team";
   const inboxRouteActive = location.pathname === "/inbox";
-  const workspaceRoute = spaceRouteActive ? "space" : accountsRouteActive ? "accounts"
+  const projectsRouteActive = /^\/workspace\/[^/]+\/projects(?:\/|$)/.test(location.pathname);
+  const { projectName: overviewProjectName } = useParams<{ projectName?: string }>();
+  const workspaceRoute = projectsRouteActive ? "projects" : spaceRouteActive ? "space" : accountsRouteActive ? "accounts"
     : teamRouteActive ? "team" : inboxRouteActive ? "inbox" : "session";
   const pageRouteActive = workspaceRoute !== "session";
   const local = useLocal();
@@ -474,7 +490,10 @@ export function SessionRoute() {
   const agentSessionId = useWorkbenchStore((state) => selectedSessionId && state.focusedPane === "secondary" && state.secondary
     ? state.secondary.sessionId
     : selectedSessionId);
+  const agentWorkspaceId = useWorkbenchStore((state) => selectedSessionId && state.focusedPane === "secondary" && state.secondary
+    ? state.secondary.workspaceId : selectedWorkspaceId);
   const { selectedAgent, setAgent: setSelectedAgent } = useSessionAgentSelection({
+    workspaceId: agentWorkspaceId,
     sessionId: agentSessionId,
     fallbackAgent: newTaskAgent,
     onFallbackAgentChange: setNewTaskAgent,
@@ -619,10 +638,8 @@ export function SessionRoute() {
     navigateToWorkspaceSession(pendingConversation.destination.workspaceId, pendingConversation.sessionId);
   }, [pendingConversation?.sessionId, pendingConversation?.destination.workspaceId, navigateToWorkspaceSession]);
   useSessionGroupSync({ workspaces, endpointForWorkspace });
-  const selectedWorkspaceGroupState = sessionManagementStore((state) => (
-    selectedWorkspaceId ? state.groupsByWorkspace[selectedWorkspaceId] : undefined
-  ));
-  const assignSessionToGroup = sessionManagementStore((state) => state.assignGroup);
+  const groupsByWorkspace = sessionManagementStore((state) => state.groupsByWorkspace);
+  const selectedWorkspaceGroupState = selectedWorkspaceId ? groupsByWorkspace[selectedWorkspaceId] : undefined;
   const currentSessionPinned = sessionManagementStore((state) => (
     selectedSessionId ? state.pinnedIds.includes(selectedSessionId) : false
   ));
@@ -683,6 +700,18 @@ export function SessionRoute() {
     return workspaceSessionGroups.find((group) => group.workspace.id === selectedWorkspaceId)
       ?.sessions.find((session) => session?.id === selectedSessionId) ?? null;
   }, [selectedSessionId, selectedWorkspaceId, workspaceSessionGroups]);
+  const selectedExecutionSession = sessionsByWorkspaceId[selectedWorkspaceId]?.find((session) => session.id === selectedSessionId);
+  const routeProjectGroup = (overviewProjectName ? `proj:${overviewProjectName}` : new URLSearchParams(location.search).get("draftGroup"))
+    ?? (new URLSearchParams(location.search).get("project") ? `proj:${new URLSearchParams(location.search).get("project")}` : null);
+  const selectedProjectContext = sessionProjectContext(selectedWorkspaceRoot, selectedExecutionSession,
+    selectedSessionId ? selectedWorkspaceGroupState?.sessionMeta?.[selectedSessionId] : undefined, routeProjectGroup);
+  const selectedExecutionDirectory = selectedProjectContext.executionDirectory;
+  const selectedProjectGroupId = selectedProjectContext.projectId;
+  const executionOpencodeClient = useMemo(() => {
+    if (!opencodeClient) return null;
+    const factory = isOpencodeV2BaseUrl(opencodeBaseUrl) ? createClientV2 : createClient;
+    return factory(opencodeBaseUrl, selectedExecutionDirectory || undefined, { token: selectedWorkspaceServerToken, mode: "openwork" });
+  }, [opencodeClient, opencodeBaseUrl, selectedExecutionDirectory, selectedWorkspaceServerToken]);
   // Palette, header button and Cmd/Ctrl+Shift+E all run this one toggle. The archive flow is set up further down.
   const archiveSessionRef = useRef<((sessionId: string, archived: boolean, workspaceId: string) => Promise<unknown>) | null>(null);
   const currentSessionArchived = (selectedSidebarSession?.time?.archived ?? 0) > 0;
@@ -948,9 +977,9 @@ export function SessionRoute() {
     // an engine reload, which invalidates the composer's command list cache
     // and causes it to re-fetch (picking up newly created skills).
     void engineReloadVersion;
-    if (!opencodeClient) return [];
-    return listCommands(opencodeClient, selectedWorkspaceRoot || undefined);
-  }, [engineReloadVersion, opencodeClient, selectedWorkspaceRoot]);
+    if (!executionOpencodeClient) return [];
+    return listCommands(executionOpencodeClient, selectedExecutionDirectory || undefined);
+  }, [engineReloadVersion, executionOpencodeClient, selectedExecutionDirectory]);
 
   // Shared by the composer (plug menu, @ mentions) and the command palette.
   // Hidden and subagent-only entries are excluded — those are task-tool
@@ -959,10 +988,10 @@ export function SessionRoute() {
     // Include engineReloadVersion so the composer refetches after newly added
     // agent files become available, even when the inline picker is hidden.
     void engineReloadVersion;
-    if (!opencodeClient) return [];
-    const list = unwrap(await opencodeClient.app.agents());
+    if (!executionOpencodeClient) return [];
+    const list = unwrap(await executionOpencodeClient.app.agents({ directory: selectedExecutionDirectory || undefined }));
     return list.filter(isLibraryAgent);
-  }, [engineReloadVersion, opencodeClient]);
+  }, [engineReloadVersion, executionOpencodeClient, selectedExecutionDirectory]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
     const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
@@ -989,7 +1018,7 @@ export function SessionRoute() {
   const extensionsMainOpen = /^\/(?:workspace\/[^/]+\/)?extensions(?:\/|$)/.test(location.pathname);
   const [libraryHeaderActionsTarget, setLibraryHeaderActionsTarget] = useState<HTMLDivElement | null>(null);
   const surfaceProps = useMemo(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
+    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !executionOpencodeClient) {
       return null;
     }
 
@@ -1018,7 +1047,8 @@ export function SessionRoute() {
     // `surfaceProps` in SessionPage overrides those correct values with the
     // local server's.
     return {
-      workspaceRoot: selectedWorkspaceRoot,
+      workspaceRoot: selectedExecutionDirectory,
+      roleWorkspaceId: selectedWorkspaceId,
       draftScope: sessionDraftScope,
       developerMode,
       modelLabel,
@@ -1068,14 +1098,14 @@ export function SessionRoute() {
         }
         return reloadCoordinator.withEngineReady(selectedWorkspaceId, async () => {
           assertCurrent();
-          await ensurePendingConversationGroup(sessionDraftScope, selectedWorkspaceId, targetSessionId, assignNewSessionGroup);
+          const initialRole = await ensurePendingConversationContext(sessionDraftScope, selectedWorkspaceId, targetSessionId, assignNewSessionGroup, sessionManagementStore.getState().setSessionAgent);
           assertCurrent();
           // Per-conversation model memory: a session that picked its own model
           // sends with it (and its variant) instead of the global default.
           const sessionModelSelection = getSessionModelSelection(targetSessionId);
           const sendModel = sessionModelSelection?.model ?? local.prefs.defaultModel;
           const sendVariant = sessionModelSelection ? sessionModelSelection.variant : modelVariantValue;
-          const sendAgent = agent === undefined ? getSessionAgentSelection(targetSessionId, newTaskAgent) : agent;
+          const sendAgent = initialRole ? initialRole.agentName : agent === undefined ? getSessionAgentSelection(targetSessionId, newTaskAgent, selectedWorkspaceId) : agent;
           // Send-time validation targets the exact provider/model identity this
           // conversation displays and will submit — not the global default.
           if (resolveModelAvailability(sendModel ?? null).status === "unavailable") {
@@ -1089,8 +1119,8 @@ export function SessionRoute() {
             send: async () => {
               assertCurrent();
               const promptClient = draft.mode === "shell" || draft.command || isOpencodeV2BaseUrl(opencodeBaseUrl)
-                ? opencodeClient
-                : createClient(opencodeBaseUrl, selectedWorkspaceRoot || undefined,
+                ? executionOpencodeClient
+                : createClient(opencodeBaseUrl, selectedExecutionDirectory || undefined,
                   { token: selectedWorkspaceServerToken, mode: "openwork" }, { desktopTransport: "main" });
               if (unwrap(await promptClient.session.get({ sessionID: targetSessionId })).time.archived) {
                 throw new Error("This session is archived. Restore it before sending.");
@@ -1099,13 +1129,13 @@ export function SessionRoute() {
               await sendWithRevertRollback({
                 assertCurrent,
                 revertMessageId: draft.revertMessageId,
-                abort: () => abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined, {
+                abort: () => abortSessionSafe(executionOpencodeClient, targetSessionId, selectedExecutionDirectory || undefined, {
                   source: "session.edit_resend.before_revert",
                   initiator: "user",
                   reason: "abort active run before replacing a reverted message",
                 }),
                 revert: async (messageId) => {
-                  const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
+                  const reverted = await revertSession(executionOpencodeClient, targetSessionId, messageId);
                   applySessionRevert(selectedWorkspaceId, reverted);
                 },
                 prompt: async () => {
@@ -1144,13 +1174,13 @@ export function SessionRoute() {
 
                   if (draft.mode === "shell") {
                     onPrepared?.();
-                    await shellInSession(opencodeClient, targetSessionId, text, { messageID: draft.messageId });
+                    await shellInSession(executionOpencodeClient, targetSessionId, text, { messageID: draft.messageId });
                     return;
                   }
 
                   if (draft.command) {
                     onPrepared?.();
-                    const result = await sendSessionCommand(opencodeBaseUrl, opencodeClient, {
+                    const result = await sendSessionCommand(opencodeBaseUrl, executionOpencodeClient, {
                       sessionID: targetSessionId,
                       messageID: draft.messageId,
                       command: draft.command.name,
@@ -1162,7 +1192,7 @@ export function SessionRoute() {
                     return;
                   }
 
-                  const parts = await draftToParts(draft, selectedWorkspaceRoot, targetSessionId, selectedWorkspaceEndpoint);
+                  const parts = await draftToParts(draft, selectedExecutionDirectory, targetSessionId, selectedWorkspaceEndpoint);
                   assertCurrent();
                   const system = await buildOpenworkSessionSystemContext(client, {
                     workspaceId: selectedWorkspaceId,
@@ -1186,7 +1216,7 @@ export function SessionRoute() {
                     refreshModels: () => ensureProviderListQuery(getReactQueryClient(), {
                       client: promptClient,
                       baseUrl: opencodeBaseUrl,
-                      directory: selectedWorkspaceRoot,
+                      directory: selectedExecutionDirectory,
                       force: true,
                     }),
                     assertCurrent,
@@ -1203,7 +1233,7 @@ export function SessionRoute() {
                 },
                 unrevert: async () => {
                   try {
-                    await unrevertSession(opencodeClient, targetSessionId);
+                    await unrevertSession(executionOpencodeClient, targetSessionId);
                   } finally {
                     applySessionUnrevert(selectedWorkspaceId, targetSessionId);
                   }
@@ -1236,11 +1266,11 @@ export function SessionRoute() {
         const trimmed = query.trim();
         if (!trimmed) return [];
         const result = unwrap(
-          await opencodeClient.find.files({
+          await executionOpencodeClient.find.files({
             query: trimmed,
             dirs: "true",
             limit: 50,
-            directory: selectedWorkspaceRoot || undefined,
+            directory: selectedExecutionDirectory || undefined,
           }),
         );
         return result;
@@ -1250,12 +1280,12 @@ export function SessionRoute() {
         if (!targetSessionId) return false;
         try {
           // Abort any running generation first; OpenCode rejects revert on busy sessions.
-          await abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined, {
+          await abortSessionSafe(executionOpencodeClient, targetSessionId, selectedExecutionDirectory || undefined, {
             source: "session.revert_to_message.before_revert",
             initiator: "user",
             reason: "abort active run before reverting transcript",
           });
-          const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
+          const reverted = await revertSession(executionOpencodeClient, targetSessionId, messageId);
           // Stamp the revert cursor into the local caches so the transcript
           // rewinds immediately instead of waiting for a full reload.
           applySessionRevert(selectedWorkspaceId, reverted);
@@ -1270,7 +1300,7 @@ export function SessionRoute() {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return false;
         try {
-          await unrevertSession(opencodeClient, targetSessionId);
+          await unrevertSession(executionOpencodeClient, targetSessionId);
           applySessionUnrevert(selectedWorkspaceId, targetSessionId);
           return true;
         } catch (error) {
@@ -1284,7 +1314,8 @@ export function SessionRoute() {
         if (!targetSessionId) return;
         const navigationOwner = selectedConversationRef.current;
         const paneOwner = focusedWorkbenchPaneOwner();
-        const forked = await forkSession(opencodeClient, targetSessionId, messageId ?? undefined);
+        const forked = await forkSession(executionOpencodeClient, targetSessionId, messageId ?? undefined);
+        await refreshForkMetadata(selectedWorkspaceId);
         if (!isCurrent()
           || selectedConversationRef.current.navigationGeneration !== navigationOwner.navigationGeneration
           || selectedConversationRef.current.workspaceId !== navigationOwner.workspaceId
@@ -1341,7 +1372,7 @@ export function SessionRoute() {
     reloadWorkspaceSessions,
     reloadCoordinator.withEngineReady,
     opencodeBaseUrl,
-    opencodeClient,
+    executionOpencodeClient,
     providerConnectedIds,
     newTaskAgent,
     setNewTaskAgent,
@@ -1350,7 +1381,7 @@ export function SessionRoute() {
     selectedModelUnavailable,
     selectedWorkspace,
     selectedWorkspaceId,
-    selectedWorkspaceRoot,
+    selectedExecutionDirectory,
     selectedWorkspaceServerToken,
     sessionsByWorkspaceId,
     token,
@@ -1371,12 +1402,12 @@ export function SessionRoute() {
     if (paneEndpoint.status === "unavailable") return paneEndpoint;
     const { endpoint, workspace } = paneEndpoint;
 
-    if (paneEndpoint.workspaceId === selectedWorkspaceId && surfaceProps) {
+    if (paneEndpoint.workspaceId === selectedWorkspaceId && session.sessionId === selectedSessionId && surfaceProps) {
       return {
         status: "ready",
         workspaceId: paneEndpoint.workspaceId,
         workspaceTitle: paneEndpoint.workspaceTitle,
-        workspaceRoot: selectedWorkspaceRoot,
+        workspaceRoot: selectedExecutionDirectory,
         workspaceType: paneEndpoint.workspaceType,
         runtimeWorkspaceId: endpoint.workspaceId,
         opencodeBaseUrl: endpoint.opencodeBaseUrl,
@@ -1396,7 +1427,7 @@ export function SessionRoute() {
       };
     }
 
-    const workspaceRoot = paneEndpoint.workspaceRoot;
+    const workspaceRoot = sessionProjectContext(paneEndpoint.workspaceRoot, sessionsByWorkspaceId[workspace.id]?.find((item) => item.id === session.sessionId), groupsByWorkspace[workspace.id]?.sessionMeta?.[session.sessionId], session.draftDestination?.groupId).executionDirectory;
     const createEngineClient = isOpencodeV2BaseUrl(endpoint.opencodeBaseUrl) ? createClientV2 : createClient;
     const workspaceOpencodeClient = createEngineClient(
       endpoint.opencodeBaseUrl,
@@ -1406,6 +1437,7 @@ export function SessionRoute() {
     const scopedSurface = {
       ...surfaceProps,
       workspaceRoot,
+      roleWorkspaceId: workspace.id,
       modelRecoveryScope: JSON.stringify([sessionDraftScope, endpoint.opencodeBaseUrl, workspace.id]),
       modelUnavailable: false,
       modelUnavailableMessage: null,
@@ -1451,12 +1483,12 @@ export function SessionRoute() {
         }
         return reloadCoordinator.withEngineReady(workspace.id, async () => {
           assertCurrent();
-          await ensurePendingConversationGroup(sessionDraftScope, workspace.id, targetSessionId, assignNewSessionGroup);
+          const initialRole = await ensurePendingConversationContext(sessionDraftScope, workspace.id, targetSessionId, assignNewSessionGroup, sessionManagementStore.getState().setSessionAgent);
           assertCurrent();
           const sessionModelSelection = getSessionModelSelection(targetSessionId);
           const sendModel = sessionModelSelection?.model ?? local.prefs.defaultModel;
           const sendVariant = sessionModelSelection ? sessionModelSelection.variant : modelVariantValue;
-          const sendAgent = agent === undefined ? getSessionAgentSelection(targetSessionId, newTaskAgent) : agent;
+          const sendAgent = initialRole ? initialRole.agentName : agent === undefined ? getSessionAgentSelection(targetSessionId, newTaskAgent, workspace.id) : agent;
           return submitSessionDraft({
             skipGate: true,
             send: async () => {
@@ -1604,6 +1636,7 @@ export function SessionRoute() {
         const navigationOwner = selectedConversationRef.current;
         const paneOwner = focusedWorkbenchPaneOwner();
         const forked = await forkSession(workspaceOpencodeClient, targetSessionId, messageId ?? undefined);
+        await refreshForkMetadata(workspace.id);
         if (!isCurrent()
           || selectedConversationRef.current.navigationGeneration !== navigationOwner.navigationGeneration
           || selectedConversationRef.current.workspaceId !== navigationOwner.workspaceId
@@ -1652,7 +1685,10 @@ export function SessionRoute() {
     reloadCoordinator.withEngineReady,
     newTaskAgent,
     selectedWorkspaceId,
-    selectedWorkspaceRoot,
+    selectedSessionId,
+    sessionsByWorkspaceId,
+    groupsByWorkspace,
+    selectedExecutionDirectory,
     setSessionsByWorkspaceId,
     surfaceProps,
     workspaceConnectionStateById,
@@ -1667,6 +1703,7 @@ export function SessionRoute() {
     return {
       client,
       workspaceId: selectedWorkspaceId || null,
+      executionDirectory: selectedExecutionDirectory,
       destination: { workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined },
       draftSessionId: newSessionDraftSlot({ workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined }),
       draftOwnerKey: newSessionDraftOwnerKey(sessionDraftScope, { workspaceId: selectedWorkspaceId, groupId: new URLSearchParams(location.search).get("draftGroup") || undefined }),
@@ -1726,13 +1763,13 @@ export function SessionRoute() {
       listCommands: listSlashCommands,
       searchFiles: async (query: string) => {
         const trimmed = query.trim();
-        if (!trimmed || !opencodeClient) return [];
+        if (!trimmed || !executionOpencodeClient) return [];
         const result = unwrap(
-          await opencodeClient.find.files({
+          await executionOpencodeClient.find.files({
             query: trimmed,
             dirs: "true",
             limit: 50,
-            directory: selectedWorkspaceRoot || undefined,
+            directory: selectedExecutionDirectory || undefined,
           }),
         );
         return result;
@@ -1763,14 +1800,14 @@ export function SessionRoute() {
     changeNewTaskModel,
     resolveModelAvailability,
     modelPicker,
-    opencodeClient,
+    executionOpencodeClient,
     modelPicker.options,
     newTaskAgent,
     selectedModelUnavailable,
     selectedWorkspace,
     selectedWorkspaceEndpoint,
     selectedWorkspaceId,
-    selectedWorkspaceRoot,
+    selectedExecutionDirectory,
     sessionDraftScope,
     sessionProviderAuthStore,
     setNewTaskAgent,
@@ -1929,6 +1966,7 @@ export function SessionRoute() {
       // Defaults are engine-specific: use the endpoint that actually created the session.
       applyWorkspaceDefaultToSession(session.id, sessionEndpoint);
       useSessionAgentStore.getState().setAgent(session.id, agent);
+      await sessionManagementStore.getState().setSessionAgent(workspaceId, session.id, agent).catch((error: unknown) => toast.error(t("session.role_save_failed"), { description: error instanceof Error ? error.message : String(error) }));
       setSessionsByWorkspaceId((current) => {
         const next = {
           ...current,
@@ -2612,8 +2650,8 @@ export function SessionRoute() {
       return;
     }
     if (!selectedWorkspaceId || !selectedSessionId) return;
-    assignSessionToGroup(selectedWorkspaceId, selectedSessionId, groupId);
-  }, [assignSessionToGroup, paletteDraftGroupMove, selectedSessionId, selectedWorkspaceId]);
+    requestSessionGroupMove(selectedWorkspaceId, selectedSessionId, groupId);
+  }, [paletteDraftGroupMove, selectedSessionId, selectedWorkspaceId]);
 
   const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-search.open",
@@ -2898,6 +2936,11 @@ export function SessionRoute() {
         captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
         if (session?.id) {
           useSessionAgentStore.getState().setAgent(session.id, agent);
+          let roleSaved = true;
+          await sessionManagementStore.getState().setSessionAgent(targetWorkspaceId, session.id, agent).catch((error: unknown) => {
+            roleSaved = false;
+            toast.error(t("session.role_save_failed"), { description: error instanceof Error ? error.message : String(error) });
+          });
           captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
           if (firstTaskPrompt || firstTaskAttachments.length) {
             // Attachment chips only survive in-memory (File objects), so the
@@ -2914,7 +2957,7 @@ export function SessionRoute() {
               useComposerStateStore.getState().setAttachments(session.id, firstTaskAttachments);
             }
             // One-step run: the session surface sends the seeded draft itself.
-            markComposerAutoSend(session.id);
+            if (roleSaved) markComposerAutoSend(session.id);
           }
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
@@ -2945,7 +2988,7 @@ export function SessionRoute() {
    * it. Falls back to the create-workspace modal off desktop.
    */
   const handleChatFirstTask = useCallback(async (prompt: string, attachments?: ComposerAttachment[], handoff?: NewTaskComposerHandoff) => {
-    const pending = beginPendingConversation({ scope: sessionDraftScope, destination: { workspaceId: "" },
+    const pending = beginPendingConversation({ scope: sessionDraftScope, destination: { workspaceId: "" }, agentName: newTaskAgent,
       submitted: handoff?.submitted ?? { draft: prompt, attachments: attachments ?? [], mentions: {}, pasteParts: [], revertMessageId: null } });
     handoff?.consume?.();
     navigate(`/session?pendingConversation=${pending.id}`);
@@ -3027,10 +3070,15 @@ export function SessionRoute() {
   useControlAction(reloadWorkspaceSessionsControlAction);
 
   const startAppConversation = async (prompt: string) => {
-    const sessionId = await handleCreateTaskInWorkspaceWithOpenMode(selectedWorkspaceId, "primary");
-    if (!sessionId) throw new Error("Could not start a conversation. Check that your workspace is connected.");
-    saveSessionDraft(sessionDraftScope, selectedWorkspaceId, sessionId, { text: prompt, mode: "prompt" });
+    const destination = { workspaceId: selectedWorkspaceId, groupId: selectedProjectGroupId ?? undefined };
+    saveSessionDraft(sessionDraftScope, selectedWorkspaceId, newSessionDraftSlot(destination), { text: prompt, mode: "prompt" });
+    useComposerStateStore.getState().setDraft(newSessionDraftOwnerKey(sessionDraftScope, destination), prompt);
+    openNewSessionDraft(destination, navigate);
     focusPromptSoon();
+  };
+  const openProjectScopedPage = (path: string) => {
+    const name = projectNameFromGroupId(selectedProjectGroupId);
+    navigate(name ? `${path}?${new URLSearchParams({ project: name })}` : path);
   };
 
   return (
@@ -3039,7 +3087,7 @@ export function SessionRoute() {
       opencodeBaseUrl={opencodeBaseUrl}
       openworkServerClient={selectedWorkspaceEndpoint?.client ?? null}
       workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? ""}
-      selectedWorkspaceRoot={selectedWorkspaceRoot}
+      selectedWorkspaceRoot={selectedExecutionDirectory}
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime
@@ -3072,7 +3120,7 @@ export function SessionRoute() {
         workspaceType: selectedWorkspace.workspaceType,
         sandboxBackend: selectedWorkspace.sandboxBackend,
       } : { workspaceType: "local" }}
-      selectedWorkspaceRoot={selectedWorkspaceRoot}
+      selectedWorkspaceRoot={selectedExecutionDirectory}
       selectedWorkspaceError={selectedWorkspaceError}
       runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
       opencodeBaseUrl={opencodeBaseUrl}
@@ -3148,14 +3196,20 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title")
+      primaryTitle={projectsRouteActive ? t("aiopc.projects.title") : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title")
         : teamRouteActive ? teamText("title") : inboxRouteActive ? t("aiopc.inbox.title") : undefined}
       primarySurface={pageRouteActive || extensionsMainOpen ? "flat" : undefined}
       primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation)}
-      primarySlot={spaceRouteActive ? (
-        <SpacePage workspaceRoot={selectedWorkspaceRoot} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
+      primarySlot={projectsRouteActive ? (
+        <ProjectsPage companyRoot={selectedWorkspaceRoot} projectName={overviewProjectName}
+          onOpenProject={(name) => navigate(workspaceProjectsRoute(selectedWorkspaceId, name))}
+          onCreated={(project) => createProjectSessionGroup(selectedWorkspaceId, project.name)}
+          onStartConversation={(project) => { openNewSessionDraft({ workspaceId: selectedWorkspaceId, groupId: project.id }, navigate); focusPromptSoon(); }}
+          onOpenKnowledge={(project) => navigate(`${spaceRoute()}?${new URLSearchParams({ project: project.name })}`)} />
+      ) : spaceRouteActive ? (
+        <SpacePage workspaceRoot={selectedExecutionDirectory} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
       ) : accountsRouteActive ? (
-        <AccountsPage workspaceRoot={selectedWorkspaceRoot} />
+        <AccountsPage workspaceRoot={selectedExecutionDirectory} />
       ) : teamRouteActive ? (
         <TeamPage endpoint={selectedWorkspaceEndpoint} client={opencodeClient} workspaceRoot={selectedWorkspaceRoot}
           sessions={sessionsByWorkspaceId[selectedWorkspaceId] ?? []}
@@ -3185,10 +3239,13 @@ export function SessionRoute() {
         newTaskDisabled: !canCreateTask,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
+        projectsActive: projectsRouteActive,
+        onOpenProjects: (workspaceId) => navigate(workspaceProjectsRoute(workspaceId)),
+        onOpenProject: (workspaceId, name) => navigate(workspaceProjectsRoute(workspaceId, name)),
         spaceActive: spaceRouteActive,
-        onOpenSpace: () => navigate(spaceRoute()),
+        onOpenSpace: () => openProjectScopedPage(spaceRoute()),
         accountsActive: accountsRouteActive,
-        onOpenAccounts: () => navigate(accountsRoute()),
+        onOpenAccounts: () => openProjectScopedPage(accountsRoute()),
         teamActive: teamRouteActive,
         onOpenTeam: () => navigate("/team"),
         inboxActive: inboxRouteActive,
@@ -3240,7 +3297,7 @@ export function SessionRoute() {
           workspaceId = destination.workspaceId;
           const agent = newTaskAgent;
           const pending = beginPendingConversation({
-            scope: sessionDraftScope, destination,
+            scope: sessionDraftScope, destination, agentName: agent,
             submitted: handoff?.submitted ?? { draft: prompt, attachments: attachments ?? [], mentions: {}, pasteParts: [], revertMessageId: null },
           });
           handoff?.consume?.();
@@ -3260,7 +3317,7 @@ export function SessionRoute() {
             if (!currentWorkspace) throw new Error("Workspace is unavailable. Try again.");
             const workspaceEndpoint = endpointForWorkspace(currentWorkspace);
             if (!workspaceEndpoint?.token) throw new Error("Workspace is disconnected. Reconnect and try again.");
-            return createRouteSessionOnEngine(workspaceEndpoint, currentWorkspace.path?.trim() || undefined);
+            return createRouteSessionOnEngine(workspaceEndpoint, executionDirectoryForGroup(currentWorkspace.path?.trim() || "", destination.groupId) || undefined);
           }, (created) => publishCreatedConversation(pending, created, agent, workspace?.displayNameResolved));
         },
         onOpenRenameWorkspace: handleOpenRenameWorkspace,
@@ -3432,6 +3489,8 @@ export function SessionRoute() {
       sessionGroups={paletteSessionGroups}
       currentSessionForGroupMove={paletteDraftGroupMove ? { title: "this new task" } : currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
+      allowProjectSelection={Boolean(paletteDraftGroupMove)}
+      currentSessionProjectId={paletteDraftGroupMove ? undefined : selectedProjectGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
       onCreateGroup={selectedWorkspaceId ? () => requestSessionDialog({ action: "create-group", workspaceId: selectedWorkspaceId }) : undefined}
       extraItems={[...currentSessionActionPaletteItems, ...(sessionFindPaletteItem ? [sessionFindPaletteItem] : []), sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, diagnosticsCopyPaletteItem, diagnosticsExportPaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}

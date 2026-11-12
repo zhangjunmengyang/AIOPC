@@ -638,7 +638,7 @@ export type OpenworkSessionGroupDefinition = {
 export type OpenworkSessionGroupState = {
   groups: OpenworkSessionGroupDefinition[];
   assignments: Record<string, string>;
-  sessionMeta?: Record<string, { agentName?: string; projectId?: string | null }>;
+  sessionMeta: Record<string, { agentName?: string; projectId?: string | null }>;
 };
 
 export type OpenworkCompanyRole = {
@@ -656,7 +656,7 @@ export type OpenworkSessionGroupEvent = {
   seq: number;
   workspaceId: string;
   type: "session_groups.updated";
-  action: "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported";
+  action: "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported" | "meta";
   groupId?: string;
   sessionId?: string;
   timestamp: number;
@@ -1282,7 +1282,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
         { token, hostToken, method: "PUT", body: { state }, timeoutMs: timeouts.config },
       ),
-    createSessionGroup: (workspaceId: string, input: { id?: string; label: string }) =>
+    createSessionGroup: (workspaceId: string, input: { id?: string; label: string; directory?: string }) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
@@ -1299,6 +1299,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/assignments/${encodeURIComponent(sessionId)}`,
         { token, hostToken, method: "PATCH", body: { groupId }, timeoutMs: timeouts.config },
+      ),
+    setSessionAgent: (workspaceId: string, sessionId: string, agentName: string | null) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/meta/${encodeURIComponent(sessionId)}`,
+        { token, hostToken, method: "PATCH", body: { agentName }, timeoutMs: timeouts.config },
       ),
     renameSessionGroup: (workspaceId: string, groupId: string, label: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
@@ -1467,16 +1473,22 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${workspaceId}/plugins/${encodeURIComponent(name)}`,
         { token, hostToken, method: "DELETE" },
       ),
-    listSkills: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
-      const query = options?.includeGlobal ? "?includeGlobal=true" : "";
+    listSkills: (workspaceId: string, options?: { includeGlobal?: boolean; directory?: string }) => {
+      const params = new URLSearchParams();
+      if (options?.includeGlobal) params.set("includeGlobal", "true");
+      if (options?.directory) params.set("directory", options.directory);
+      const query = params.size ? `?${params}` : "";
       return requestJson<{ items: OpenworkSkillItem[] }>(
         baseUrl,
         `/workspace/${workspaceId}/skills${query}`,
         { token, hostToken },
       );
     },
-    getSkill: (workspaceId: string, name: string, options?: { includeGlobal?: boolean }) => {
-      const query = options?.includeGlobal ? "?includeGlobal=true" : "";
+    getSkill: (workspaceId: string, name: string, options?: { includeGlobal?: boolean; directory?: string }) => {
+      const params = new URLSearchParams();
+      if (options?.includeGlobal) params.set("includeGlobal", "true");
+      if (options?.directory) params.set("directory", options.directory);
+      const query = params.size ? `?${params}` : "";
       return requestJson<OpenworkSkillContent>(
         baseUrl,
         `/workspace/${workspaceId}/skills/${encodeURIComponent(name)}${query}`,

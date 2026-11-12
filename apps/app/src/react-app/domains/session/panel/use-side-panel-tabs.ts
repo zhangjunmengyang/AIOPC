@@ -1,3 +1,4 @@
+import { EnvironmentPicker } from "../../aiopc/environment-picker";
 import * as React from "react";
 
 import { t } from "@/i18n";
@@ -7,9 +8,9 @@ import {
   usePanelTabStore,
 } from "./panel-tab-store";
 
-/** The project environment's picture, as a panel tab: one per project, reopened rather than duplicated. */
-export function environmentTab(workspaceRoot: string): PanelTab {
-  return { id: `environment:${workspaceRoot}`, type: "environment", label: t("aiopc.browser.live_view"), workspaceRoot };
+/** One tab per environment, so a project's independent accounts never share a viewer. */
+export function environmentTab(environmentId: string, workspaceRoot: string, label?: string): PanelTab {
+  return { id: `environment:${environmentId}`, type: "environment", label: label ?? t("aiopc.browser.live_view"), workspaceRoot, environmentId };
 }
 
 export function useSidePanelTabs(sessionId: string) {
@@ -31,14 +32,16 @@ export function useOpenEnvironmentPane(
   active: boolean,
   setPanel: (panel: "panel" | null) => void,
 ) {
-  return React.useCallback(() => {
-    if (active) {
-      setPanel(null);
-      return;
-    }
-    if (workspaceRoot) usePanelTabStore.getState().openTab(sessionId, environmentTab(workspaceRoot));
-    setPanel("panel");
-  }, [active, sessionId, setPanel, workspaceRoot]);
+  const [choosing, setChoosing] = React.useState(false);
+  const open = React.useCallback(() => {
+    if (active) { setPanel(null); return; }
+    if (workspaceRoot) setChoosing(true);
+  }, [active, setPanel, workspaceRoot]);
+  const picker = choosing ? React.createElement(EnvironmentPicker, { projectRoot: workspaceRoot, onClose: () => setChoosing(false), onSelect: environment => {
+    usePanelTabStore.getState().openTab(sessionId, environmentTab(environment.id, environment.boundProject ?? workspaceRoot, environment.name));
+    setChoosing(false); setPanel("panel");
+  } }) : null;
+  return { open, picker };
 }
 
 export function useCloseTab() {

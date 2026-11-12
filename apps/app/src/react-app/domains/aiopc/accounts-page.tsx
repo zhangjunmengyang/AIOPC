@@ -19,10 +19,10 @@ import {
   type ConnectResult,
   useAiopc,
   useAiopcPlatforms,
+  useProjectEnvironments,
 } from "./aiopc-client";
 import { AiopcUnavailable } from "./aiopc-status";
 import { EnvironmentCard } from "./environment-card";
-import { useEnvironmentViewer } from "./environment-view";
 import { EnhancementCard, HelpLink, KeyFields, ServiceCard } from "./connection-methods";
 import { PlatformIcon } from "./platform-icon";
 
@@ -43,9 +43,8 @@ function formatTime(seconds: number | null | undefined) {
 }
 
 /**
- * 账号: the social accounts AIOPC knows, shared by all projects. Every platform
- * connects through the built-in browser; some also through official APIs. An
- * account's ways in are all managed from that account, not a separate page.
+ * Project accounts keep their own environment binding. New browser logins use
+ * an explicitly selected environment; existing accounts use their saved one.
  */
 export function AccountsPage(props: { workspaceRoot: string }) {
   const { connection, ready, request } = useAiopc(props.workspaceRoot);
@@ -53,18 +52,26 @@ export function AccountsPage(props: { workspaceRoot: string }) {
   const platformsQuery = useAiopcPlatforms(props.workspaceRoot);
   const [connecting, setConnecting] = useState(false);
   const startChat = useStartSeededChat();
-  const viewer = useEnvironmentViewer(props.workspaceRoot);
+  const environments = useProjectEnvironments(props.workspaceRoot);
+  const [loginEnvironmentId, setLoginEnvironmentId] = useState("");
+  const [loginProblem, setLoginProblem] = useState("");
+  const loginEnvironment = environments.items.find(item => item.id === loginEnvironmentId)
+    ?? (environments.items.length === 1 ? environments.items[0] : undefined);
+  useEffect(() => { setLoginEnvironmentId(""); setLoginProblem(""); }, [props.workspaceRoot]);
   // Logging in happens in the chat: the AI opens the page, shows the QR code or asks for the code.
-  const askAiToLogIn = (platform: AiopcPlatform) => {
-    setConnecting(false);
-    setOpenId("");
-    startChat(t("aiopc.accounts.login_prompt", { platform: platform.name }));
+  const askAiToLogIn = (platform: AiopcPlatform, accountEnvironment?: string | null) => {
+    const environment = accountEnvironment ? environments.items.find(item => item.id === accountEnvironment) : loginEnvironment;
+    setConnecting(false); setOpenId("");
+    if (!environment) { setLoginProblem(t("aiopc.pool.select_hint")); return; }
+    setLoginProblem("");
+    const prompt = `${t("aiopc.accounts.login_prompt", { platform: platform.name })}\n\n${t("aiopc.accounts.login_context", { environment: environment.name, id: environment.id, project: environments.project.data?.path ?? props.workspaceRoot })}`;
+    startChat(prompt, { groupId: environments.project.data?.id });
   };
   // Kept by ID so the dialog always shows the account's latest state.
   const [openId, setOpenId] = useState("");
 
   const accountsQuery = useQuery({
-    queryKey: ["aiopc", "accounts"],
+    queryKey: ["aiopc", props.workspaceRoot, "accounts"],
     enabled: ready,
     // Accounts also change from chat (the AI connects them): keep the list current without a refresh button.
     refetchInterval: 5_000,
@@ -93,10 +100,12 @@ export function AccountsPage(props: { workspaceRoot: string }) {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-6 pb-12 pt-8">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{t("aiopc.accounts.title")}</h1>
-          <Button className="ml-auto" onClick={() => setConnecting(true)}>{t("aiopc.accounts.connect")}</Button>
+          <Button className="ml-auto" disabled={!loginEnvironment} onClick={() => setConnecting(true)}>{t("aiopc.accounts.connect")}</Button>
         </div>
         <p className="-mt-2 text-sm text-muted-foreground">{t("aiopc.accounts.subtitle")}</p>
-        <EnvironmentCard workspaceRoot={props.workspaceRoot} onWatch={viewer.open} />
+        <EnvironmentCard workspaceRoot={props.workspaceRoot} />
+        <label className="flex flex-wrap items-center gap-3 text-sm"><span>{t("aiopc.accounts.login_environment")}</span><select aria-label={t("aiopc.accounts.login_environment")} value={loginEnvironment?.id ?? ""} className="h-9 min-w-40 rounded-md border border-input bg-background px-2" onChange={event => setLoginEnvironmentId(event.target.value)}><option value="">{t("aiopc.pool.select")}</option>{environments.items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        {loginProblem ? <p role="alert" className="text-sm text-destructive">{loginProblem}</p> : null}
 
         {accountsQuery.isError ? (
           <p className="text-sm text-destructive">{accountsQuery.error instanceof Error ? accountsQuery.error.message : String(accountsQuery.error)}</p>
@@ -122,6 +131,7 @@ export function AccountsPage(props: { workspaceRoot: string }) {
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     <span>{account.platform_name}</span>
+                    <span>{environments.pool.data?.items.find(item => item.id === account.environment)?.name ?? (account.environment || t("aiopc.accounts.no_environment"))}</span>
                     {account.routes.map((route) => (
                       <span key={route.id} className={cn("rounded-md px-1.5 py-px text-[11px]",
                         route.kind === "browser" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary")}>{route.name}</span>
@@ -165,19 +175,19 @@ export function AccountsPage(props: { workspaceRoot: string }) {
       <ConnectDialog
         open={connecting}
         workspaceRoot={props.workspaceRoot}
+        environmentId={loginEnvironment?.id}
         platforms={platforms}
         onOpenChange={setConnecting}
         onLogin={(platform) => askAiToLogIn(platform)}
         onConnected={() => void refreshAccounts()}
       />
-      {viewer.element}
       <AccountDialog
         account={opened}
         platform={opened ? platformById.get(opened.platform) ?? null : null}
         workspaceRoot={props.workspaceRoot}
         onClose={() => setOpenId("")}
         onChanged={() => void refreshAccounts()}
-        onRelogin={(platform) => askAiToLogIn(platform)}
+        onRelogin={(platform) => askAiToLogIn(platform, opened?.environment)}
       />
     </section>
   );
@@ -202,6 +212,7 @@ function BrowserMethodCard(props: { title: string; does: string; status?: ReactN
 
 function ConnectDialog(props: {
   open: boolean;
+  environmentId?: string;
   workspaceRoot: string;
   platforms: AiopcPlatform[];
   onOpenChange: (open: boolean) => void;
@@ -236,6 +247,7 @@ function ConnectDialog(props: {
           <MethodPicker
             platform={chosen}
             workspaceRoot={props.workspaceRoot}
+            environmentId={props.environmentId}
             onBack={() => setChosen(null)}
             onLogin={() => props.onLogin(chosen)}
             onConnected={() => {
@@ -279,15 +291,16 @@ function ConnectDialog(props: {
   );
 }
 
-/** The ways into one platform: its official route (if any), or the built-in browser that always works. */
+/** Official routes and the browser in the selected project environment. */
 function MethodPicker(props: {
   platform: AiopcPlatform;
+  environmentId?: string;
   workspaceRoot: string;
   onBack: () => void;
   onLogin: () => void;
   onConnected: () => void;
 }) {
-  const { request } = useAiopc(props.workspaceRoot);
+  const { request } = useAiopc(props.workspaceRoot, props.environmentId);
   const [form, setForm] = useState<Omit<AiopcEnhancement, "attached"> | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -366,7 +379,7 @@ function AccountDialog(props: {
   onChanged: () => void;
   onRelogin: (platform: AiopcPlatform) => void;
 }) {
-  const { request } = useAiopc(props.workspaceRoot);
+  const { request } = useAiopc(props.workspaceRoot, props.account?.environment ?? undefined);
   const platformBridge = usePlatform();
   const [alias, setAlias] = useState("");
   const [busy, setBusy] = useState("");
@@ -433,7 +446,7 @@ function AccountDialog(props: {
               : <span className="text-xs text-warning">{t("aiopc.accounts.needs_login")}</span>}
             action={(
               <div className="flex gap-1.5">
-                <Button variant="ghost" size="sm" disabled={Boolean(busy)} onClick={() => void check()}>
+                <Button variant="ghost" size="sm" disabled={Boolean(busy) || !account.environment} onClick={() => void check()}>
                   {busy === "check" ? t("aiopc.accounts.checking") : t("aiopc.accounts.recheck")}
                 </Button>
                 {props.platform ? (
@@ -466,4 +479,4 @@ function AccountDialog(props: {
   );
 }
 
-/** Shown above the list while a login is open in the browser panel; nothing here covers the panel. */
+/** Status shown while a login is open in the selected project environment. */
