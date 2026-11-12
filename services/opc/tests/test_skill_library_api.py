@@ -10,12 +10,11 @@ from starlette.testclient import TestClient
 pytest.importorskip("aiopc.authorized_workspaces")
 pytest.importorskip("aiopc.skillhub")
 
+from aiopc.server import create_api
 from aiopc.skillhub import tools
 from aiopc.skillhub.audit import AuditResult
 from aiopc.skillhub.manifest import SkillRecord, hash_skill, skill_content, write_manifest
 from aiopc.skillhub.view import render_index
-
-from aiopc.server import create_api
 
 
 @pytest.fixture

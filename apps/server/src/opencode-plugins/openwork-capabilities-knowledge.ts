@@ -169,7 +169,7 @@ type Context = NonNullable<Parameters<typeof workspaceFileHooks>[0]> & { worktre
 export const OpenWorkCapabilitiesKnowledge = async (context?: Context) => ({
   ...workspaceFileHooks(context),
   config: async (config: Parameters<typeof applyCompanyRoleSkillsV1>[0]) => {
-    if (context?.directory) await applyCompanyRoleSkillsV1(config, context.directory);
+    if (context?.directory) await applyCompanyRoleSkillsV1(config, context.directory, context.worktree);
   },
   "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
     const directory = context?.directory;

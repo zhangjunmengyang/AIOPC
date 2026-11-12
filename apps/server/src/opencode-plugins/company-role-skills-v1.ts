@@ -23,9 +23,10 @@ function skillEffect(rules: Rules | undefined, id: string): Effect | undefined {
 }
 
 /** V1's config hook runs in the native execution directory before agent selection. */
-export async function applyCompanyRoleSkillsV1(config: Config, directory: string): Promise<void> {
+export async function applyCompanyRoleSkillsV1(config: Config, directory: string, worktree?: string): Promise<void> {
   const execution = await realpath(directory);
-  const company = companyDirectoryForExecution(execution);
+  const company = await companyDirectoryForExecution(execution, worktree);
+  if (!company) return;
   const project = execution === company ? null : execution;
   const [roles, adopted] = await Promise.all([listCompanyRoles(company), project ? readAdoptedProjectSkillNames(project) : []]);
   for (const role of roles) {

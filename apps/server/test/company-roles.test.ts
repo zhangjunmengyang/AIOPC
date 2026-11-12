@@ -93,7 +93,7 @@ test("v1 role permission materializes named rules without removing an existing g
   await skill(project, "adopted");
   await put(join(project, ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: { adopted: locked("adopted") } }));
   const agent = { permission: { edit: "ask" as const } };
-  await applyCompanyRoleSkillsV1({ permission: { skill: { "brand-logo": "deny" } }, agent: { "brand-designer": agent } }, project);
+  await applyCompanyRoleSkillsV1({ permission: { skill: { "brand-logo": "deny" } }, agent: { "brand-designer": agent } }, project, company);
   expect(agent.permission).toMatchObject({ edit: "ask", skill: {
     "*": "deny", "brand-naming": "allow", "brand-logo": "deny", adopted: "allow",
   } });
