@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,8 +21,8 @@ function packageRoot(name, fromPackageJson, resolveTarget = name) {
     // A dependency may export only subpaths. Find its manifest through Node's
     // normal search directories without requiring a nonexistent root export.
     for (const searchDirectory of requireFromPackage.resolve.paths(name) ?? []) {
-      const linkedPackageRoot = resolve(searchDirectory, name);
       try {
+        const linkedPackageRoot = realpathSync(resolve(searchDirectory, name));
         const linkedPackageJson = JSON.parse(readFileSync(join(linkedPackageRoot, "package.json"), "utf8"));
         if (linkedPackageJson.name === name) return { root: linkedPackageRoot, packageJson: linkedPackageJson };
       } catch {
