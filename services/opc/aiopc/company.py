@@ -78,10 +78,7 @@ class Company:
                     projects.append(self.project(path))
         return {"company": self.describe(), "projects": projects}
 
-    def create(self, name: str, description: str = "") -> dict[str, Any]:
-        name = self.project_name(name)
-        if not isinstance(description, str) or len(description) > 2000:
-            raise ValueError("项目介绍不超过 2000 字")
+    def prepare_projects(self) -> Path:
         base = self.root / "projects"
         if base.is_symlink() or not base.resolve().is_relative_to(self.root):
             raise ValueError("项目目录不能位于公司之外")
@@ -93,6 +90,13 @@ class Company:
             except (OSError, subprocess.SubprocessError):
                 raise ValueError("无法建立公司的技能目录边界，请确认 Git 可用且公司目录可写") from None
         base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    def create(self, name: str, description: str = "") -> dict[str, Any]:
+        name = self.project_name(name)
+        if not isinstance(description, str) or len(description) > 2000:
+            raise ValueError("项目介绍不超过 2000 字")
+        base = self.prepare_projects()
         target = base / name
         try:
             target.mkdir()

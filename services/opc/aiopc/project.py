@@ -64,7 +64,11 @@ class Project:
             if path.exists():
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(template.format(name=self.name, description=description.strip()), encoding="utf-8")
+            try:
+                with path.open("x", encoding="utf-8") as stream:
+                    stream.write(template.format(name=self.name, description=description.strip()))
+            except FileExistsError:
+                continue
             created.append(relative)
         self.assets.mkdir(exist_ok=True)
         return {**self.describe(), "created": created}

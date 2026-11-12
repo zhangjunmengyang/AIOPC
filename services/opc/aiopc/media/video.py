@@ -33,6 +33,7 @@ from aiopc.paths import inside, public_https_url
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 REMOTE_STATUSES = TERMINAL | {"queued", "running"}
 JOB_ID = re.compile(r"vid_[a-f0-9]{24}\Z")
+LEGACY_JOB_ARCHIVE = "legacy-jobs"
 # MaaS prefixes Ark IDs with the routed model (e.g. Model-2.5:cgt-...).
 # Keep that opaque ID intact, but reject path/query separators and URL escapes.
 REMOTE_ID = re.compile(r"[A-Za-z0-9_.:-]{1,200}\Z")
@@ -333,8 +334,19 @@ class VideoService:
         identifier = hashlib.sha256(f"{self.workspace}\x00{request_id}".encode()).hexdigest()[:24] if request_id else uuid.uuid4().hex[:24]
         job_id = "vid_" + identifier
         async with self._job_lock(job_id):
-            if self._path(job_id).exists():
-                previous = self._read(job_id)
+            previous = self._read(job_id) if self._path(job_id).exists() else None
+            if previous is None and request_id is not None:
+                # Older jobs derived their ID from the request alone. The archive
+                # marks migrated records, and _read still requires the current project.
+                legacy_id = "vid_" + hashlib.sha256(request_id.encode()).hexdigest()[:24]
+                archive = self.root / LEGACY_JOB_ARCHIVE / f"{legacy_id}.json"
+                if legacy_id != job_id and archive.is_file() and self._path(legacy_id).is_file():
+                    async with self._job_lock(legacy_id):
+                        try:
+                            previous = self._read(legacy_id)
+                        except MediaScopeError:
+                            pass
+            if previous is not None:
                 if previous.get("fingerprint") != fingerprint:
                     raise ValueError("request_id was already used for a different video request.")
                 return self._public(previous)
