@@ -27,15 +27,17 @@
 | 阶段 2 桌面与宿主 | 30 个桌面测试文件通过；可信会话、租约清理、v1/v2 无页面生命周期通过 | [运行时验收](stage-2-runtime-verification.md) |
 | 本地浏览器 | 两环境 Cookie 隔离、同项目重绑保留、跨项目确认清档 3 项通过；临时容器已删除 | [环境池后端](environment-pool-backend.md) |
 | 原生 MCP metadata | 重建的 v1 与 v2 实际 stdio 工具调用均带真实 sessionID，模型同名参数不能冒充 | `/tmp/aiopc-native-mcp-metadata.log` |
-| 当前 Python 工作区 | 163 条通过，含尚未提交的旧知识原型测试 | `/tmp/aiopc-stage2-python.log` |
-| 精确暂存 Python 快照 | 独立虚拟环境，127 条通过，不含旧知识原型 | `/tmp/aiopc-stage2-staged-python.log` |
+| 当前 Python 工作区 | 164 条通过，含尚未提交的旧知识原型测试 | `/tmp/aiopc-stage2-python.log` |
+| 精确暂存 Python 快照 | 独立虚拟环境，128 条通过，不含旧知识原型 | `/tmp/aiopc-stage2-staged-python.log` |
 
 最终回归已确认：公司目录祖先名为 `projects` 不会串公司；旧项目目录替换成符号链接不会向外部写入绑定投影；并发绑定不会丢失项目中的环境。自定义 CDP 创建串行去重，保存凭据失败不会留下半个资源。同环境切换登录身份后旧账号立即需登录。
 
 ## 提交与边界
 
-已提交 `d25bbbe55`（会话与宿主基线）和 `d58fbe018`（同步停止返回值兼容）。本报告随阶段 1、2 的前端、Python 和原生 metadata 接入一同提交，集成时应连续合入本轮提交，不能只取第一个宿主提交。
+已提交 `d25bbbe55`（会话与宿主基线）、`d58fbe018`（同步停止返回值兼容）、`72555d3a2`（原生 metadata 与桌面检查）和 `d31cda66a`（阶段 1、2 前端与 Python）。集成时应连续合入，不能只取第一个宿主提交。
 
 小红书验收草稿仍停在待人工发布，未点击发布，未重启原账号环境。没有打包、签名或内置 uv。第三方云浏览器的清档分支只做接口模拟；Steel 与自定义 CDP 不具备已接入的完整档案清理能力，明确拒绝跨项目清档重绑，详见后端报告。
 
 桌面全量首次有两个失败：会话解析的 fetch 未使用 Electron 网络入口，以及冷启动依赖展开超过总 120 秒。修正入口并将冷启动测试总时限改为 240 秒后，两项复检通过；API 请求仍保留独立 5 秒期限。全量与复检日志为 `/tmp/aiopc-stage2-desktop-tests.log`、`/tmp/aiopc-stage2-desktop-recheck.log`。工作区和精确提交快照的 Python Ruff 均通过，Electron 类型检查通过。
+
+关闭临时 QA 服务时复现了无效 CDP 导致后台账号复查未取回异常。后续小提交已捕获这类失败，保留账号状态、输出不含连接 URL/令牌的诊断，并允许下次轮询重试；新增 HTTP 回归先失败后通过。最终全量 Python 工作区 164 项、独立提交快照 128 项通过，Ruff 通过。
