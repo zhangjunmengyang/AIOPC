@@ -26,7 +26,7 @@ from typing import Any, get_type_hints
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import Context, FastMCP, Image
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from mcp.types import ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
@@ -45,7 +45,8 @@ from aiopc.sandbox.environment import SandboxError
 from aiopc.sandbox.leases import LeaseError
 from aiopc.skill_library_api import skill_library_routes
 from aiopc.social.context import use_browser_context
-from aiopc.social.review import RESOURCE, PublishReview
+from aiopc.social.review_mcp import register_publish_review
+from aiopc.social.review_routes import publish_review_routes
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
 from aiopc.workspace_scope import WorkspaceScope
@@ -235,7 +236,6 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         ("login_click", social.login_click, "Press a login button or tab by its visible text (e.g. 获取验证码, 登录, 密码登录).", WRITE),
         ("login_screenshot", login_screenshot, login_screenshot.__doc__, READ),
         ("login_finish", social.login_finish, "Check whether the login worked and save the account. Call after the user scanned or after pressing the login button.", WRITE),
-        ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
         ("social_history", social.history, "Recent publishing activity of this project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
         ("generate_image", ws.images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into this project's assets/generated; returns paths.", EXTERNAL),
@@ -254,41 +254,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     ]:
         _tool(server, name, method, description, annotation, scope=scope, runtime=runtime if name in browser_tools else None)
 
-    @server.tool(name="social_publish", annotations=WRITE,
-                 meta={"ui": {"resourceUri": RESOURCE}})
-    def social_publish(account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                       form: str = "post", tags: list[str] | None = None, project: str = "") -> CallToolResult:
-        """Prepare a frozen draft and show its approval card. Does not fill or publish anything.
-        The user confirms on the card; only then is the project's website composer filled.
-        After rejection or edits, call again with the revised copy. Never approve on the user's behalf."""
-        with scope.use(project) as selected:
-            reviews = PublishReview(selected.social)
-            review = reviews.prepare(account_id, text, title, media, form, tags)
-            review["project"] = str(selected.root) if selected.root != scope.company.root else ""
-            return CallToolResult(content=[TextContent(type="text", text=json.dumps(review, ensure_ascii=False))],
-                                  structuredContent=review, _meta={"media": reviews.preview_media(review)})
-
-    @server.tool(name="social_confirm_publish", annotations=EXTERNAL,
-                 meta={"ui": {"resourceUri": RESOURCE, "visibility": ["app"]}})
-    async def social_confirm_publish(review_id: str, revision: str, decision: str, ctx: Context, project: str = "") -> dict:
-        """User action from the approval card: approve fills the page; reject returns the draft. Never publishes."""
-        meta = ctx.request_context.meta
-        action = meta.model_dump().get("io.aiopc/app-action") if meta else None
-        with ExitStack() as contexts:
-            if decision == "approve":
-                requested = str(scope.company.resolve_project(project)) if project else ""
-                identity = await runtime.resolve(meta, requested)
-                if identity.company != scope.company.root:
-                    raise RuntimeContextError("会话不属于当前公司")
-                contexts.enter_context(use_runtime_context(identity))
-                project = str(identity.project_directory) if identity.project_directory != scope.company.root else ""
-            selected = contexts.enter_context(scope.use(project))
-            return await PublishReview(selected.social).decide(review_id, revision, decision, app_action=action)
-
-    @server.resource(RESOURCE, mime_type="text/html;profile=mcp-app",
-                     meta={"ui": {"prefersBorder": True}})
-    def publish_review_ui() -> str:
-        return (Path(__file__).parent / "ui" / "publish-review.html").read_text(encoding="utf-8")
+    register_publish_review(server, scope, runtime, write=WRITE, external=EXTERNAL)
 
     if library is not None and library.is_dir():
         from aiopc.library import Library
@@ -467,6 +433,7 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
         ("/api/integrations", integrations_route, ["GET"]),
         ("/api/integrations/{service_id}", integrations_route, ["PUT"]),
         ("/api/history", history_route, ["GET"]),
+        *publish_review_routes(workspace_of, workspace_access.resolve_context, respond),
     ]
     return Starlette(routes=[Route("/api/health", health, methods=["GET"]),
                              *[Route(path, endpoint(handler), methods=[*methods, "OPTIONS"]) for path, handler, methods in routes]])

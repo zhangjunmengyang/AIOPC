@@ -1,5 +1,6 @@
 """The MCP App prepares drafts and applies a decision from its trusted session."""
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -26,6 +27,14 @@ def register_publish_review(server: FastMCP, scope: WorkspaceScope, runtime: Run
             raise RuntimeContextError("会话不属于当前公司")
         return identity
 
+    @contextmanager
+    def session_workspace(identity):
+        project = str(identity.project_directory) if identity.project_id else ""
+        with scope.use(project) as selected, use_runtime_context(identity):
+            if selected.root != identity.project_directory:
+                raise RuntimeContextError("会话的项目目录与服务目录不一致")
+            yield selected, project
+
     @server.tool(name="social_publish", annotations=write, meta={"ui": {"resourceUri": RESOURCE}})
     async def social_publish(account_id: str, text: str, ctx: Context, title: str = "", media: list[str] | None = None,
                              form: str = "post", tags: list[str] | None = None, project: str = "",
@@ -36,11 +45,10 @@ def register_publish_review(server: FastMCP, scope: WorkspaceScope, runtime: Run
         draft. The card shows the changes. The user approves and then clicks publish on the website.
         """
         identity = await origin(ctx, project)
-        project = str(identity.project_directory) if identity.project_id else ""
-        with scope.use(project) as selected, use_runtime_context(identity):
+        with session_workspace(identity) as (selected, selected_project):
             reviews = PublishReview(selected.social)
             review = reviews.prepare(account_id, text, title, media, form, tags, session_id=identity.session_id,
-                                     project=project, previous_review_id=previous_review_id)
+                                     project=selected_project, previous_review_id=previous_review_id)
             return review_result(review, media=reviews.preview_media(review))
 
     @server.tool(name="social_confirm_publish", annotations=external,
@@ -50,8 +58,7 @@ def register_publish_review(server: FastMCP, scope: WorkspaceScope, runtime: Run
         meta = ctx.request_context.meta
         action = meta.model_dump().get("io.aiopc/app-action") if meta else None
         identity = await origin(ctx, project)
-        selected_project = str(identity.project_directory) if identity.project_id else ""
-        with scope.use(selected_project) as selected, use_runtime_context(identity):
+        with session_workspace(identity) as (selected, _):
             result = await PublishReview(selected.social).decide(review_id, revision, decision, app_action=action,
                                                                  session_id=identity.session_id)
             return review_result(result)
@@ -60,8 +67,7 @@ def register_publish_review(server: FastMCP, scope: WorkspaceScope, runtime: Run
     async def social_record_published(account_id: str, url: str, ctx: Context, note: str = "", project: str = "") -> dict:
         """Record the public link of a post that the user confirmed they published."""
         identity = await origin(ctx, project)
-        selected_project = str(identity.project_directory) if identity.project_id else ""
-        with scope.use(selected_project) as selected:
+        with session_workspace(identity) as (selected, _):
             return selected.social.record_published(account_id, url, note, audit_session_id=identity.session_id)
 
     @server.resource(RESOURCE, mime_type="text/html;profile=mcp-app", meta={"ui": {"prefersBorder": True}})
