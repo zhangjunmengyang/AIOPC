@@ -27,6 +27,7 @@ import type {
   WorkspaceSessionGroup,
 } from "../../../../app/types";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router";
 import { TaskRecovery } from "@/components/chat/task-recovery";
 import { toast } from "@/components/ui/sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -324,6 +325,7 @@ export type SessionPageProps = {
   /** Standalone pages use the main canvas instead of the inset conversation pane. */
   primarySurface?: "flat";
   primaryTitle?: string;
+  sessionTaskHref?: string;
   /** Replaces the header's title, e.g. a task on another computer's `Chat / Task` breadcrumb. */
   primaryHeader?: React.ReactNode;
   /** Open a task on another computer in the main pane. */
@@ -1476,6 +1478,11 @@ export function SessionPage(props: SessionPageProps) {
               <div ref={props.mainContentHeaderActionsRef} className="shrink-0 titlebar-no-drag" />
             ) : <div className="flex shrink-0 items-center gap-1.5 text-gray-10 titlebar-no-drag">
               <DesktopUpdateButton />
+              {props.sessionTaskHref && !hasMainContentTakeover ? (
+                <Link to={props.sessionTaskHref} className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+                  {t("aiopc.task.open")}
+                </Link>
+              ) : null}
               {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger

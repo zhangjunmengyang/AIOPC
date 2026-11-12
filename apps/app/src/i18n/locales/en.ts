@@ -174,6 +174,7 @@ export default {
   "aiopc.nav.org-chart": "Org chart",
   "aiopc.nav.goals": "Goals",
   "aiopc.nav.costs": "Costs",
+  "aiopc.task.open": "Open task",
   "aiopc.company.disconnected": "Connect to this company to open this page.",
   "aiopc.save": "Save",
   "aiopc.refresh": "Refresh",

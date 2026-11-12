@@ -178,6 +178,7 @@ export default {
   "aiopc.nav.org-chart": "组织架构",
   "aiopc.nav.goals": "目标",
   "aiopc.nav.costs": "成本",
+  "aiopc.task.open": "打开任务",
   "aiopc.company.disconnected": "连接这家公司后即可打开此页面。",
   "aiopc.save": "保存",
   "aiopc.refresh": "刷新",
