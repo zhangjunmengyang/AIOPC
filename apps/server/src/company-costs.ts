@@ -1,6 +1,6 @@
 import type { CompanyCostGroup, CompanyCostReport, CompanyCostSession, CompanyCostUsage } from "@openwork/types/company-costs";
 import { nativeSession } from "./opencode-v2-session-home.js";
-import { nativeSessionUsage } from "./opencode-plugins/session-read-detail.js";
+import { nativeSessionUsage } from "./session-read-detail.js";
 import type { SessionMetadata } from "./session-groups.js";
 import { isRecord } from "./workspace-kv-store.js";
 

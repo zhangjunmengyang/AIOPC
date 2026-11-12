@@ -7,7 +7,7 @@ import {
   SESSION_READ_LIST_LIMITS,
   SESSION_READ_MESSAGE_LIMITS,
   type RichMessage,
-} from "../src/opencode-plugins/session-read-detail.js";
+} from "../src/session-read-detail.js";
 import { readV2NativeMessages } from "../src/opencode-v2-read-adapter.js";
 
 // Rows follow OpenCode v2.2.0 `Session.Message.Info` (GET /api/session/:id/message).

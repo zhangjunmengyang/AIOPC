@@ -8,7 +8,7 @@ import {
   SESSION_READ_LIST_LIMITS,
   SESSION_READ_MESSAGE_LIMITS,
   type RichMessage,
-} from "./session-read-detail.js";
+} from "../session-read-detail.js";
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
