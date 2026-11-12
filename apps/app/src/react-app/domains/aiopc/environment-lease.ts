@@ -44,6 +44,7 @@ export function useEnvironmentLease(
   const queryClient = useQueryClient();
   const queryKey = ["aiopc", workspaceRoot, "environment-lease", environmentId];
   const owner = useRef(`viewer:${crypto.randomUUID()}`);
+  const acquisitionGeneration = useRef(0);
   const [owned, setOwned] = useState<ManualLease | null>(null);
   const [queued, setQueued] = useState<{
     requestId: string;
@@ -92,6 +93,7 @@ export function useEnvironmentLease(
   }, []);
   useEffect(
     () => () => {
+      acquisitionGeneration.current++;
       const value = latest.current;
       const lease = value.owned;
       const ticket = value.queued;
@@ -116,12 +118,22 @@ export function useEnvironmentLease(
   const acquiring = useRef(false);
   const acquire = async (requestId?: string) => {
     const revision = query.data?.bindingRevision;
-    if (revision === undefined || acquiring.current) return;
+    if (
+      revision === undefined ||
+      acquiring.current ||
+      (requestId && requestId !== latest.current.queued?.requestId)
+    ) {
+      return;
+    }
+    const generation = acquisitionGeneration.current;
+    const isCurrent = () => generation === acquisitionGeneration.current;
+    const attemptId = requestId ?? crypto.randomUUID();
     acquiring.current = true;
     setBusy("acquire");
     setProblem("");
     try {
       await queryClient.cancelQueries({ queryKey });
+      if (!isCurrent()) return;
       const result = await request<Acquisition>(
         "POST",
         "/api/environment/lease",
@@ -132,10 +144,26 @@ export function useEnvironmentLease(
             sessionId: owner.current,
             label: t("aiopc.lease.you"),
             bindingRevision: revision,
-            ...(requestId ? { requestId } : {}),
+            requestId: attemptId,
           },
         },
       );
+      if (!isCurrent()) {
+        // The viewer closed or cancelled while the broker was granting access.
+        const cleanup =
+          result.state === "granted" && result.leaseId
+            ? { action: "release", leaseId: result.leaseId }
+            : { action: "cancel", requestId: result.requestId ?? attemptId };
+        await request("POST", "/api/environment/lease", {
+          body: {
+            ...cleanup,
+            manual: true,
+            sessionId: owner.current,
+            bindingRevision: revision,
+          },
+        }).catch(() => {});
+        return;
+      }
       if (result.state === "granted" && result.leaseId && result.holder) {
         const lease = {
           leaseId: result.leaseId,
@@ -164,10 +192,10 @@ export function useEnvironmentLease(
         setQueued(ticket);
       } else throw new Error(t("aiopc.lease.unavailable"));
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
+      if (isCurrent()) setProblem(error instanceof Error ? error.message : String(error));
     } finally {
       acquiring.current = false;
-      setBusy("");
+      if (isCurrent()) setBusy("");
     }
   };
   useEffect(() => {
@@ -197,7 +225,11 @@ export function useEnvironmentLease(
     setProblem("");
     // Revoke browser input immediately, even while an offline server is being retried.
     if (action === "release") setOwned(null);
-    if (action === "cancel") setQueued(null);
+    if (action === "cancel") {
+      acquisitionGeneration.current++;
+      latest.current.queued = null;
+      setQueued(null);
+    }
     try {
       await request("POST", "/api/environment/lease", {
         body: {
@@ -213,7 +245,6 @@ export function useEnvironmentLease(
         },
       });
       if (action === "release") latest.current.owned = null;
-      if (action === "cancel") latest.current.queued = null;
       await query.refetch();
       setNow(Date.now());
     } catch (error) {

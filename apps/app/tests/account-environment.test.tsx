@@ -182,12 +182,17 @@ test("new login requires an explicit environment when several are bound, and kee
   const select = document.querySelector(
     'select[aria-label="Login environment"]',
   ) as HTMLSelectElement;
+  await until(() => select.querySelector('option[value="env-B"]') !== null);
   await act(async () => {
     select.value = "env-B";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await act(async () => button("Connect account").click());
-  await until(() => document.body.textContent?.includes("Demo") === true);
+  await until(() =>
+    [...document.querySelectorAll("button")].some(
+      (item) => item.textContent?.trim() === "Demo",
+    ),
+  );
   await act(async () => button("Demo").click());
   expect(consumePendingChatSeed()).toContain("env-B");
   expect(location).toContain("draftGroup=proj%3AProduct");
@@ -197,6 +202,7 @@ test("checking an existing account uses its own environment, not the newly selec
   const select = document.querySelector(
     'select[aria-label="Login environment"]',
   ) as HTMLSelectElement;
+  await until(() => select.querySelector('option[value="env-B"]') !== null);
   await act(async () => {
     select.value = "env-B";
     select.dispatchEvent(new Event("change", { bubbles: true }));
