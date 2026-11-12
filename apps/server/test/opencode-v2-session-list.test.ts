@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { proxyOpencodeV2Request } from "../src/server.js";
+import { readSessionGroupState, writeSessionGroupState } from "../src/session-groups.js";
 import type { ServerConfig, WorkspaceInfo } from "../src/types.js";
 
 type NativeSession = { id: string; title: string; location: { directory: string } };
@@ -121,6 +122,66 @@ test("one unreadable chat is left out instead of emptying every workspace list",
       assert.deepEqual(await listWorkspace(config, engine, workspace("ws_b", b)), ["ses_b_healthy"]);
       assert.deepEqual(warnings, ["Left an unreadable chat out of the v2 session list: ses_a_undecodable"]);
     } finally { engine.stop(); }
+  });
+});
+
+test("session list backfills project metadata in one KV write and skips writes on repeat", async () => {
+  await profile(async ({ root, config, v1, a, b }) => {
+    const alpha = join(a, "projects", "alpha");
+    const beta = join(a, "projects", "beta");
+    await mkdir(alpha, { recursive: true });
+    await mkdir(beta);
+    const owned = [
+      session("ses_company", a),
+      session("ses_project", alpha),
+      session("ses_legacy_role", alpha),
+      session("ses_fixed_project", alpha),
+      session("ses_fixed_company", alpha),
+    ];
+    const moved = session("ses_foreign_home", alpha);
+    writeV1History(v1, [...owned, session(moved.id, b)]);
+    await writeSessionGroupState(config, "ws_a", {
+      groups: [],
+      assignments: {},
+      sessionMeta: {
+        ses_legacy_role: { agentName: "design" },
+        ses_fixed_project: { projectId: "proj:beta", agentName: "product" },
+        ses_fixed_company: { projectId: null },
+      },
+    });
+    const db = new Database(join(root, "runtime.sqlite"));
+    const engine = startEngine([...owned, moved]);
+    try {
+      db.exec(`
+        CREATE TABLE session_group_writes (workspace_id TEXT NOT NULL);
+        CREATE TRIGGER count_session_group_inserts AFTER INSERT ON session_group_states BEGIN
+          INSERT INTO session_group_writes VALUES (NEW.workspace_id);
+        END;
+        CREATE TRIGGER count_session_group_updates AFTER UPDATE ON session_group_states BEGIN
+          INSERT INTO session_group_writes VALUES (NEW.workspace_id);
+        END;
+      `);
+      const writes = db.query("SELECT workspace_id FROM session_group_writes");
+      const target = workspace("ws_a", a);
+      const expected = owned.map(item => item.id);
+      assert.deepEqual(await listWorkspace(config, engine, target), expected);
+      assert.deepEqual(writes.all(), [{ workspace_id: target.id }]);
+      assert.deepEqual((await readSessionGroupState(config, target.id)).state.sessionMeta, {
+        ses_company: { projectId: null },
+        ses_project: { projectId: "proj:alpha" },
+        ses_legacy_role: { projectId: "proj:alpha", agentName: "design" },
+        ses_fixed_project: { projectId: "proj:beta", agentName: "product" },
+        ses_fixed_company: { projectId: null },
+      });
+
+      db.exec("DELETE FROM session_group_writes");
+      assert.deepEqual(await listWorkspace(config, engine, target), expected);
+      assert.deepEqual(writes.all(), []);
+      assert.deepEqual(await listWorkspace(config, engine, workspace("ws_b", b)), [moved.id]);
+    } finally {
+      engine.stop();
+      db.close();
+    }
   });
 });
 

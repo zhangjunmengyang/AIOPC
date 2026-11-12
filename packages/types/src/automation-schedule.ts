@@ -130,6 +130,31 @@ function resolveLocalOccurrence(
   return sameLocalDate(localDateTime(high, timezone), date) ? { timestamp: high, shifted: true } : null
 }
 
+/** Convert a datetime-local form value using the schedule's zone and DST rules. */
+export function automationLocalDateTimeTimestamp(value: string, timezone: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [year, month, day, hour, minute] = match.slice(1).map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+      || date.getUTCHours() !== hour || date.getUTCMinutes() !== minute) return null
+  try {
+    return resolveLocalOccurrence({ year, month, day }, hour, minute, timezone)?.timestamp ?? null
+  } catch {
+    return null
+  }
+}
+
+export function automationLocalDateTimeInput(timestamp: number, timezone: string): string {
+  try {
+    const { year, month, day, hour, minute } = localDateTime(timestamp, timezone)
+    const pad = (value: number) => String(value).padStart(2, "0")
+    return `${String(year).padStart(4, "0")}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`
+  } catch {
+    return ""
+  }
+}
+
 /** Schedules that repeat on the clock; a calendar trigger has no clock occurrences. */
 type RecurringSchedule = Exclude<AutomationSchedule, { kind: "once" | "calendar" }>
 
