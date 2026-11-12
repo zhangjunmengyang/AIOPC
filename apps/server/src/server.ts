@@ -1114,7 +1114,7 @@ export async function startServer(
     });
     await writeRuntimeContextFile(config, `http://127.0.0.1:${server.port}/runtime/session-context`);
   } catch (error) {
-    await server?.stop().catch(() => undefined);
+    await Promise.resolve(server?.stop()).catch(() => undefined);
     await taskRecovery?.stop().catch(() => undefined);
     captureServerException(error, { method: "START", route: "startServer" });
     providerReload.stop();
