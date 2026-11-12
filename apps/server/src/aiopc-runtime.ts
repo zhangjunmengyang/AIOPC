@@ -16,7 +16,10 @@ function serviceDirectory(environment: NodeJS.ProcessEnv): string | null {
 export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): Record<string, Record<string, unknown>> {
   const serviceDir = serviceDirectory(environment);
   if (!serviceDir) return schedulerMcpServers(environment);
-  const passthrough = ["AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT"] as const;
+  const passthrough = [
+    "AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT",
+    "AIOPC_QMD_NODE", "AIOPC_QMD_RUNNER", "AIOPC_QMD_VECTOR_EXTENSION",
+  ] as const;
   const serviceEnvironment = Object.fromEntries(passthrough.flatMap((key) => {
     const value = environment[key]?.trim();
     return value ? [[key, value]] : [];

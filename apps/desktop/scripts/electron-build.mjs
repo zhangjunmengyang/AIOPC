@@ -32,6 +32,7 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(__dirname, "prepare-aiopc-qmd.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-dictation-helper.mjs"), "--outdir", electronHelperDir], desktopRoot);
