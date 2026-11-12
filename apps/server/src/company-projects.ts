@@ -20,8 +20,8 @@ export async function ensureCompanyProjectBoundary(companyRoot: string): Promise
   try { await pending; } finally { boundarySetup.delete(company); }
 }
 
-function projectName(value: string): boolean {
-  return value.trim() === value && value.length > 0 && value.length <= 120
+export function isCompanyProjectName(value: string): boolean {
+  return value.trim() === value && value.length > 0 && Array.from(value).length <= 120
     && !value.startsWith(".") && !/[\\/\u0000-\u001f\u007f]/.test(value);
 }
 
@@ -32,7 +32,7 @@ export async function resolveCompanyExecutionDirectory(companyRoot: string, requ
   const candidate = await realpath(isAbsolute(requested) ? requested : resolve(company, requested)).catch(() => null);
   if (!candidate || candidate === company) return company;
   const parts = relative(company, candidate).split(sep);
-  if (parts.length !== 2 || parts[0] !== "projects" || !projectName(parts[1] ?? "")) return company;
+  if (parts.length !== 2 || parts[0] !== "projects" || !isCompanyProjectName(parts[1] ?? "")) return company;
   return (await stat(candidate).catch(() => null))?.isDirectory() ? candidate : company;
 }
 
@@ -43,7 +43,7 @@ export async function listCompanyProjects(companyRoot: string): Promise<CompanyP
   const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
   const projects: CompanyProject[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || !projectName(entry.name)) continue;
+    if (!entry.isDirectory() || !isCompanyProjectName(entry.name)) continue;
     const directory = await resolveCompanyExecutionDirectory(company, join(folder, entry.name));
     if (directory !== company) projects.push({ id: `proj:${entry.name}`, name: entry.name, directory });
   }
@@ -51,7 +51,7 @@ export async function listCompanyProjects(companyRoot: string): Promise<CompanyP
 }
 
 export async function createCompanyProject(companyRoot: string, name: string): Promise<CompanyProject> {
-  if (!projectName(name)) throw new ApiError(400, "invalid_project_name", "项目名称不能包含路径、隐藏前缀或控制字符");
+  if (!isCompanyProjectName(name)) throw new ApiError(400, "invalid_project_name", "项目名称不能包含路径、隐藏前缀或控制字符");
   const company = await realpath(companyRoot);
   const folder = join(company, "projects");
   if ((await lstat(folder).catch(() => null))?.isSymbolicLink()) {

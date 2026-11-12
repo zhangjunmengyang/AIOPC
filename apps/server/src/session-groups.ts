@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { listCompanyProjects, type CompanyProject } from "./company-projects.js";
+import { isCompanyProjectName, listCompanyProjects, type CompanyProject } from "./company-projects.js";
 import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -41,10 +41,14 @@ type SessionGroupEventState = {
   events: SessionGroupEvent[];
 };
 
+function isProjectGroupId(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("proj:") && isCompanyProjectName(value.slice(5));
+}
+
 function normalizeGroupId(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
-  if (!trimmed) return "";
+  if (trimmed.startsWith("proj:")) return isProjectGroupId(trimmed) ? trimmed : "";
   return trimmed.slice(0, 128);
 }
 
@@ -66,7 +70,9 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
     for (const item of value.groups) {
       if (!isRecord(item)) continue;
       const id = normalizeGroupId(item.id);
-      const label = normalizeLabel(item.label);
+      const label = id.startsWith("proj:") && typeof item.label === "string"
+        ? Array.from(item.label.trim()).slice(0, 120).join("")
+        : normalizeLabel(item.label);
       if (!id || !label || seenGroupIds.has(id)) continue;
       groups.push({ id, label });
       seenGroupIds.add(id);
@@ -88,9 +94,7 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
       const id = sessionId.trim().slice(0, 256);
       if (!id || !isRecord(rawMeta)) return [];
       const agentName = typeof rawMeta.agentName === "string" ? rawMeta.agentName.trim().slice(0, 256) : "";
-      const projectId = rawMeta.projectId === null ? null
-        : typeof rawMeta.projectId === "string" && /^proj:[^./\\\u0000-\u001f\u007f][^/\\\u0000-\u001f\u007f]{0,119}$/.test(rawMeta.projectId)
-          ? rawMeta.projectId : undefined;
+      const projectId = rawMeta.projectId === null || isProjectGroupId(rawMeta.projectId) ? rawMeta.projectId : undefined;
       return [[id, { ...(agentName ? { agentName } : {}), ...(projectId !== undefined ? { projectId } : {}) }]];
     }),
   );
