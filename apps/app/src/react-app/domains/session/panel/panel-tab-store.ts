@@ -18,7 +18,7 @@ export type ArtifactPanelTab = {
 export type McpAppPanelTab = { id: string; type: "mcp-app"; label: string; appId: string; updating?: boolean; part: DynamicToolUIPart; origin: McpAppOrigin };
 
 /** This project's own computer, watched live; the person takes over here when the AI needs them to. */
-export type EnvironmentPanelTab = { id: string; type: "environment"; label: string; workspaceRoot: string };
+export type EnvironmentPanelTab = { id: string; type: "environment"; label: string; workspaceRoot: string; environmentId: string };
 
 export type PanelTab = ArtifactPanelTab | McpAppPanelTab | EnvironmentPanelTab;
 

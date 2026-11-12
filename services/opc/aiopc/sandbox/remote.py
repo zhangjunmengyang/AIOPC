@@ -73,6 +73,13 @@ class RemoteSpec:
     fetch: Call | None = None  # re-read a session that is already running
     live: Call | None = None  # some services keep the picture's address behind its own request
     release: Call | None = None
+    delete_profile: Call | None = None
+
+
+class RemoteRequestError(SandboxError):
+    def __init__(self, message: str, remote_status: int):
+        super().__init__(message)
+        self.remote_status = remote_status
 
 
 class RemoteProvider(Provider):
@@ -100,7 +107,7 @@ class RemoteProvider(Provider):
         except httpx.HTTPError as exc:
             raise SandboxError(f"连不上 {self.info.name}：{exc}") from None
         if response.status_code >= 400:
-            raise SandboxError(f"{self.info.name} 拒绝了请求（HTTP {response.status_code}）：{response.text[:200]}")
+            raise RemoteRequestError(f"{self.info.name} 拒绝了请求（HTTP {response.status_code}）", response.status_code)
         try:
             data = response.json()
         except ValueError:
@@ -133,6 +140,8 @@ class RemoteProvider(Provider):
         created = await self._request(self.spec.create, context)
         environment = self._environment(created, state)
         state["session"] = environment.id
+        if self.info.id == "anchor":
+            state["profile"] = key.slug
         if self.spec.profile_from_create:
             state["profile"] = pick(created, self.spec.profile_from_create) or state.get("profile", "")
         if not environment.live_view_url:
@@ -176,6 +185,24 @@ class RemoteProvider(Provider):
     async def destroy(self, key: ProjectKey, state: dict[str, Any]) -> None:
         await self.stop(key, state)
         state.pop("profile", None)
+
+    async def reset(self, key: ProjectKey, state: dict[str, Any]) -> None:
+        if not self.spec.delete_profile:
+            await super().reset(key, state)
+        context = self._context(key, state)
+        # Some providers end an already-expired session with 404. That proves
+        # absence; transport failures, authentication failures and 5xx do not.
+        async def remove(call):
+            try:
+                await self._request(call, context)
+            except RemoteRequestError as exc:
+                if exc.remote_status != 404:
+                    raise
+        if state.get("session") and self.spec.release:
+            await remove(self.spec.release)
+        if state.get("profile") or self.info.id == "anchor":
+            await remove(self.spec.delete_profile)
+        state.clear()
 
 
 class ManualProvider(Provider):
@@ -221,6 +248,7 @@ REMOTE_CATALOG: tuple[RemoteSpec, ...] = (
         id_field="session_id", cdp_field="cdp_ws_url", live_field="browser_live_view_url",
         fetch=Call("GET", "/browsers/{session}"),
         release=Call("DELETE", "/browsers/{session}"),
+        delete_profile=Call("DELETE", "/profiles/{profile}"),
     ),
     RemoteSpec(
         info=_info("browserbase", "Browserbase", "被最多工具集成的云端浏览器。用 Context 保存登录状态。",
@@ -233,6 +261,7 @@ REMOTE_CATALOG: tuple[RemoteSpec, ...] = (
         live=Call("GET", "/v1/sessions/{session}/debug"), live_field="debuggerFullscreenUrl",
         fetch=Call("GET", "/v1/sessions/{session}"),
         release=Call("POST", "/v1/sessions/{session}", {"projectId": "{project_id}", "status": "REQUEST_RELEASE"}),
+        delete_profile=Call("DELETE", "/v1/contexts/{profile}"),
     ),
     RemoteSpec(
         info=_info("steel", "Steel", "开源的云端浏览器，也可以自己部署（填自己的地址）。云端版按项目保存登录状态。",
@@ -256,6 +285,7 @@ REMOTE_CATALOG: tuple[RemoteSpec, ...] = (
         id_field="id", cdp_field="wsEndpoint", live_field="liveUrl",
         fetch=Call("GET", "/api/session/{session}"),
         release=Call("PUT", "/api/session/{session}/stop"),
+        delete_profile=Call("DELETE", "/api/profile/{profile}"),
     ),
     RemoteSpec(
         info=_info("anchor", "Anchor Browser", "云端浏览器，按名字保存 profile，画面可以嵌入。",
@@ -265,14 +295,17 @@ REMOTE_CATALOG: tuple[RemoteSpec, ...] = (
                                                          "profile": {"name": "{slug}", "persist": True}}}),
         id_field="data.id", cdp_field="data.cdp_url", live_field="data.live_view_url",
         release=Call("DELETE", "/v1/sessions/{session}"),
+        delete_profile=Call("DELETE", "/v1/profiles/{slug}"),
     ),
     RemoteSpec(
         info=_info("browseruse", "Browser Use Cloud", "单价最低的云端浏览器。已有 profile 的话填 Profile ID 继续用。",
                    "https://docs.browser-use.com", Field("profile_id", "Profile ID（可选）", optional=True)),
         base="https://api.browser-use.com", auth_header="X-Browser-Use-API-Key",
-        create=Call("POST", "/api/v2/browsers", {"profileId": "{profile_id}", "timeout": 60}),
+        profile=Call("POST", "/api/v2/profiles", {"name": "{slug}"}),
+        create=Call("POST", "/api/v2/browsers", {"profileId": "{profile}", "timeout": 60}),
         id_field="id", cdp_field="cdpUrl", live_field="liveUrl",
         fetch=Call("GET", "/api/v2/browsers/{session}"),
         release=Call("PATCH", "/api/v2/browsers/{session}", {"action": "stop"}),
+        delete_profile=Call("DELETE", "/api/v2/profiles/{profile}"),
     ),
 )

@@ -11,7 +11,7 @@ def test_knowledge_upload_catalog_and_preview_keep_company_and_project_separate(
     beta = company / "projects" / "beta"
     alpha.mkdir(parents=True)
     beta.mkdir()
-    api = TestClient(create_api(tmp_path / "home", "local-test"))
+    api = TestClient(create_api(tmp_path / "home", "local-test", authorized_roots=[company]))
     headers = {"Authorization": "Bearer local-test"}
 
     def upload(project, scope, name):
@@ -29,6 +29,19 @@ def test_knowledge_upload_catalog_and_preview_keep_company_and_project_separate(
     assert api.get("/api/file", params=params | {"path": shared}, headers=headers).status_code == 200
     assert api.get("/api/file", params=params | {"path": private}, headers=headers).status_code == 400
     assert api.get("/api/knowledge", params=params | {"scope": "company"}).status_code == 401
+
+
+def test_registered_company_under_projects_does_not_read_parent_knowledge(tmp_path):
+    outside = tmp_path / "outside"
+    company = outside / "projects" / "company"
+    for root in (outside, company):
+        (root / "knowledge").mkdir(parents=True, exist_ok=True)
+        (root / "knowledge" / f"{root.name}.md").write_text(f"# {root.name}", encoding="utf-8")
+    api = TestClient(create_api(tmp_path / "home", "local-test", authorized_roots=[company]))
+    result = api.get("/api/knowledge", params={"workspace": str(company), "scope": "company"},
+                     headers={"Authorization": "Bearer local-test"})
+    assert result.status_code == 200, result.json()
+    assert {item["path"] for item in result.json()["items"]} == {str(company / "knowledge" / "company.md")}
 
 
 async def test_kb_query_is_only_knowledge_mcp_tool(tmp_path, monkeypatch):

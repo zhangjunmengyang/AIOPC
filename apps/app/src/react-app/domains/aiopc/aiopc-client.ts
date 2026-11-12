@@ -14,8 +14,12 @@ export type AiopcConnection = {
   home: string;
 };
 
-/** Company-level workspace responses have no project id. */
-export type AiopcProject = { name: string; path: string; id?: string };
+export type AiopcCompany = { name: string; path: string };
+/** A project belongs to a company workspace; company-root responses have no project id. */
+export type AiopcProject = { name: string; path: string; id?: string; description?: string; company?: AiopcCompany;
+  brief?: { context: string | null; brand: string | null; memory: string | null } };
+export type AiopcProjectRecord = AiopcProject & { id: string; description: string; company: AiopcCompany };
+export type AiopcProjectCatalog = { company: AiopcCompany; projects: AiopcProjectRecord[] };
 
 export type SpaceKind = "image" | "video" | "audio" | "document";
 export type SpaceSection = "brief" | "knowledge" | "assets" | "content" | "voices" | "other";
@@ -104,6 +108,8 @@ export type AiopcService = {
 
 export type AiopcAccount = {
   account_id: string;
+  project?: string;
+  environment?: string | null;
   platform: string;
   platform_name: string;
   name: string;
@@ -123,7 +129,7 @@ export type AiopcAccount = {
   verified_at?: number | null;
 };
 
-/** Where a project's browser runs: its own computer. */
+/** Runtime state of one environment from the company resource pool. */
 export type AiopcEnvironment = {
   provider: string;
   status: "running" | "starting" | "stopped" | "missing";
@@ -132,11 +138,6 @@ export type AiopcEnvironment = {
   detail: string;
   expires_at: string;
   running: boolean;
-  /** sandbox: the project's own environment; embedded: AIOPC's built-in browser. */
-  engine: "sandbox" | "embedded";
-  provider_id: string;
-  migrated: boolean;
-  providers: AiopcProvider[];
 };
 export type AiopcProvider = {
   id: string;
@@ -158,7 +159,9 @@ export type ConnectResult =
   | { status: "authorize"; platform: string; code: string; url: string; message: string }
   | { status: "connected"; account: AiopcAccount };
 
-export class AiopcError extends Error {}
+export class AiopcError extends Error {
+  constructor(message: string, public readonly status?: number, public readonly data?: Record<string, unknown>) { super(message); }
+}
 
 const unavailable: AiopcConnection = { status: "unavailable", url: "", token: "", error: "只有 AIOPC 桌面应用能使用这个页面", home: "" };
 
@@ -206,7 +209,7 @@ export async function aiopcRequest<T>(
     throw new AiopcError("连不上 AIOPC 业务服务，请稍后重试");
   }
   const data = await response.json().catch(() => null) as (T & { error?: string }) | null;
-  if (!response.ok) throw new AiopcError(data?.error || `请求失败（${response.status}）`);
+  if (!response.ok) throw new AiopcError(typeof data?.error === "string" ? data.error : `请求失败（${response.status}）`, response.status, data as Record<string, unknown> | undefined);
   return data as T;
 }
 
@@ -240,7 +243,7 @@ export function aiopcFileUrl(connection: AiopcConnection, workspaceRoot: string,
 }
 
 /** Calls against one workspace, with the queries pages share. */
-export function useAiopc(workspaceRoot: string) {
+export function useAiopc(workspaceRoot: string, environmentId?: string) {
   const connectionQuery = useAiopcConnection();
   const connection = connectionQuery.data ?? null;
   const queryClient = useQueryClient();
@@ -248,8 +251,8 @@ export function useAiopc(workspaceRoot: string) {
   const request = useCallback(<T,>(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string,
     options?: { params?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal }) => {
     if (!connection) throw new AiopcError("AIOPC 业务服务还没有就绪");
-    return aiopcRequest<T>(connection, workspaceRoot, method, path, options);
-  }, [connection, workspaceRoot]);
+    return aiopcRequest<T>(connection, workspaceRoot, method, path, { ...options, params: { ...options?.params, ...(environmentId ? { environment: environmentId } : {}) } });
+  }, [connection, workspaceRoot, environmentId]);
   const invalidate = useCallback((...key: string[]) => queryClient.invalidateQueries({ queryKey: ["aiopc", workspaceRoot, ...key] }),
     [queryClient, workspaceRoot]);
   return { connection, connectionQuery, ready, request, invalidate };
@@ -276,10 +279,10 @@ export function useAiopcPlatforms(workspaceRoot: string) {
 }
 
 /** The project's environment, polled while it is coming up. */
-export function useAiopcEnvironment(workspaceRoot: string) {
-  const { ready, request } = useAiopc(workspaceRoot);
+export function useAiopcEnvironment(workspaceRoot: string, environmentId?: string) {
+  const { ready, request } = useAiopc(workspaceRoot, environmentId);
   return useQuery({
-    queryKey: ["aiopc", workspaceRoot, "environment"],
+    queryKey: ["aiopc", workspaceRoot, "environment", environmentId ?? null],
     enabled: ready,
     refetchInterval: (query) => (query.state.data?.running ? 30_000 : 5_000),
     queryFn: () => request<AiopcEnvironment>("GET", "/api/environment"),
@@ -290,4 +293,23 @@ export function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+
+export type EnvironmentResource = {
+  id: string; name: string; company: string; provider: string;
+  boundProject: string | null; lastProject: string | null; bindingRevision: number;
+  status: string; running: boolean; cdp_url: string; live_view_url: string; detail: string;
+};
+export type EnvironmentPool = { company: AiopcCompany; items: EnvironmentResource[]; providers: AiopcProvider[] };
+export function useEnvironmentPool(companyRoot: string) {
+  const { ready, request } = useAiopc(companyRoot);
+  return useQuery({ queryKey: ["aiopc", companyRoot, "environments"], enabled: ready,
+    queryFn: ({ signal }) => request<EnvironmentPool>("GET", "/api/environments", { signal }), refetchInterval: 5000, retry: false });
+}
+export function useProjectEnvironments(projectRoot: string) {
+  const project = useAiopcProject(projectRoot);
+  const companyRoot = project.data?.company?.path ?? "";
+  const pool = useEnvironmentPool(companyRoot);
+  return { project, pool, companyRoot, items: pool.data?.items.filter(item => item.boundProject === project.data?.path) ?? [] };
 }

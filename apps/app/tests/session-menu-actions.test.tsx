@@ -92,6 +92,22 @@ describe("human session actions share one menu/palette definition", () => {
 });
 
 describe("group destinations", () => {
+  test("existing conversations cannot select project destinations; unsent drafts can", async () => {
+    const calls: (string | null)[] = [];
+    const groups = [{ id: "proj:A", label: "A" }, { id: "proj:B", label: "B" }, { id: "notes", label: "Notes" }];
+    expect(item(actions({ groups, assignedGroupId: "proj:A" }), "move-to-group").disabled).toBe(true);
+    const project = buildSessionGroupActions({ groups, assignedGroupId: "proj:A", onAssignGroup: value => calls.push(value) });
+    expect(item(project, "ungroup").disabled).toBe(true);
+    expect(item(project, "group:proj:B").disabled).toBe(true);
+    expect(await dispatchMenuAction(project, "group:proj:B")).toBe(false);
+    const company = buildSessionGroupActions({ groups, assignedGroupId: null, onAssignGroup: value => calls.push(value) });
+    expect(item(company, "group:proj:A").disabled).toBe(true);
+    expect(await dispatchMenuAction(company, "group:notes")).toBe(true);
+    const draft = buildSessionGroupActions({ groups, assignedGroupId: null, allowProjectSelection: true, onAssignGroup: value => calls.push(value) });
+    expect(await dispatchMenuAction(draft, "group:proj:B")).toBe(true);
+    expect(calls).toEqual(["notes", "proj:B"]);
+  });
+
   test("zero groups still has disabled No group and enabled create-only New group", () => {
     const assign = mock((_id: string | null) => {});
     const create = mock(() => {});

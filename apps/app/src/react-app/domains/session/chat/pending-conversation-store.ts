@@ -19,6 +19,8 @@ export type PendingConversation = {
   /** Bridges publication until the route's session list acknowledges this ID. */
   session?: Session;
   groupAssigned: boolean;
+  agentName?: string | null;
+  roleAssigned: boolean;
 };
 
 export const usePendingConversationStore = create<{ conversations: Record<string, PendingConversation> }>(() => ({ conversations: {} }));
@@ -84,15 +86,33 @@ function update(id: string, patch: Partial<PendingConversation>) {
 }
 
 /** Begin synchronously, before consuming the source draft or starting network work. */
-export function beginPendingConversation(input: Pick<PendingConversation, "scope" | "destination" | "submitted">) {
+export function beginPendingConversation(input: Pick<PendingConversation, "scope" | "destination" | "submitted" | "agentName">) {
   if (!input.scope) throw new Error("Wait for your account to finish loading before sending.");
   const id = crypto.randomUUID();
   const conversation: PendingConversation = {
     ...input, id, submitted: snapshotComposerSessionState(input.submitted),
-    phase: "creating", error: null, groupAssigned: !input.destination.groupId,
+    phase: "creating", error: null, groupAssigned: !input.destination.groupId, roleAssigned: input.agentName === undefined,
   };
   usePendingConversationStore.setState((state) => ({ conversations: { ...state.conversations, [id]: conversation } }));
   return conversation;
+}
+
+/** Metadata failure leaves the real session intact and retries before its ordinary send. */
+export async function ensurePendingConversationContext(scope: string | null, workspaceId: string, sessionId: string,
+  assign: (workspaceId: string, sessionId: string, groupId: string) => Promise<void>,
+  saveRole: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<void>,
+): Promise<{ agentName: string | null } | undefined> {
+  await ensurePendingConversationGroup(scope, workspaceId, sessionId, assign);
+  const entry = Object.values(usePendingConversationStore.getState().conversations).find((item) => item.scope === scope && item.destination.workspaceId === workspaceId && item.sessionId === sessionId);
+  if (!entry || entry.roleAssigned || entry.agentName === undefined) return;
+  try {
+    await saveRole(workspaceId, sessionId, entry.agentName);
+    update(entry.id, { roleAssigned: true, error: null });
+    return { agentName: entry.agentName };
+  } catch (error) {
+    update(entry.id, { error });
+    throw error;
+  }
 }
 
 /** Retries are scoped to this submission, not whichever draft is now on screen. */
