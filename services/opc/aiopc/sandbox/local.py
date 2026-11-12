@@ -25,6 +25,10 @@ from .environment import Environment, ProjectKey, Provider, ProviderInfo, Sandbo
 
 IMAGE = "aiopc/sandbox:1"
 IMAGE_DIR = Path(__file__).resolve().parent / "image"
+COOKIE_POLICY_FILE = IMAGE_DIR / "aiopc-cookie-persistence.json"
+COOKIE_POLICY_DEST = f"/etc/chromium/policies/managed/{COOKIE_POLICY_FILE.name}"
+# Chromium's Linux policy loader waits five seconds for file changes to settle.
+COOKIE_POLICY_REFRESH_SECONDS = 6
 PREFIX = "aiopc-"
 SCREEN = "1440x900@30"
 # OrbStack and Docker Desktop both install here; neither puts docker on a service's PATH.
@@ -109,6 +113,25 @@ class LocalDockerProvider(Provider):
             return None
 
     @staticmethod
+    def _owned_id(key: ProjectKey, info: dict[str, Any]) -> str:
+        labels = (info.get("Config") or {}).get("Labels") or {}
+        container_id = info.get("Id")
+        if not container_id or labels.get("aiopc.slug") != key.slug:
+            raise SandboxError("容器与当前环境不匹配")
+        return str(container_id)
+
+    @staticmethod
+    async def _install_cookie_policy(container_id: str, state: dict[str, Any], *, running: bool) -> None:
+        if state.get("cookiePolicyContainer") == container_id:
+            return
+        # A cached image and containers created by earlier versions need this
+        # drop-in too. Copy into the container without editing its profile.
+        await _docker("cp", str(COOKIE_POLICY_FILE), f"{container_id}:{COOKIE_POLICY_DEST}", timeout=20)
+        if running:
+            await asyncio.sleep(COOKIE_POLICY_REFRESH_SECONDS)
+        state["cookiePolicyContainer"] = container_id
+
+    @staticmethod
     def _published(info: dict[str, Any], port: str) -> int:
         bindings = ((info.get("NetworkSettings") or {}).get("Ports") or {}).get(port) or []
         return int(bindings[0]["HostPort"]) if bindings else 0
@@ -148,16 +171,15 @@ class LocalDockerProvider(Provider):
                 raise SandboxError(f"{why}。请先安装并启动 OrbStack 或 Docker Desktop。")
             name = str(state.get("container") or self.container(key))
             info = await self._inspect(name)
-            if info is not None and not (info.get("State") or {}).get("Running"):
-                await _docker("start", name, timeout=120)
-                info = await self._inspect(name)
+            created_id = None
+            running = bool(info and (info.get("State") or {}).get("Running"))
             if info is None:
                 await self._image_ready()
                 state["password"] = state.get("password") or secrets.token_urlsafe(12)
                 # One port for the picture, one for DevTools, one muxed port for the stream itself.
                 view_port, cdp_port, media_port = _free_port(), _free_port(), _free_port()
-                await _docker(
-                    "run", "-d", "--name", name, "--restart", "unless-stopped", "--shm-size=2g",
+                created_id = await _docker(
+                    "create", "--name", name, "--restart", "unless-stopped", "--shm-size=2g",
                     "-l", "aiopc.project=" + key.path, "-l", "aiopc.slug=" + key.slug,
                     "-p", f"127.0.0.1:{view_port}:8080", "-p", f"127.0.0.1:{cdp_port}:9223",
                     "-p", f"127.0.0.1:{media_port}:{media_port}/tcp", "-p", f"127.0.0.1:{media_port}:{media_port}/udp",
@@ -168,7 +190,18 @@ class LocalDockerProvider(Provider):
                     "-e", "NEKO_WEBRTC_ICELITE=1", "-e", "NEKO_WEBRTC_NAT1TO1=127.0.0.1",
                     "-v", f"{state.get('volume') or self.volume(key)}:/home/neko/.config/chromium",
                     IMAGE, timeout=180)
-                info = await self._inspect(name)
+                container_id = created_id
+            else:
+                container_id = self._owned_id(key, info)
+            try:
+                await self._install_cookie_policy(container_id, state, running=running)
+                if not running:
+                    await _docker("start", container_id, timeout=120)
+                    info = await self._inspect(name)
+            except (SandboxError, asyncio.CancelledError):
+                if created_id:
+                    await _docker("rm", "-f", created_id, check=False, timeout=60)
+                raise
             environment = await self._environment(key, state, info)
             if not environment.cdp_url:
                 raise SandboxError("沙箱启动了，但没有拿到浏览器的调试端口")
@@ -183,7 +216,13 @@ class LocalDockerProvider(Provider):
         return await self._environment(key, state, await self._inspect(str(state.get("container") or self.container(key))))
 
     async def stop(self, key: ProjectKey, state: dict[str, Any]) -> None:
-        await _docker("stop", str(state.get("container") or self.container(key)), check=False, timeout=120)
+        name = str(state.get("container") or self.container(key))
+        info = await self._inspect(name)
+        if info and (info.get("State") or {}).get("Running"):
+            container_id = self._owned_id(key, info)
+            await self._install_cookie_policy(container_id, state, running=True)
+            name = container_id
+        await _docker("stop", name, check=False, timeout=120)
 
     async def destroy(self, key: ProjectKey, state: dict[str, Any]) -> None:
         """Remove the container and, with it, every login kept in its profile."""
