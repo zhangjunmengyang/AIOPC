@@ -1,11 +1,12 @@
+import { createCompanyRoleSkillRules, type CompanyRoleSkillContext, type RolePrompt } from "./company-role-skills-v2.js";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-type Context = {
+type Context = CompanyRoleSkillContext & {
   location?: { directory?: string };
   options?: { trustedDirectories?: string[] };
-  session: { hook(name: "prompt", callback: () => Promise<void>): Promise<{ dispose(): Promise<void> }> };
+  session: { hook(name: "prompt", callback: (event: RolePrompt) => Promise<void>): Promise<{ dispose(): Promise<void> }> };
   skill: { transform(callback: (editor: {
     list(): readonly { id: string; path?: string }[];
     remove(id: string): void;
@@ -45,19 +46,23 @@ export default {
       }
     });
     let registration = await transform();
+    const roles = company && execution ? await createCompanyRoleSkillRules(context, company, company === execution ? null : execution) : null;
+    await roles?.refresh(false);
     let refresh: Promise<void> = Promise.resolve();
     // Native filesystem sources finish registering after external setup. Prompt
     // hooks run after location plugins are ready and before selected-skill
     // resolution, so append the policy there. Each later filesystem reload
     // replays this final transform as well. Never accumulate per-turn filters.
-    const hook = await context.session.hook("prompt", () => {
-      refresh = refresh.then(async () => {
+    const hook = await context.session.hook("prompt", async event => {
+      refresh = refresh.catch(() => {}).then(async () => {
         const previous = registration;
         registration = await transform();
         await previous.dispose();
+        await roles?.refresh();
       });
-      return refresh;
+      await refresh;
+      await roles?.assertAttachments(event);
     });
-    return async () => { await hook.dispose(); await refresh; await registration.dispose(); };
+    return async () => { await hook.dispose(); await refresh; await roles?.dispose(); await registration.dispose(); };
   },
 };

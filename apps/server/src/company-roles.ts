@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { companyRolePacks } from "./company-role-packs.js";
@@ -20,7 +21,7 @@ export type RoleSkillPolicy = {
   adopted: readonly string[];
 };
 
-const roleDirectories = ["agent", "agents"];
+const roleDirectories = ["agents", "agent"];
 const skillId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const roleId = /^[^./\\\u0000-\u0020\u007f][^/\\\u0000-\u001f\u007f]{0,127}$/u;
 
@@ -79,7 +80,8 @@ export async function readAdoptedProjectSkillNames(project: string): Promise<str
   const root = await realpath(project);
   const lockPath = join(root, ".opencode", "skills-lock.json");
   if (!(await regularFile(lockPath))) return [];
-  const lock = record(JSON.parse(await readFile(lockPath, "utf8")) as unknown);
+  let lock: Record<string, unknown> | undefined;
+  try { lock = record(JSON.parse(await readFile(lockPath, "utf8")) as unknown); } catch { return []; }
   const skills = record(lock?.skills);
   if (lock?.version !== 1 || !skills) return [];
   const entries = await Promise.all(Object.entries(skills).map(async ([id, raw]) => {
@@ -90,9 +92,17 @@ export async function readAdoptedProjectSkillNames(project: string): Promise<str
   return entries.filter(id => id !== null).sort();
 }
 
+export function companyRoleSkillCandidates(policy: RoleSkillPolicy): Array<{ id: string; path: string }> {
+  return [
+    ...policy.role.skills.map(id => ({ id, path: skillFile(policy.company, id) })),
+    ...(policy.project ? policy.adopted.map(id => ({ id, path: skillFile(policy.project!, id) })) : []),
+  ].filter(skill => roleAllowsSkill(policy, skill));
+}
+
 /** Shared by native skill admission and host tools that resolve a concrete package. */
 export function roleAllowsSkill(policy: RoleSkillPolicy, skill: { id: string; path?: string }): boolean {
   if (!skillName(skill.id) || !skill.path || !isAbsolute(skill.path)) return false;
+  try { if (realpathSync(skill.path) !== skill.path) return false; } catch { return false; }
   if (policy.project && policy.adopted.includes(skill.id) && skill.path === skillFile(policy.project, skill.id)) return true;
   return policy.role.skills.includes(skill.id) && skill.path === skillFile(policy.company, skill.id);
 }

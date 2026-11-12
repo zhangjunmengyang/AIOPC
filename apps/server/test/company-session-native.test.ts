@@ -28,8 +28,19 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
     let text = ""; for await (const chunk of req) text += String(chunk);
     const request = JSON.parse(text);
     modelRequests.push(request);
+    const serialized = JSON.stringify(request.messages);
+    const callRoleTool = serialized.includes("TEST_ROLE_TOOL")
+      && request.tools?.some((tool: { function?: { name?: string } }) => tool.function?.name === "skill")
+      && !request.messages.some((message: { role: string }) => message.role === "tool");
     const frame = (delta: unknown, finish: string | null = null) => `data: ${JSON.stringify({ id: "company-scope", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
     res.writeHead(200, { "content-type": "text/event-stream" });
+    if (callRoleTool) {
+      const id = serialized.includes("TEST_ROLE_TOOL_ALLOWED") ? "brand-naming" : "company-common";
+      res.end(frame({ role: "assistant", tool_calls: [{ index: 0, id: "fixture_role_skill", type: "function", function: {
+        name: "skill", arguments: JSON.stringify({ id }),
+      } }] }) + frame({}, "tool_calls") + "data: [DONE]\n\n");
+      return;
+    }
     res.end(frame({ role: "assistant", content: "Local company scope verified" }) + frame({}, "stop") + "data: [DONE]\n\n");
   });
   await new Promise<void>(resolve => model.listen(0, "127.0.0.1", resolve));
@@ -165,6 +176,44 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
             assert.ok(rejected.status >= 400, `explicit forbidden skill was admitted: ${name}: ${error}`);
             assert.ok(error.includes(`Skill not found: ${name}`), error);
           }
+        }
+        if (v2) {
+          await writeFile(join(projects[0], ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: {
+            "project-a": { id: "audited-project-a", hash: "a".repeat(64) },
+          } }));
+          const roleChat = async () => {
+            const created = await call("POST", "/session", { title: "品牌设计师验收", location: { directory: projects[0] }, model: { providerID: "native_fixture", id: "fixture" } }, projects[0]);
+            await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta, [created.id]: { ...state.sessionMeta[created.id], agentName: "brand-designer" } } }));
+            return created.id as string;
+          };
+          const roleId = await roleChat();
+          const roleTurn = async (id: string, text: string, body = {}) => {
+            const before = modelRequests.length;
+            await call("POST", `/session/${id}/prompt`, { text, ...body });
+            const deadline = Date.now() + 10_000;
+            while (!releases.some(item => item.sessionId === id && item.reason === "turn_end") && Date.now() < deadline) await delay(50);
+            assert.ok(releases.some(item => item.sessionId === id && item.reason === "turn_end"), logs.slice(-5000));
+            return modelRequests.slice(before).map(item => JSON.stringify((item as { messages: unknown }).messages));
+          };
+          const [visible] = await roleTurn(roleId, "列出当前角色可以使用的技能。", { skills: [{ id: "project-a" }] });
+          assert.ok(visible?.includes("brand-naming"), visible?.slice(-7000));
+          assert.ok(visible?.includes("project-a"), visible?.slice(-7000));
+          for (const hidden of ["company-common", "trusted-bundle", "global-user", "project-b"]) {
+            assert.ok(!visible?.includes(hidden), `unexpected role skill: ${hidden}`);
+          }
+          const denied = await roleTurn(await roleChat(), "TEST_ROLE_TOOL_DENIED");
+          assert.ok(denied.some(request => /permission denied|denied permission|BlockedError|Unable to load skill company-common/i.test(request)), denied.at(-1)?.slice(-4500));
+          const allowed = await roleTurn(await roleChat(), "TEST_ROLE_TOOL_ALLOWED");
+          assert.ok(allowed.some(request => request.includes("为不同语义方向各拟候选")), allowed.at(-1)?.slice(-6000));
+          for (const endpoint of ["prompt", "skill"]) {
+            const path = endpoint === "skill" ? `/opencode2/api/experimental/session/${roleId}/skill` : `/opencode2/api/session/${roleId}/prompt`;
+            const url = new URL(`http://host${path}`);
+            const request = new Request(url, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(endpoint === "skill" ? { id: "company-common", resume: false } : { text: "附带越权技能", skills: [{ id: "company-common" }] }) });
+            await assert.rejects(() => proxyOpencodeV2Request({ actor: { type: "host" }, config, request, url, workspace, proxyPath: path,
+              connection: { url: baseUrl, username: "opencode", password: "native-test" } }), /company-common/);
+          }
+          console.log("GREEN native v2 role: resident + adopted catalog, skill tool allow/deny, explicit attachments + activation denied");
         }
         await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta, [ids[0]!]: { ...state.sessionMeta[ids[0]!], agentName: "designer" } } }));
         const forked = await call("POST", `/session/${ids[0]}/fork`, {});
