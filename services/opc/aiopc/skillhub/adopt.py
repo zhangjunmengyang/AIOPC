@@ -100,10 +100,14 @@ def _check_scripts(directory: Path) -> None:
             raise ValueError("此技能包含脚本，需要可隔离执行的项目沙箱")
 
 
-def _skill_source(directory: Path, record: SkillRecord) -> tuple[str, str, str]:
+def installed_skill_name(record: SkillRecord) -> str:
     original_directory = PurePosixPath(record.source_path).parent.name or record.repository.rstrip("/").rsplit("/", 1)[-1]
+    return unicodedata.normalize("NFKC", original_directory)
+
+
+def _skill_source(directory: Path, record: SkillRecord) -> tuple[str, str, str]:
     text = (directory / "SKILL.md").read_text(encoding="utf-8-sig")
-    fields, spec = validate_skill(text, original_directory)
+    fields, spec = validate_skill(text, installed_skill_name(record))
     if spec.status != "passed":
         raise ValueError("技能名称或 SKILL.md 与上游目录不匹配")
     lines = text.split("\n")
