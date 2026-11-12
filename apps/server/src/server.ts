@@ -2,7 +2,7 @@ import { createAiopcLeaseLifecycle, createAiopcLeaseReleaser, type LeaseEventTar
 import { authorizeRuntimeContextRequest, beginRuntimeSessionContext, runtimeContextFileForConfig, writeRuntimeContextFile, removeRuntimeContextFile, resolveRuntimeSessionContext } from "./runtime-session-context.js";
 import { createLocalProviderReload } from "./local-provider-reload.js";
 import { createCompanySessionPending } from "./company-session-pending.js";
-import { ensureCompanyProjectBoundary, listCompanyProjects, resolveCompanyExecutionDirectory } from "./company-projects.js";
+import { ensureCompanyProjectBoundary, listCompanyProjects, resolveCompanyExecutionDirectory, type CompanyProject } from "./company-projects.js";
 
 import { createV2SessionHomes, nativeSession, nativeSessionDirectory } from "./opencode-v2-session-home.js";
 import { managedDesktopPolicy } from "./managed-desktop-policy.js";
@@ -112,7 +112,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
-import { registerCreatedSessionGroup, resolveSessionProject } from "./session-groups.js";
+import { registerCreatedSessionGroup, resolveSessionProject, resolveVerifiedSessionProjects, type SessionProject } from "./session-groups.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
 import { registerUiControlRoutes } from "./routes/ui-control.js";
@@ -1319,11 +1319,14 @@ async function resolveV2SessionExecutionDirectory(
   }
 }
 
-async function projectCompanySession(config: ServerConfig, workspace: WorkspaceInfo, homes: ReturnType<typeof createV2SessionHomes>, value: unknown) {
+async function projectCompanySession(
+  config: ServerConfig, workspace: WorkspaceInfo, homes: ReturnType<typeof createV2SessionHomes>, value: unknown,
+  verified?: { home: string; project: SessionProject },
+) {
   const session = nativeSession(value);
   if (!session || typeof session.id !== "string") return value;
-  const project = await resolveSessionProject(config, workspace, session.id, nativeSessionDirectory(value) ?? undefined);
-  const projected = await homes.project(value);
+  const project = verified?.project ?? await resolveSessionProject(config, workspace, session.id, nativeSessionDirectory(value) ?? undefined);
+  const projected = await homes.project(value, verified?.home);
   if (!isRecord(projected)) return projected;
   const fields = { ...project, ...(isRecord(session.location) ? { location: { ...session.location, directory: project.executionDirectory } } : {}) };
   return isRecord(projected.info) ? { ...projected, info: { ...projected.info, ...fields } } : { ...projected, ...fields };
@@ -1451,9 +1454,10 @@ async function forwardOpencodeV2Request(input: {
   const homes = createV2SessionHomes(input.config, readNative);
   const projectSession = (value: unknown) => projectCompanySession(input.config, input.workspace, homes, value);
   const expectedHome = await homes.canonical(input.workspace.path);
-  const listCompanySessions = async (): Promise<unknown[]> => {
+  const listCompanySessions = async (projects?: CompanyProject[]): Promise<unknown[]> => {
     const found = new Map<string, unknown>();
-    const directories = [input.workspace.path, ...(await listCompanyProjects(input.workspace.path)).map(project => project.directory)];
+    const discovered = projects ?? await listCompanyProjects(input.workspace.path);
+    const directories = [input.workspace.path, ...discovered.map(project => project.directory)];
     for (const directory of directories) {
       const seen = new Set<string>();
       let cursor: string | undefined;
@@ -1718,7 +1722,13 @@ async function forwardOpencodeV2Request(input: {
     const data = isRecord(payload) && "data" in payload ? payload.data : payload;
     const nativeItems = Array.isArray(data) ? data : isRecord(data) && Array.isArray(data.items) ? data.items : null;
     if (!nativeItems) throw new ApiError(502, "invalid_engine_response", "Invalid session list response");
-    const items = await listCompanySessions();
+    const projects = await listCompanyProjects(input.workspace.path);
+    const items = await listCompanySessions(projects);
+    const warnUnreadable = (sessionId: string | null, error: unknown) => {
+      input.logWarning?.("Left an unreadable chat out of the v2 session list", {
+        sessionId, workspaceId: input.workspace.id, error: error instanceof Error ? error.message : String(error),
+      });
+    };
     // Like the pending lists above: a chat the engine cannot read (deleted while
     // listing, or history it cannot decode) is left out, never the whole list.
     // A bounded number at a time, so a large migrated set does not flood the engine.
@@ -1729,21 +1739,28 @@ async function forwardOpencodeV2Request(input: {
         const index = nextIndex++;
         const item: unknown = items[index];
         try {
-          results[index] = await homes.resolveCompany(item, input.workspace.path) === expectedHome ? await projectSession(item) : null;
+          if (await homes.resolveCompany(item, input.workspace.path) === expectedHome) results[index] = item;
         } catch (error) {
           if (signal?.aborted) throw error;
           const session = nativeSession(item);
-          input.logWarning?.("Left an unreadable chat out of the v2 session list", {
-            sessionId: typeof session?.id === "string" ? session.id : null,
-            workspaceId: input.workspace.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          warnUnreadable(typeof session?.id === "string" ? session.id : null, error);
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(SESSION_LIST_HOME_CONCURRENCY, items.length) }, resolveNext));
     signal?.throwIfAborted();
-    const owned = results.filter((item) => item !== null);
+    const verified = results.flatMap(item => {
+      const sessionId = nativeSession(item)?.id;
+      return typeof sessionId === "string" ? [{ item, sessionId, nativeDirectory: nativeSessionDirectory(item) }] : [];
+    });
+    const bySession = await resolveVerifiedSessionProjects(input.config, input.workspace, verified, projects);
+    signal?.throwIfAborted();
+    const owned = (await Promise.all(verified.map(({ item, sessionId }) => {
+      const project = bySession.get(sessionId);
+      if (project) return projectCompanySession(input.config, input.workspace, homes, item, { home: expectedHome, project });
+      warnUnreadable(sessionId, "会话所属项目目录不存在或会话编号无效");
+      return null;
+    }))).filter(item => item !== null);
     const cursor = input.url.searchParams.get("cursor");
     const offset = cursor?.startsWith("company:") ? Number(cursor.slice("company:".length)) : 0;
     if (!Number.isSafeInteger(offset) || offset < 0) throw new ApiError(400, "invalid_cursor", "Invalid company session cursor");
