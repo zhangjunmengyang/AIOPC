@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
-import { relative, sep } from "node:path";
-import { opencodeV1DatabasePath, v1ChatDirectory } from "./opencode-history.js";
+import { isAbsolute, relative, sep } from "node:path";
+import { opencodeV1DatabasePath, v1ChatDirectories, v1ChatDirectory } from "./opencode-history.js";
 import { openRuntimeSqliteDatabase, runtimeDbPath, type RuntimeSqliteDatabase } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { isRecord } from "./workspace-kv-store.js";
@@ -112,6 +112,39 @@ export function createV2SessionHomes(
     const rows = db.sqlite.prepare("SELECT session_id FROM opencode_v2_session_homes WHERE home_directory = ?").all(await canonical(directory));
     return rows.flatMap((row: unknown) => isRecord(row) && typeof row.session_id === "string" ? [row.session_id] : []);
   };
+  const backfillUnmovedV1Homes = async (items: readonly unknown[], signal?: AbortSignal): Promise<void> => {
+    if (!items.length || origin !== v1Origin) return;
+    let v1Database: string;
+    try { v1Database = opencodeV1DatabasePath(); } catch { return; }
+    const db = await database(config);
+    const read = db.sqlite.prepare("SELECT 1 FROM opencode_v2_session_homes WHERE session_id = ?");
+    const unknownHomes = new Map<string, string>();
+    for (const item of items) {
+      const session = nativeSession(item);
+      const directory = nativeSessionDirectory(item);
+      if (typeof session?.id === "string" && typeof session.parentID !== "string"
+        && directory && isAbsolute(directory) && !read.get(session.id)) unknownHomes.set(session.id, directory);
+    }
+    const copied = await v1ChatDirectories(v1Database, [...unknownHomes.keys()]);
+    const verified = (await Promise.all([...copied].map(async ([id, original]) => {
+      const home = await canonical(original);
+      return await canonical(unknownHomes.get(id)!) === home ? { id, home } : null;
+    }))).filter(item => item !== null);
+    signal?.throwIfAborted();
+    if (!verified.length) return;
+
+    // Only exact v1 origins are prefilled here. Moved chats and descendants
+    // still use the normal ownership proof and cannot inherit a native CWD.
+    const insert = db.sqlite.prepare("INSERT OR IGNORE INTO opencode_v2_session_homes (session_id, home_directory) VALUES (?, ?)");
+    db.sqlite.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { id, home } of verified) insert.run(id, home);
+      db.sqlite.exec("COMMIT");
+    } catch (error) {
+      db.sqlite.exec("ROLLBACK");
+      throw error;
+    }
+  };
   const storedCompany = async (id: string, company: string): Promise<string | null> => {
     const existing = await stored(id);
     if (!existing) return null;
@@ -193,5 +226,5 @@ export function createV2SessionHomes(
     const info = { ...session, directory: home, openworkHomeDirectory: home, executionDirectory: directory };
     return isRecord(value) && isRecord(value.info) ? { ...value, info } : info;
   };
-  return { canonical, stored, storedCompany, remember, created, resolve, resolveCompany, list, project };
+  return { canonical, stored, storedCompany, remember, created, resolve, resolveCompany, list, project, backfillUnmovedV1Homes };
 }

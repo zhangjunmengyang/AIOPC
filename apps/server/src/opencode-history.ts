@@ -84,19 +84,30 @@ export async function originalHistoryUsesV2(host?: object): Promise<boolean> {
   finally { db.close(); }
 }
 
-/** The original top-level chat's folder; delegated, missing or unreadable chats have none. */
-export async function v1ChatDirectory(database: string, id: string): Promise<string | null> {
+/** The original top-level chat folders, read through one read-only connection. */
+export async function v1ChatDirectories(database: string, ids: readonly string[]): Promise<Map<string, string>> {
+  const directories = new Map<string, string>();
+  if (!ids.length) return directories;
   try {
     // A read-only open never creates a missing database.
     const db = await openReadOnlyDatabase(database);
     try {
-      const row: unknown = db.prepare("SELECT directory, parent_id FROM session WHERE id = ?").get(id);
-      return typeof row === "object" && row !== null
-        && "parent_id" in row && row.parent_id === null
-        && "directory" in row && typeof row.directory === "string" && isAbsolute(row.directory)
-        ? row.directory : null;
+      const read = db.prepare("SELECT directory, parent_id FROM session WHERE id = ?");
+      for (const id of ids) {
+        const row: unknown = read.get(id);
+        if (typeof row === "object" && row !== null && "parent_id" in row && row.parent_id === null
+          && "directory" in row && typeof row.directory === "string" && isAbsolute(row.directory)) {
+          directories.set(id, row.directory);
+        }
+      }
     } finally { db.close(); }
   } catch {
-    return null;
+    // Missing or unreadable v1 history falls back to the native history proof.
   }
+  return directories;
+}
+
+/** The original top-level chat's folder; delegated, missing or unreadable chats have none. */
+export async function v1ChatDirectory(database: string, id: string): Promise<string | null> {
+  return (await v1ChatDirectories(database, [id])).get(id) ?? null;
 }

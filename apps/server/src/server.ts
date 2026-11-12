@@ -1729,6 +1729,12 @@ async function forwardOpencodeV2Request(input: {
         sessionId, workspaceId: input.workspace.id, error: error instanceof Error ? error.message : String(error),
       });
     };
+    try {
+      await homes.backfillUnmovedV1Homes(items, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      warnUnreadable(null, error);
+    }
     // Like the pending lists above: a chat the engine cannot read (deleted while
     // listing, or history it cannot decode) is left out, never the whole list.
     // A bounded number at a time, so a large migrated set does not flood the engine.
