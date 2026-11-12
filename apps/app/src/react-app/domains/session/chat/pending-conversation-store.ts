@@ -21,6 +21,7 @@ export type PendingConversation = {
   groupAssigned: boolean;
   agentName?: string | null;
   roleAssigned: boolean;
+  taskAssigned: boolean;
 };
 
 export const usePendingConversationStore = create<{ conversations: Record<string, PendingConversation> }>(() => ({ conversations: {} }));
@@ -92,6 +93,7 @@ export function beginPendingConversation(input: Pick<PendingConversation, "scope
   const conversation: PendingConversation = {
     ...input, id, submitted: snapshotComposerSessionState(input.submitted),
     phase: "creating", error: null, groupAssigned: !input.destination.groupId, roleAssigned: input.agentName === undefined,
+    taskAssigned: !input.destination.taskId,
   };
   usePendingConversationStore.setState((state) => ({ conversations: { ...state.conversations, [id]: conversation } }));
   return conversation;
@@ -101,11 +103,18 @@ export function beginPendingConversation(input: Pick<PendingConversation, "scope
 export async function ensurePendingConversationContext(scope: string | null, workspaceId: string, sessionId: string,
   assign: (workspaceId: string, sessionId: string, groupId: string) => Promise<void>,
   saveRole: (workspaceId: string, sessionId: string, agentName: string | null) => Promise<void>,
+  saveTask?: (workspaceId: string, sessionId: string, taskId: string, expectedTaskId: null) => Promise<void>,
 ): Promise<{ agentName: string | null } | undefined> {
   await ensurePendingConversationGroup(scope, workspaceId, sessionId, assign);
   const entry = Object.values(usePendingConversationStore.getState().conversations).find((item) => item.scope === scope && item.destination.workspaceId === workspaceId && item.sessionId === sessionId);
-  if (!entry || entry.roleAssigned || entry.agentName === undefined) return;
+  if (!entry) return;
   try {
+    if (!entry.taskAssigned && entry.destination.taskId) {
+      if (!saveTask) throw new Error("Task linking is unavailable.");
+      await saveTask(workspaceId, sessionId, entry.destination.taskId, null);
+      update(entry.id, { taskAssigned: true, error: null });
+    }
+    if (entry.roleAssigned || entry.agentName === undefined) return;
     await saveRole(workspaceId, sessionId, entry.agentName);
     update(entry.id, { roleAssigned: true, error: null });
     return { agentName: entry.agentName };

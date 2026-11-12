@@ -117,6 +117,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
         const response = await endpoint.client.setSessionAgent(endpoint.workspaceId, sessionId, agentName);
         return response.state;
       },
+      setSessionTask: async (workspaceId, sessionId, taskId, expectedTaskId) => {
+        const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
+        const endpoint = endpointForWorkspaceRef.current(workspace);
+        if (!endpoint) return null;
+        return (await endpoint.client.setSessionTask(endpoint.workspaceId, sessionId, taskId, expectedTaskId)).state;
+      },
       createGroup: async (workspaceId: string, group: SessionGroupDefinition) => {
         const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
         const endpoint = endpointForWorkspaceRef.current(workspace);

@@ -22,6 +22,7 @@ import secrets
 import shutil
 import sys
 from contextlib import ExitStack
+from functools import partial
 from pathlib import Path
 from typing import Any, get_type_hints
 
@@ -43,6 +44,8 @@ from aiopc.media.image import ImageService
 from aiopc.media.video import VideoConfig, VideoService
 from aiopc.platforms import catalog
 from aiopc.project import Project, ProjectError
+from aiopc.routine_routes import routine_routes
+from aiopc.routines import LocalRoutines
 from aiopc.runtime_context import RuntimeContextError, RuntimeContextResolver, use_runtime_context
 from aiopc.sandbox import Sandboxes
 from aiopc.sandbox.environment import SandboxError
@@ -51,6 +54,7 @@ from aiopc.social.context import use_browser_context
 from aiopc.social.review import RESOURCE, PublishReview
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
+from aiopc.task_interfaces import TaskTools, task_routes
 from aiopc.workspace_scope import WorkspaceScope
 from aiopc.xdata import XDataService
 
@@ -158,6 +162,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     ws = scope.proxy()
     project, social = ws.project, ws.social
     server = FastMCP("aiopc", instructions=INSTRUCTIONS, log_level="WARNING")
+    TaskTools(lambda project: scope.company.resolve_project(project or str(scope.default))).register(partial(_tool, server))
     runtime = RuntimeContextResolver(home)
     browser_tools = {"start_project_environment", "social_connect", "social_read", "login_open", "login_look",
                      "login_fill", "login_click", "login_screenshot", "login_finish"}
@@ -338,8 +343,21 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
     def respond(data: Any, status: int = 200) -> JSONResponse:
         return JSONResponse(data, status_code=status, headers={"Cache-Control": "no-store", **cors})
 
+    def workspace_context(request: Request) -> tuple[Path, Company]:
+        return workspace_access.resolve_context(request.query_params.get("workspace", ""))
+
+    def project_directory(path: Path, company: Company) -> Path:
+        if path == company.root:
+            raise ValueError("请选择公司下的项目")
+        return path
+
+    def authorized_project(path: Path) -> Path:
+        return project_directory(*workspace_access.resolve_context(str(path)))
+
+    routines = LocalRoutines(home, authorize_project=authorized_project)
+
     def workspace_of(request: Request) -> Workspace:
-        path, company = workspace_access.resolve_context(request.query_params.get("workspace", ""))
+        path, company = workspace_context(request)
         if path not in workspaces or workspaces[path].company.root != company.root:
             workspaces[path] = Workspace(home, path, company=company)
         return workspaces[path]
@@ -480,6 +498,8 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
         return respond({"items": workspace_of(request).social.history()})
 
     routes = [
+        *task_routes(lambda request: project_directory(*workspace_context(request)), body, respond),
+        *routine_routes(routines, workspace_context, body, respond),
         ("/api/project", project_route, ["GET", "POST"]),
         ("/api/projects", projects_route, ["GET", "POST"]),
         ("/api/space", space_route, ["GET"]),
@@ -498,8 +518,10 @@ def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
         ("/api/integrations/{service_id}", integrations_route, ["PUT"]),
         ("/api/history", history_route, ["GET"]),
     ]
-    return Starlette(routes=[Route("/api/health", health, methods=["GET"]),
-                             *[Route(path, endpoint(handler), methods=[*methods, "OPTIONS"]) for path, handler, methods in routes]])
+    return Starlette(lifespan=routines.lifespan, routes=[
+        Route("/api/health", health, methods=["GET"]),
+        *[Route(path, endpoint(handler), methods=[*methods, "OPTIONS"]) for path, handler, methods in routes],
+    ])
 
 
 def library_from(home: Path) -> Path | None:

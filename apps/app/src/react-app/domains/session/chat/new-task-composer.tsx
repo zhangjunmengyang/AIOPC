@@ -24,7 +24,7 @@ import {
 } from "@/react-app/domains/session/surface/composer/pasted-text";
 import { resolveAttachmentFileMetadata } from "@/react-app/domains/session/sync/attachment-file-part";
 import type { NewSessionDestination } from "./new-session-destination";
-import { draftHasWorkspaceFiles, draftWorkspaceChangeBlocked, newSessionDraftSlot } from "./new-session-destination";
+import { carryDraftTask, draftHasWorkspaceFiles, draftWorkspaceChangeBlocked, newSessionDraftSlot } from "./new-session-destination";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { NewTaskDestinationMenu } from "./new-task-destination-menu";
 import { clearSessionDraft, saveSessionDraft } from "../sync/draft-store";
@@ -401,9 +401,10 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
     updateDraft(`${currentDraft}${currentDraft && !currentDraft.endsWith("\n") ? "\n" : ""}${links.join("\n")}`);
   };
 
-  const changeDestination = (destination: NewSessionDestination) => {
+  const changeDestination = (target: NewSessionDestination) => {
     const source = context?.destination;
     if (!source || !context?.onChangeDestination || submittingRef.current) return;
+    const destination = carryDraftTask(source, target);
     if (source.workspaceId === destination.workspaceId && newSessionDraftSlot(source) === newSessionDraftSlot(destination)) return;
     const holder = continuationHolderRef.current;
     if (draftWorkspaceChangeBlocked(source.workspaceId, destination.workspaceId, holder.state)) {
