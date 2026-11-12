@@ -5,6 +5,7 @@ import { mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { configureAiopcQmd } from "./aiopc-qmd.mjs";
 import { configureAiopcScheduler } from "./aiopc-scheduler.mjs";
 
 const PREFERRED_PORT = 18800;
@@ -125,6 +126,7 @@ export function createAiopcService({ app, desktopRoot, workspaceStore, log = con
     process.env.AIOPC_HTTP_CONNECTION_FILE = httpConnectionFile;
     // One environment shared by the API process and every workspace's MCP, outside the app bundle.
     process.env.UV_PROJECT_ENVIRONMENT = path.join(home, "venv");
+    configureAiopcQmd({ app, desktopRoot });
     configureAiopcScheduler({ app, desktopRoot, serviceDir, uv, home });
     // Tools AIOPC installs for the agent (e.g. the GitHub CLI) live here; the runtime's shells inherit it.
     const toolDir = path.join(home, "bin");

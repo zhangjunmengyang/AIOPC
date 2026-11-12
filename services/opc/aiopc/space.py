@@ -13,7 +13,7 @@ KINDS = {
     "image": {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"},
     "video": {".mp4", ".webm", ".mov", ".m4v"},
     "audio": {".mp3", ".wav", ".m4a", ".ogg", ".flac"},
-    "document": {".md", ".txt", ".csv", ".pdf", ".docx", ".xlsx", ".pptx", ".html", ".json"},
+    "document": {".md", ".markdown", ".txt", ".rst", ".csv", ".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm", ".json"},
 }
 SKIP_DIRS = {"node_modules", "__pycache__", "social", "dist", "build", "venv"}
 MAX_ITEMS = 2000
@@ -39,7 +39,7 @@ class SpaceCatalog:
         self.workspace = Path(workspace)
         self.project = Project(self.workspace)
 
-    def files(self) -> dict[str, Any]:
+    def files(self, *, exclude_top: frozenset[str] = frozenset()) -> dict[str, Any]:
         root = self.workspace
         items: list[dict[str, Any]] = []
         truncated = False
@@ -56,7 +56,7 @@ class SpaceCatalog:
                         continue
                     path = Path(entry.path)
                     if entry.is_dir(follow_symlinks=False):
-                        if entry.name in SKIP_DIRS or depth >= MAX_DEPTH:
+                        if entry.name in SKIP_DIRS or depth >= MAX_DEPTH or (depth == 0 and entry.name in exclude_top):
                             continue
                         pending.append((path, depth + 1))
                         continue
@@ -66,7 +66,11 @@ class SpaceCatalog:
                     if len(items) >= MAX_ITEMS:
                         truncated = True
                         break
-                    info = entry.stat(follow_symlinks=False)
+                    try:
+                        info = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        # A file may disappear while a live knowledge catalog is scanning.
+                        continue
                     relative = path.relative_to(root)
                     items.append({"path": str(path), "relative": relative.as_posix(), "name": path.name, "kind": kind,
                                   "section": section_of(relative), "size": info.st_size, "modified": info.st_mtime})

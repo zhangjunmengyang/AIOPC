@@ -24,6 +24,8 @@ extraResources:
       - "**/*.mdx"
       - "docs.json"
   # AIOPC's OPC service; its Python environment is created in ~/.aiopc/venv on first launch.
+  - from: dist/aiopc-qmd
+    to: aiopc-qmd
   - from: ../../services/opc
     to: aiopc-service
     filter:
