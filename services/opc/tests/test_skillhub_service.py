@@ -142,3 +142,44 @@ async def test_catalog_glossary_retries_marketing_page_with_qmd(tmp_path, skill)
     assert queries == ["复刻营销页", '"landing page"']
     assert result["matched_query"] == '"landing page"'
     assert [candidate["id"] for candidate in result["candidates"]] == [skill.id]
+
+
+async def test_mcp_adopts_script_skill_without_exposing_the_private_bundle(tmp_path, skill):
+    import json
+    from types import SimpleNamespace
+
+    from mcp.server.fastmcp import FastMCP
+
+    from aiopc.skillhub.tools import register_tools
+
+    library = tmp_path / "library"
+    company = tmp_path / "company"
+    project = company / "projects" / "alpha"
+    project.mkdir(parents=True)
+    source = tmp_path / "content"
+    script = source / "scripts" / "sample.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\nexit 0\n")
+    skill = replace(skill, content_hash=hash_skill(source))
+    bundle = skill_content(library, skill)
+    bundle.parent.mkdir(parents=True)
+    source.rename(bundle)
+    write_manifest(library, {skill.id: skill}, {}, {})
+
+    async def resolve(meta):
+        assert meta == {"trusted": True}
+        return SimpleNamespace(company=company, project_id="proj:alpha", project_directory=project)
+
+    server = FastMCP("test")
+    register_tools(server, tmp_path, resolve_session=resolve)
+    install = server._tool_manager.get_tool("adopt_skill").fn
+    ctx = SimpleNamespace(request_context=SimpleNamespace(meta={"trusted": True}))
+    result = await install(id=skill.id, ctx=ctx)
+    assert result["installed"] and result["has_scripts"]
+    assert str(library) not in json.dumps(result)
+    installed = project / ".opencode/skills/clone-page"
+    stub = (installed / "SKILL.md").read_text()
+    assert "run_skill_script" in stub
+    assert str(library) not in stub
+    assert not (installed / "scripts").exists()
+    assert (bundle / "scripts/sample.sh").is_file()

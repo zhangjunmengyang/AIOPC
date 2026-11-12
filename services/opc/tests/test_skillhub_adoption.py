@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -6,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from aiopc.skillhub.adopt import adopt_skill
+from aiopc.skillhub.adopt import adopt_skill, resolve_adopted_script
 from aiopc.skillhub.audit import AuditResult
-from aiopc.skillhub.manifest import SkillRecord, hash_skill, skill_id
+from aiopc.skillhub.manifest import SkillRecord, hash_skill, skill_content, skill_id, write_manifest
 
 
 @pytest.fixture
@@ -36,6 +37,24 @@ def company(tmp_path):
     (company / "projects" / "alpha").mkdir(parents=True)
     (company / "projects" / "beta").mkdir()
     return company
+
+
+@pytest.fixture
+def scripted(tmp_path, skill):
+    record, source = skill
+    (source / "SKILL.md").write_text(
+        "---\nname: replicate-page\ndescription: Reproduce a landing page.\nallowed-tools: Bash(*)\n---\nUse `scripts/build.sh`.\n"
+    )
+    scripts = source / "scripts"
+    scripts.mkdir()
+    (scripts / "build.sh").write_text("#!/bin/sh\n# Fixture only; never execute.\n")
+    record = replace(record, content_hash=hash_skill(source), has_scripts=True)
+    library = tmp_path / "library"
+    snapshot = skill_content(library, record)
+    snapshot.parent.mkdir(parents=True)
+    source.rename(snapshot)
+    write_manifest(library, {record.id: record}, {}, {})
+    return library, record, snapshot
 
 
 def test_project_adoption_copies_exact_content_and_is_idempotent(company, skill):
@@ -113,21 +132,85 @@ def test_adoption_requires_both_audits_to_pass(company, skill, stage, status):
     assert not (project / ".opencode").exists()
 
 
-@pytest.mark.parametrize("script", ["manifest", "scripts/tool.txt", "references/tool.sh", "references/tool"])
-def test_script_content_is_never_installed_for_the_host_skill_tool(company, skill, script):
+@pytest.mark.parametrize("script", ["scripts/tool.txt", "references/tool.sh", "references/tool"])
+def test_unmarked_script_content_is_never_installed_for_the_host_skill_tool(company, skill, script):
     record, source = skill
     project = company / "projects" / "alpha"
-    if script == "manifest":
-        record = replace(record, has_scripts=True)
-    else:
-        script_file = source / script
-        script_file.parent.mkdir(exist_ok=True)
-        script_file.write_text("#!/bin/sh\n# Fixture only; never execute.\n")
-        record = replace(record, content_hash=hash_skill(source))
+    script_file = source / script
+    script_file.parent.mkdir(exist_ok=True)
+    script_file.write_text("#!/bin/sh\n# Fixture only; never execute.\n")
+    record = replace(record, content_hash=hash_skill(source))
 
     with pytest.raises(ValueError, match="沙箱"):
         adopt_skill(record, source, company=company, project=project)
     assert not (project / ".opencode" / "skills" / "replicate-page").exists()
+
+
+def test_script_adoption_installs_discoverable_description_and_keeps_payload_private(company, scripted):
+    library, record, source = scripted
+    project = company / "projects" / "alpha"
+    target = {"company": company, "project": project}
+    outcome = adopt_skill(record, source, **target)
+    installed = Path(outcome["path"])
+    assert outcome["has_scripts"] and outcome["installed"]
+    assert [path.name for path in installed.iterdir()] == ["SKILL.md"]
+    instructions = (installed / "SKILL.md").read_text()
+    assert instructions.startswith("---\nname: replicate-page\n")
+    assert "allowed-tools" not in instructions
+    assert instructions.index("run_skill_script") < instructions.index("Use `scripts/build.sh`.")
+    assert record.id in instructions
+    assert str(source) not in instructions and str(source) not in str(outcome)
+    assert "allowed-tools" in (source / "SKILL.md").read_text()
+    assert (source / "scripts" / "build.sh").is_file()
+    lock = json.loads((project / ".opencode" / "skills-lock.json").read_text())
+    entry = lock["skills"]["replicate-page"]
+    assert entry["hash"] == record.content_hash
+    assert entry["installed_hash"] == hashlib.sha256((installed / "SKILL.md").read_bytes()).hexdigest() != entry["hash"]
+    assert entry["has_scripts"] is True
+    assert not adopt_skill(record, source, **target)["installed"]
+    assert resolve_adopted_script(library, record.id, **target) == (record, source)
+
+
+@pytest.mark.parametrize("tamper", ["installed", "installed_and_lock", "mirror", "lock", "scan", "extra_file"])
+def test_script_resolution_rejects_tampering(company, scripted, tamper):
+    library, record, source = scripted
+    project = company / "projects" / "alpha"
+    target = {"company": company, "project": project}
+    installed = Path(adopt_skill(record, source, **target)["path"])
+    lock_file = project / ".opencode" / "skills-lock.json"
+    lock = json.loads(lock_file.read_text())
+    entry = lock["skills"]["replicate-page"]
+    if tamper in {"installed", "installed_and_lock"}:
+        (installed / "SKILL.md").write_text("tampered")
+        if tamper == "installed_and_lock":
+            entry["installed_hash"] = hashlib.sha256((installed / "SKILL.md").read_bytes()).hexdigest()
+    if tamper == "mirror":
+        (source / "scripts" / "build.sh").write_text("tampered")
+    if tamper == "lock":
+        entry["hash"] = "f" * 64
+    if tamper == "scan":
+        write_manifest(library, {record.id: replace(record, scan=AuditResult("failed"))}, {}, {})
+    if tamper == "extra_file":
+        (installed / "extra.md").write_text("unexpected")
+    lock_file.write_text(json.dumps(lock))
+    with pytest.raises(ValueError):
+        resolve_adopted_script(library, record.id, **target)
+
+
+def test_script_resolution_requires_scope_ownership_and_adoption(company, scripted):
+    library, record, source = scripted
+    alpha, beta = company / "projects" / "alpha", company / "projects" / "beta"
+    with pytest.raises(ValueError):
+        resolve_adopted_script(library, record.id, company=company, project=alpha)
+    adopt_skill(record, source, company=company, project=alpha)
+    with pytest.raises(ValueError):
+        resolve_adopted_script(library, record.id, company=company, project=beta)
+    adopt_skill(record, source, company=company, project=None, scope="company", can_adopt_company=True)
+    with pytest.raises(ValueError):
+        resolve_adopted_script(library, record.id, company=company, project=beta, scope="company")
+    with pytest.raises(ValueError):
+        resolve_adopted_script(library, record.id, company=company, project=company, scope="company", can_access_company=True)
+    assert resolve_adopted_script(library, record.id, company=company, project=beta, scope="company", can_access_company=True) == (record, source)
 
 
 def test_mirror_modification_is_detected_before_install(company, skill):

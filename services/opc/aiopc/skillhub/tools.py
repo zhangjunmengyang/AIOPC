@@ -67,7 +67,9 @@ def register_tools(
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False))
     async def adopt_skill(id: str, ctx: Context, scope: Literal["project", "company"] = "project") -> dict:
-        """Install a vetted catalog skill for this session's project, or for a verified company-level session."""
+        """Install a vetted skill for the current project or a verified company-level session.
+        Script bundles stay in the private mirror. The installed instructions use the project sandbox.
+        """
         meta = ctx.request_context.meta
         identity = await (resolve_session(meta) if resolve_session else _resolve_session(home, meta))
         record = (await asyncio.to_thread(read_skills, hub.root)).get(id)
