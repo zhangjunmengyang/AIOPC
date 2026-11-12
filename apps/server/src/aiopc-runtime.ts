@@ -29,7 +29,7 @@ export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): R
     aiopc: {
       type: "local",
       command: [environment.AIOPC_UV!.trim(), "run", "--project", serviceDir, "--frozen", "--no-dev", "--quiet",
-        "python", "-I", "-m", "aiopc.server", "--stdio"],
+        "python", "-I", "-B", "-m", "aiopc.server", "--stdio"],
       environment: serviceEnvironment,
       enabled: true,
       // The first start may still be installing the service's Python packages.

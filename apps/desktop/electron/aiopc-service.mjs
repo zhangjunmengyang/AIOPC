@@ -13,7 +13,7 @@ const HEALTH_TIMEOUT_MS = 180_000;
 const MAX_RESTARTS = 5;
 
 export function aiopcServerArgs(serviceDir, port) {
-  return ["run", "--project", serviceDir, "--frozen", "--no-dev", "--quiet", "python", "-I", "-m", "aiopc.server", "--port", String(port)];
+  return ["run", "--project", serviceDir, "--frozen", "--no-dev", "--quiet", "python", "-I", "-B", "-m", "aiopc.server", "--port", String(port)];
 }
 
 /** Only the desktop's workspace store supplies roots; callers cannot grant access. */

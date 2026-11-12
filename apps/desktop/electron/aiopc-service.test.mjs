@@ -7,7 +7,7 @@ import { aiopcServerArgs, createAiopcService, writeAuthorizedCompanies, writeAio
 import { createWorkspaceStore } from "./workspace-store.mjs";
 
 test("OPC HTTP service runs Python in isolated mode", () => {
-  assert.deepEqual(aiopcServerArgs("/service", 18800), ["run", "--project", "/service", "--frozen", "--no-dev", "--quiet", "python", "-I", "-m", "aiopc.server", "--port", "18800"]);
+  assert.deepEqual(aiopcServerArgs("/service", 18800), ["run", "--project", "/service", "--frozen", "--no-dev", "--quiet", "python", "-I", "-B", "-m", "aiopc.server", "--port", "18800"]);
 });
 
 test("bootstrap state normalization can publish roots without deadlocking authorization refresh", async () => {
