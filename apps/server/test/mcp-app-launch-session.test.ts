@@ -125,6 +125,27 @@ describe("MCP App launch sessions", () => {
     releaseMcpAppLaunch(config, base.workspaceId, opened!.launchId!);
   });
 
+  test("v2 App actions accept project sessions by company home and reject archived or foreign sessions", async () => {
+    const { assertActiveV2McpAppSession } = await import("../src/mcp-app-host.js");
+    const project = join(workspaceRoot, "projects", "alpha");
+    mkdirSync(project, { recursive: true });
+    const foreign = join(dir, "other-company");
+    mkdirSync(foreign);
+    const session = (id: string, directory: string, archived?: number) => ({ data: { info: { id, location: { directory }, time: { archived } } } });
+    const records: Record<string, unknown> = {
+      "/api/session/ses_project_app": session("ses_project_app", project),
+      "/api/session/ses_archived_app": session("ses_archived_app", project, 100),
+      "/api/session/ses_foreign_app": session("ses_foreign_app", foreign),
+    };
+    const verify = (sessionId: string) => assertActiveV2McpAppSession({
+      serverConfig: config, workspaceRoot, sessionId,
+      read: async path => path.includes("/message?") ? [] : records[path] ?? null,
+    });
+    await expect(verify("ses_project_app")).resolves.toBeUndefined();
+    await expect(verify("ses_archived_app")).rejects.toMatchObject({ code: "inactive_session" });
+    await expect(verify("ses_foreign_app")).rejects.toMatchObject({ code: "inactive_session" });
+  });
+
   test("a read-only open still resolves, without a launch", async () => {
     const { resolveMcpAppResource } = await import("../src/mcp-app-host.js");
     const before = app.methods.length;

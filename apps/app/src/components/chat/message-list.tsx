@@ -95,6 +95,7 @@ import type { AnyToolPart } from "@/lib/tool-aggregate";
 import { formatElapsedSeconds,formatToolCallDuration } from "@/lib/tool-call-duration";
 import { cn } from "@/lib/utils";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
+import { readPublishReviewPart,SavedPublishReviewCard } from "@/react-app/domains/aiopc/publish-review-card";
 import { resolveConnectorToolIdentity } from "@/react-app/domains/connections/connector-tool-identity";
 import { appBuildActivity,appBuildInProgress,appCreationRuns } from "@/react-app/domains/mcp-apps/app-creation-progress";
 import { BuiltAppPreviewSync } from "@/react-app/domains/mcp-apps/built-app-chat-preview";
@@ -250,7 +251,8 @@ function isReservedConnectionQuestionPart(part: ToolUIPart | DynamicToolUIPart):
 }
 
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
-  const { connectorIdentities, onMcpReconnect, onMcpReopenAuthorization, connectionQuestionToolCallId, getConnectionDecision } = useMessageList()
+  const { connectorIdentities, onMcpReconnect, onMcpReopenAuthorization, connectionQuestionToolCallId, getConnectionDecision, mcpAppOrigin, workspaceId } = useMessageList()
+  const workspace = useWorkspaceMaybe()
   // The agent following up on a task the chat shows makes it run again.
   const parentActive = React.useContext(ParentRunActiveContext)
   const resolveLifecycle = useCurrentToolLifecycleResolver()
@@ -260,6 +262,8 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   const appPanelFold = React.useContext(AppPanelFoldContext)
   if (appCreationParts.has(part.toolCallId)) return null
   if (part.toolCallId === connectionQuestionToolCallId || isReservedConnectionQuestionPart(part)) return null
+  const publishReview = part.type === "dynamic-tool" ? readPublishReviewPart(part) : null
+  if (publishReview) return <SavedPublishReviewCard {...publishReview} origin={mcpAppOrigin} workspaceRoot={workspace?.workspaceId === workspaceId ? workspace.selectedWorkspaceRoot : ""} />
   const calls = part.type === "dynamic-tool" ? codeModeToolCalls(part) : null
   const foldTool = appPanelFold && lifecycle !== "waiting" && !connectionCardParts.has(part.toolCallId) && !isTaskToolPart(part)
   if (foldTool) return null
@@ -404,6 +408,7 @@ function stepsNeedAttention(items: UIMessageWithIndex[], connectionCards: Readon
     if (part.state === "output-error") return true
     if (part.type === "dynamic-tool") {
       if (connectionCards.has(part.toolCallId)) return true
+      if (readPublishReviewPart(part)) return true
       if (openWorkNativeFailure(part)) return true
       if ((codeModeToolCalls(part) ?? []).some((call) => call.state === "output-error" || openWorkNativeFailure(call))) return true
     }
@@ -1433,6 +1438,7 @@ function isMcpAppFramePart(part: UIMessage["parts"][number]): part is DynamicToo
     && (part.state === "output-available" || part.state === "output-error")
     && hasPreservedMcpAppResult(part)
     && !isNativeConnectionAppLaunch(part)
+    && !readPublishReviewPart(part)
 }
 
 /** Tasks a group's steps started on other computers, directly or from a script. */

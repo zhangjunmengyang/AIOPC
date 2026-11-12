@@ -21,6 +21,7 @@ import {
 import { diagnoseMcpToolDenies, listMcpFromRuntimeSnapshot } from "./mcp.js";
 import { readEffectiveRuntimeOpencodeConfig, readRuntimeMcpConfigRevisions } from "./runtime-opencode-config-store.js";
 import { localManagedMcpAppIdentity } from "./local-managed-mcp.js";
+import { createV2SessionHomes, nativeSession } from "./opencode-v2-session-home.js";
 import { externalFetch } from "./server-fetch.js";
 
 async function listMcp(serverConfig: ServerConfig, workspaceId: string, workspaceRoot: string) {
@@ -46,6 +47,22 @@ type McpAppCsp = {
 };
 
 export type McpAppToolResult = CallToolResult & { hostAction?: ConnectionActionIntent };
+
+export async function assertActiveV2McpAppSession(input: {
+  serverConfig: ServerConfig;
+  workspaceRoot: string;
+  sessionId: string;
+  read: (path: string) => Promise<unknown>;
+}) {
+  const value = await input.read(`/api/session/${encodeURIComponent(input.sessionId)}`);
+  const session = nativeSession(value);
+  const homes = createV2SessionHomes(input.serverConfig, input.read);
+  if (session?.id === input.sessionId && !(isRecord(session.time) && session.time.archived)) {
+    const company = await homes.resolveCompany(value, input.workspaceRoot).catch(() => null);
+    if (company === await homes.canonical(input.workspaceRoot)) return;
+  }
+  throw new McpAppHostError("inactive_session", "The original conversation is archived or unavailable. Reopen it before using App actions.");
+}
 
 /** Result _meta key the host trusts to decide whether a result may be kept. */
 export const MCP_APP_READ_ONLY_RESULT_META = "openwork/readOnly";
