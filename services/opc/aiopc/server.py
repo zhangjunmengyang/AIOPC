@@ -313,6 +313,10 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         _tool(server, "library_list", methods.list, "List workflow/reference files in the methods library.", READ)
         _tool(server, "library_read", methods.read, "Read lines from a methods-library document.", READ)
         _tool(server, "library_search", methods.search, "Find literal text in the methods library.", READ)
+
+    from aiopc.skillhub.tools import register_tools as register_skillhub_tools
+
+    register_skillhub_tools(server, home)
     return server
 
 
