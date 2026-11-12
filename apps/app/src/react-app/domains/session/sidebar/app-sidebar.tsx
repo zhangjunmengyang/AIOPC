@@ -789,7 +789,7 @@ export function AppSidebar(props: AppSidebarProps) {
     sessionNumberShortcutByTarget,
   };
 
-  const brandLogoUrl = "/aiopc-mark.svg";
+  const brandLogoUrl = resolveExtensionIconSrc("/aiopc-mark.svg");
   const brandAppName = "AIOPC";
   const pinnedIds = useSessionManagementStore((state) => state.pinnedIds);
   const pinnedSessions = React.useMemo(

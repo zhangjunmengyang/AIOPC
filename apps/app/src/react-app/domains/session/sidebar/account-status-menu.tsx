@@ -3,6 +3,7 @@ import { BookOpen, MessageCircleMore, Settings, MoreHorizontal } from "lucide-re
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
+import { resolveExtensionIconSrc } from "../../../design-system/extension-icon-src";
 import { usePlatform } from "../../../kernel/platform";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { useShellConfig } from "../../../shell/shell-config";
@@ -112,7 +113,7 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
     <DropdownMenuTrigger render={<button ref={triggerRef} type="button" data-testid="account-status-menu" data-runtime-state={runtime.variant}
       aria-label="AIOPC 状态与设置" title={runtime.detail ?? runtime.label}
       className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-sidebar-accent max-lg:min-h-11">
-      <img src="/aiopc-mark.svg" alt="" className="size-6 dark:invert" />
+      <img src={resolveExtensionIconSrc("/aiopc-mark.svg")} alt="" className="size-6 dark:invert" />
       <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">AIOPC</span>
         <span className="block truncate text-[10.5px] text-muted-foreground">{runtime.label}</span></span>
       <StatusDot variant={runtime.variant} /><MoreHorizontal size={14} />
