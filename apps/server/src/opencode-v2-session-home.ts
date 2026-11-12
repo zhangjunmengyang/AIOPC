@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { relative, sep } from "node:path";
 import { opencodeV1DatabasePath, v1ChatDirectory } from "./opencode-history.js";
 import { openRuntimeSqliteDatabase, runtimeDbPath, type RuntimeSqliteDatabase } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
@@ -51,6 +52,11 @@ async function withHistoryScanSlot<T>(scan: () => Promise<T>): Promise<T> {
     if (next) next();
     else historyScans--;
   }
+}
+
+function couldBeCompanyProject(company: string, directory: string): boolean {
+  const parts = relative(company, directory).split(sep);
+  return parts.length === 2 && parts[0] === "projects";
 }
 
 export function nativeSession(value: unknown): Record<string, unknown> | null {
@@ -110,8 +116,10 @@ export function createV2SessionHomes(
     const existing = await stored(id);
     if (!existing) return null;
     const home = await canonical(company);
+    const directory = await canonical(existing);
+    if (!couldBeCompanyProject(home, directory)) return existing;
     const project = await resolveCompanyExecutionDirectory(home, existing);
-    return project !== home && project === await canonical(existing) ? created(id, home) : existing;
+    return project !== home && project === directory ? created(id, home) : existing;
   };
   const resolveCompany = async (value: unknown, company: string): Promise<string | null> => {
     const session = nativeSession(value);
@@ -120,11 +128,12 @@ export function createV2SessionHomes(
     const existing = await storedCompany(session.id, company);
     if (existing) return existing;
     const home = await canonical(company);
-    const execution = await resolveCompanyExecutionDirectory(home, directory);
     const origin = await resolve(value);
+    const execution = await canonical(directory);
     // Only an original project folder maps to its company. A conversation
     // moved here from another home never gains access from its mutable CWD.
-    if (execution !== home && origin === await canonical(directory)) return created(session.id, home);
+    if (origin === execution && couldBeCompanyProject(home, execution)
+      && await resolveCompanyExecutionDirectory(home, directory) !== home) return created(session.id, home);
     return origin;
   };
   const resolve = async (value: unknown, ancestors = new Set<string>()): Promise<string | null> => {
