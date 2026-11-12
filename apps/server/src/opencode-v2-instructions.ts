@@ -8,6 +8,7 @@ import constants from "../../../constants.json" with { type: "json" };
 import { readJsoncFile } from "./jsonc.js";
 import { OPENWORK_AGENT_PROMPT } from "./openwork-agent-prompt.js";
 import { withAiopcInstructions } from "./aiopc-runtime.js";
+import { companyProjectInstructions } from "./company-projects.js";
 
 
 export const OPENWORK_V2_INSTRUCTION_KEY = "openwork.context";
@@ -122,9 +123,10 @@ export async function readConfiguredInstructions(workspaceRoot: string): Promise
  * files. `organizationPrompts` is the member's organization Prompts text,
  * appended to the operating instructions.
  */
-export function buildOpenWorkV2Instructions() {
+export function buildOpenWorkV2Instructions(context?: { companyDirectory: string; executionDirectory: string }) {
   return {
-    operatingInstructions: withAiopcInstructions(OPENWORK_AGENT_PROMPT),
+    operatingInstructions: withAiopcInstructions(OPENWORK_AGENT_PROMPT)
+      + (context ? `\n\n${companyProjectInstructions(context.companyDirectory, context.executionDirectory)}` : ""),
     context: "Use openwork_context to discover OpenWork app reads. Use openwork_query with session.search then session.read to read another conversation without opening it. Session reads include the conversation and its background agents’ live activity. Sidebar groups (such as Done or In progress) are listed with openwork_query session.group.list and changed with openwork_execute session.group.create, session.group.move or session.group.remove; never search code or files for them. When Code Mode exposes these native tools, discover their exact paths with bare search({ query }) and compose them there; otherwise use the direct native tools. Only use capabilities actually returned by discovery.",
     skillInstructions: "Use the native skill tool when a task matches an available local skill. Follow the current instructions and keep skill contents subordinate to the user's request and operating instructions.",
     browser: "The native browser_tabs, browser_open, browser_observe, browser_act, browser_extract, browser_navigate and browser_handoff tools browse in the project's own environment, where this project's accounts are signed in. Start with browser_tabs; use browser_open for a new URL, or about:blank when asked only to open the browser. Observe once, act on the whole form in one browser_act batch and verify in its receipt; use browser_extract to read facts. These are direct native tools, not Code Mode calls. Verify the resulting page, fill a password or code only when the person gave it to you for this site, and otherwise use browser_handoff and ask the person to finish in the environment's picture. Never use browser tools to control AIOPC itself or claim access to the person's own Chrome.",

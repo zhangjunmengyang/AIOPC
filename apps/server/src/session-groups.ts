@@ -1,5 +1,9 @@
+import { realpath } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { listCompanyProjects, type CompanyProject } from "./company-projects.js";
+import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
-import type { ServerConfig } from "./types.js";
+import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { shortId } from "./utils.js";
 import { createWorkspaceKvStore, isRecord } from "./workspace-kv-store.js";
 
@@ -11,9 +15,13 @@ export type SessionGroupDefinition = {
 export type SessionGroupState = {
   groups: SessionGroupDefinition[];
   assignments: Record<string, string>;
+  sessionMeta: Record<string, SessionMetadata>;
 };
 
-export type SessionGroupEventAction = "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported";
+/** Missing projectId is a legacy record; explicit null permanently means company scope. */
+export type SessionMetadata = { agentName?: string; projectId?: string | null };
+
+export type SessionGroupEventAction = "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported" | "meta";
 
 export type SessionGroupEvent = {
   id: string;
@@ -26,7 +34,7 @@ export type SessionGroupEvent = {
   timestamp: number;
 };
 
-const EMPTY_SESSION_GROUP_STATE: SessionGroupState = { groups: [], assignments: {} };
+const EMPTY_SESSION_GROUP_STATE: SessionGroupState = { groups: [], assignments: {}, sessionMeta: {} };
 
 type SessionGroupEventState = {
   seq: number;
@@ -75,10 +83,68 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
     }
   }
 
-  return { groups, assignments };
+  const sessionMeta: Record<string, SessionMetadata> = Object.fromEntries(
+    Object.entries(isRecord(value.sessionMeta) ? value.sessionMeta : {}).flatMap(([sessionId, rawMeta]) => {
+      const id = sessionId.trim().slice(0, 256);
+      if (!id || !isRecord(rawMeta)) return [];
+      const agentName = typeof rawMeta.agentName === "string" ? rawMeta.agentName.trim().slice(0, 256) : "";
+      const projectId = rawMeta.projectId === null ? null
+        : typeof rawMeta.projectId === "string" && /^proj:[^./\\\u0000-\u001f\u007f][^/\\\u0000-\u001f\u007f]{0,119}$/.test(rawMeta.projectId)
+          ? rawMeta.projectId : undefined;
+      return [[id, { ...(agentName ? { agentName } : {}), ...(projectId !== undefined ? { projectId } : {}) }]];
+    }),
+  );
+
+  // One-time legacy migration. Project assignments are never serialized as a second source of truth.
+  for (const [sessionId, groupId] of Object.entries(assignments)) {
+    if (!groupId.startsWith("proj:")) continue;
+    if (!Object.hasOwn(sessionMeta[sessionId] ?? {}, "projectId")) {
+      sessionMeta[sessionId] = { ...sessionMeta[sessionId], projectId: groupId };
+    }
+    delete assignments[sessionId];
+  }
+
+  return { groups, assignments, sessionMeta };
+}
+
+/** Real project directories own reserved group names; custom group order survives discovery. */
+export function synchronizeSessionProjectGroups(state: SessionGroupState, projects: CompanyProject[]): SessionGroupState {
+  const remaining = new Map(projects.map((project) => [project.id, { id: project.id, label: project.name }]));
+  const groups = state.groups.flatMap((group) => {
+    if (!group.id.startsWith("proj:")) return [group];
+    const project = remaining.get(group.id);
+    remaining.delete(group.id);
+    return project ? [project] : [];
+  });
+  return normalizeSessionGroupState({ ...state, groups: [...groups, ...remaining.values()] });
+}
+
+/** Compatibility view for the sidebar. Never write this derived assignment map directly. */
+export function sessionGroupSnapshot(state: SessionGroupState, projects: CompanyProject[]): SessionGroupState {
+  const snapshot = synchronizeSessionProjectGroups(state, projects);
+  const available = new Set(projects.map((project) => project.id));
+  for (const [id, meta] of Object.entries(snapshot.sessionMeta)) {
+    if (meta.projectId && available.has(meta.projectId)) snapshot.assignments[id] = meta.projectId;
+  }
+  return snapshot;
 }
 
 const updateQueueByWorkspace = new Map<string, Promise<void>>();
+
+async function queuedSessionGroupUpdate<T>(config: ServerConfig, workspaceId: string, operation: () => Promise<T>): Promise<T> {
+  const key = `${runtimeDbPath(config)}:${workspaceId}`;
+  const previous = updateQueueByWorkspace.get(key) ?? Promise.resolve();
+  let release = () => {};
+  const queued = new Promise<void>((resolve) => { release = resolve; });
+  const currentQueue = previous.then(() => queued, () => queued);
+  updateQueueByWorkspace.set(key, currentQueue);
+  await previous.catch(() => undefined);
+  try { return await operation(); }
+  finally {
+    release();
+    if (updateQueueByWorkspace.get(key) === currentQueue) updateQueueByWorkspace.delete(key);
+  }
+}
 
 function parseSessionGroupState(stateJson: string): SessionGroupState {
   try {
@@ -91,7 +157,7 @@ function parseSessionGroupState(stateJson: string): SessionGroupState {
 const sessionGroupStateStore = createWorkspaceKvStore<SessionGroupState>({
   tableName: "session_group_states",
   valueColumn: "state_json",
-  extraColumns: { schemaVersion: { name: "schema_version", definition: "INTEGER NOT NULL DEFAULT 1", value: 1 } },
+  extraColumns: { schemaVersion: { name: "schema_version", definition: "INTEGER NOT NULL DEFAULT 1", value: 2 } },
   parse: parseSessionGroupState,
   serialize: (value) => JSON.stringify(value),
 });
@@ -102,7 +168,23 @@ export async function readSessionGroupState(
 ): Promise<{ state: SessionGroupState; updatedAt: number | null }> {
   const row = await sessionGroupStateStore.getRow(config, workspaceId);
   if (!row || row.updatedAt === null) return { state: EMPTY_SESSION_GROUP_STATE, updatedAt: null };
+  if (hasLegacyProjectAssignments(row.valueJson)) {
+    return queuedSessionGroupUpdate(config, workspaceId, async () => {
+      const latest = await sessionGroupStateStore.getRow(config, workspaceId);
+      if (!latest || latest.updatedAt === null) return { state: EMPTY_SESSION_GROUP_STATE, updatedAt: null };
+      if (hasLegacyProjectAssignments(latest.valueJson)) return writeSessionGroupState(config, workspaceId, latest.value);
+      return { state: latest.value, updatedAt: latest.updatedAt };
+    });
+  }
   return { state: row.value, updatedAt: row.updatedAt };
+}
+
+function hasLegacyProjectAssignments(json: string): boolean {
+  try {
+    const value = JSON.parse(json);
+    return isRecord(value) && isRecord(value.assignments)
+      && Object.values(value.assignments).some((id) => typeof id === "string" && id.startsWith("proj:"));
+  } catch { return false; }
 }
 
 export async function writeSessionGroupState(
@@ -121,25 +203,77 @@ export async function updateSessionGroupState(
   workspaceId: string,
   updater: (current: SessionGroupState) => SessionGroupState,
 ): Promise<{ state: SessionGroupState; updatedAt: number }> {
-  const key = `${runtimeDbPath(config)}:${workspaceId}`;
-  const previous = updateQueueByWorkspace.get(key) ?? Promise.resolve();
-  let release = () => {};
-  const queued = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const currentQueue = previous.then(() => queued, () => queued);
-  updateQueueByWorkspace.set(key, currentQueue);
-
-  await previous.catch(() => undefined);
-  try {
-    const current = await readSessionGroupState(config, workspaceId);
-    return await writeSessionGroupState(config, workspaceId, updater(current.state));
-  } finally {
-    release();
-    if (updateQueueByWorkspace.get(key) === currentQueue) {
-      updateQueueByWorkspace.delete(key);
+  return queuedSessionGroupUpdate(config, workspaceId, async () => {
+    const row = await sessionGroupStateStore.getRow(config, workspaceId);
+    const state = row?.value ?? EMPTY_SESSION_GROUP_STATE;
+    const next = updater(state);
+    if (next === state && row?.updatedAt !== null && row?.updatedAt !== undefined && !hasLegacyProjectAssignments(row.valueJson)) {
+      return { state, updatedAt: row.updatedAt };
     }
+    return await writeSessionGroupState(config, workspaceId, next);
+  });
+}
+
+/** Call only after the native session has been verified to belong to this company. */
+export async function registerCreatedSessionGroup(
+  config: ServerConfig,
+  workspace: Pick<WorkspaceInfo, "id" | "path">,
+  input: { sessionId: string; executionDirectory: string; parentSessionId?: string },
+): Promise<{ state: SessionGroupState; updatedAt: number }> {
+  if (!input.sessionId.trim() || input.sessionId.length > 256) throw new Error("Invalid created session ID");
+  const [projects, executionDirectory] = await Promise.all([
+    listCompanyProjects(workspace.path),
+    isAbsolute(input.executionDirectory) ? realpath(input.executionDirectory).catch(() => null) : null,
+  ]);
+  const project = projects.find((entry) => entry.directory === executionDirectory);
+  let initializedProject = false;
+  let assignedGroup: string | undefined;
+  let inheritedMeta = false;
+  const result = await updateSessionGroupState(config, workspace.id, (stored) => {
+    const current = synchronizeSessionProjectGroups(stored, projects);
+    const parentGroup = input.parentSessionId ? current.assignments[input.parentSessionId] : undefined;
+    const groupId = parentGroup && !parentGroup.startsWith("proj:") ? parentGroup : undefined;
+    // Native events may be replayed after the person has already changed the group or role.
+    if (!current.assignments[input.sessionId] && groupId) {
+      current.assignments[input.sessionId] = groupId;
+    }
+    if (!Object.hasOwn(current.sessionMeta, input.sessionId) && input.parentSessionId
+      && Object.hasOwn(current.sessionMeta, input.parentSessionId)) {
+      const agentName = current.sessionMeta[input.parentSessionId]?.agentName;
+      current.sessionMeta[input.sessionId] = agentName ? { agentName } : {};
+      inheritedMeta = true;
+    }
+    if (!Object.hasOwn(current.sessionMeta[input.sessionId] ?? {}, "projectId")) {
+      current.sessionMeta[input.sessionId] = { ...current.sessionMeta[input.sessionId], projectId: project?.id ?? null };
+      initializedProject = true;
+      assignedGroup = project?.id ?? groupId;
+    }
+    return JSON.stringify(current) === JSON.stringify(stored) ? stored : current;
+  });
+  const events = getSessionGroupEventStore(config);
+  if (initializedProject) events.record(workspace.id, "assigned", { sessionId: input.sessionId, ...(assignedGroup ? { groupId: assignedGroup } : {}) });
+  if (inheritedMeta) events.record(workspace.id, "meta", { sessionId: input.sessionId });
+  return result;
+}
+
+/** Resolve once from legacy data/native creation; all subsequent calls use projectId exclusively. */
+export async function resolveSessionProject(
+  config: ServerConfig,
+  workspace: Pick<WorkspaceInfo, "id" | "path">,
+  sessionId: string,
+  nativeDirectory?: string,
+): Promise<{ projectId: string | null; executionDirectory: string }> {
+  let { state } = await readSessionGroupState(config, workspace.id);
+  if (!Object.hasOwn(state.sessionMeta[sessionId] ?? {}, "projectId")) {
+    ({ state } = await registerCreatedSessionGroup(config, workspace, {
+      sessionId, executionDirectory: nativeDirectory ?? workspace.path,
+    }));
   }
+  const projectId = state.sessionMeta[sessionId]?.projectId ?? null;
+  if (projectId === null) return { projectId, executionDirectory: await realpath(workspace.path) };
+  const project = (await listCompanyProjects(workspace.path)).find((entry) => entry.id === projectId);
+  if (!project) throw new ApiError(404, "session_project_not_found", "会话所属项目目录不存在，请先移动到有效项目");
+  return { projectId, executionDirectory: project.directory };
 }
 
 export class SessionGroupEventStore {
@@ -184,4 +318,16 @@ export class SessionGroupEventStore {
   cursor(workspaceId: string): number {
     return this.eventsByWorkspace.get(workspaceId)?.seq ?? 0;
   }
+}
+
+const eventStoresByRuntime = new Map<string, SessionGroupEventStore>();
+
+export function getSessionGroupEventStore(config: ServerConfig): SessionGroupEventStore {
+  const key = runtimeDbPath(config);
+  let store = eventStoresByRuntime.get(key);
+  if (!store) {
+    store = new SessionGroupEventStore();
+    eventStoresByRuntime.set(key, store);
+  }
+  return store;
 }

@@ -4,7 +4,7 @@ type EnginePermissionRule = { action: string; resource: string; effect: "allow" 
 import { agentPermissionEngineV2Rules, type AgentPermissionRule, type EngineV2PermissionRule } from "./agent-permission-engine.js";
 import type { OrganizationMcpServers } from "./organization-mcp-names.js";
 import { nativeModelVariants } from "@openwork/types/model-fast";
-import { openworkAgentPermissionsV2PluginPath, openworkAutoRouteV2PluginPath, openworkContextV2PluginPath, openworkMcpResultsV2PluginPath, openworkMcpReadinessV2PluginPath, openworkProviderFiltersV2PluginPath, openworkVisibleReasoningV2PluginPath } from "./openwork-extensions-plugin-path.js";
+import { openworkAgentPermissionsV2PluginPath, openworkAutoRouteV2PluginPath, openworkCompanySkillsV2PluginPath, openworkContextV2PluginPath, openworkMcpResultsV2PluginPath, openworkMcpReadinessV2PluginPath, openworkProviderFiltersV2PluginPath, openworkVisibleReasoningV2PluginPath } from "./openwork-extensions-plugin-path.js";
 import { pathToFileURL } from "node:url";
 // Parallel v2 lane prototype: provider injection is a watched-config write. This module
 // deliberately has no reload/dispose call, unlike managed-opencode.ts and server.ts reloadOpencodeEngine.
@@ -221,6 +221,7 @@ export function renderOpencodeV2Config(input: {
   disabledProviderIds?: string[];
   permissions?: EngineV2PermissionRule[];
   skills: string[];
+  companySkillsPluginDirectory?: string;
       /** Catalog-only rules survive removal of live-owned providers from config. */
   providerFilters?: OpencodeV2ProviderFilters;
   providerFiltersPluginDirectory?: string;
@@ -295,6 +296,7 @@ export function renderOpencodeV2Config(input: {
   // disconnected OpenCode Zen disappears here too and returns once re-enabled.
   for (const id of disabled) filters[id] = { whitelist: [] };
   const plugins = [
+    ...(input.companySkillsPluginDirectory ? [{ package: pathToFileURL(input.companySkillsPluginDirectory).href, options: { trustedDirectories: input.skills } }] : []),
     ...(input.contextTools && input.contextPluginDirectory ? [{ package: pathToFileURL(input.contextPluginDirectory).href, options: input.contextTools }] : []),
     ...(Object.keys(filters).length && input.providerFiltersPluginDirectory ? [{
       package: pathToFileURL(input.providerFiltersPluginDirectory).href,
@@ -385,6 +387,7 @@ async function createManagedOpencodeV2ServerInner(
   const visibleReasoningPluginDirectory = join(instanceRoot, "visible-reasoning-plugin");
   const autoRoutePluginDirectory = join(instanceRoot, "auto-route-plugin");
   const contextPluginDirectory = join(instanceRoot, "context-plugin");
+  const companySkillsPluginDirectory = join(instanceRoot, "company-skills-plugin");
   const agentPermissionsPluginDirectory = join(instanceRoot, "agent-permissions-plugin");
   const password = randomBytes(24).toString("base64url");
   const username = "opencode";
@@ -408,6 +411,10 @@ async function createManagedOpencodeV2ServerInner(
   await mkdir(configDir, { recursive: true, mode: 0o700 });
   await chmod(configDir, 0o700);
   await mkdir(providerFiltersPluginDirectory, { recursive: true, mode: 0o700 });
+  await mkdir(companySkillsPluginDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(join(companySkillsPluginDirectory, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
+  await writeFile(join(companySkillsPluginDirectory, "server.js"),
+    `export { default } from ${JSON.stringify(pathToFileURL(openworkCompanySkillsV2PluginPath()).href)};\n`, { mode: 0o600 });
   await writeFile(join(providerFiltersPluginDirectory, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
   await writeFile(join(providerFiltersPluginDirectory, "server.js"),
     `export { default } from ${JSON.stringify(pathToFileURL(openworkProviderFiltersV2PluginPath()).href)};\n`, { mode: 0o600 });
@@ -538,6 +545,7 @@ async function createManagedOpencodeV2ServerInner(
       ...(options.permissions ? { permissions: await options.permissions() } : {}),
       ...(options.agentPermissions ? await agentPermissionsConfig(options.agentPermissions) : {}),
       skills,
+      companySkillsPluginDirectory,
     }), null, 2)}\n`;
     // The engine watches this file and reloads its model catalog on every
     // change; an identical rewrite would only open a window where models are

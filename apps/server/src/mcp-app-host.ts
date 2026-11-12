@@ -1102,7 +1102,7 @@ export async function callMcpAppTool(input: {
     // missing required argument) must reach the member as that rejection,
     // not as an unhandled 500 "Unexpected server error". The text is
     // provider-controlled: bound it the same way Den bounds provider excerpts.
-    const result = await timeMcpApp("desktop.tools-call", () => client.callTool({ name: input.name, arguments: input.arguments ?? {}, _meta: { "io.aiopc/app-action": { approved: input.approved === true, resourceUri: launch.resourceUri } } })).catch((error: unknown) => {
+    const result = await timeMcpApp("desktop.tools-call", () => client.callTool({ name: input.name, arguments: input.arguments ?? {}, _meta: { ...(launch.sessionId ? { "ai.opencode/sessionID": launch.sessionId } : {}), "io.aiopc/app-action": { approved: input.approved === true, resourceUri: launch.resourceUri } } })).catch((error: unknown) => {
       throw new McpAppHostError("tool_call_failed", providerErrorExcerpt(error) ?? "The MCP App tool call failed.");
     });
     if (new TextEncoder().encode(JSON.stringify(result)).byteLength > MAX_RESULT_BYTES) {
