@@ -1,3 +1,4 @@
+import { canAssignSessionGroup } from "../../aiopc/company-project";
 import { Archive, ArchiveRestore, Columns2, FolderPlus, Pencil, Pin, PinOff, Tag, Trash2 } from "lucide-react";
 
 import type { MenuAction } from "@/components/ui/action-menu-model";
@@ -18,17 +19,22 @@ export function captureSessionActionTarget(
 type GroupActionsOptions = {
   groups: readonly { id: string; label: string }[];
   assignedGroupId: string | null;
+  moveDisabledReason?: string;
+  /** An unsent draft may still select its destination before creation. */
+  allowProjectSelection?: boolean;
+  projectId?: string | null;
   onAssignGroup: (groupId: string | null) => void;
   /** Create only: creating a group never moves this session into it. */
   onCreateGroup?: () => void;
 };
 
 export function buildSessionGroupActions(options: GroupActionsOptions): MenuAction[] {
+  const reason = (groupId: string | null) => options.moveDisabledReason ?? (!options.allowProjectSelection && !canAssignSessionGroup(options.projectId === undefined ? options.assignedGroupId : options.projectId, groupId) ? t("session.project_fixed") : undefined);
   return [
-    { type: "item", id: "ungroup", label: t("session_management.no_group"), disabled: !options.assignedGroupId,
+    { type: "item", id: "ungroup", label: t("session_management.no_group"), disabled: Boolean(reason(null)) || !options.assignedGroupId, disabledReason: reason(null),
       onSelect: () => options.onAssignGroup(null) },
     ...options.groups.map((group): MenuAction => ({
-      type: "item", id: `group:${group.id}`, label: group.label, disabled: options.assignedGroupId === group.id,
+      type: "item", id: `group:${group.id}`, label: group.label, disabled: Boolean(reason(group.id)) || options.assignedGroupId === group.id, disabledReason: reason(group.id),
       onSelect: () => options.onAssignGroup(group.id),
     })),
     ...(options.onCreateGroup ? [{ type: "separator" }, {
@@ -49,6 +55,8 @@ export function buildSessionMenuActions(options: GroupActionsOptions & {
   onArchive?: () => void;
   onDelete?: () => void;
 }): MenuAction[] {
+  const projectId = options.projectId === undefined ? options.assignedGroupId : options.projectId;
+  const moveDisabledReason = options.moveDisabledReason ?? (!options.allowProjectSelection && !canAssignSessionGroup(projectId, null) ? t("session.project_fixed") : undefined);
   const actions: MenuAction[] = [{
     type: "item", id: "pin", label: options.isPinned ? t("session_management.unpin_session") : t("session_management.pin_session"),
     icon: options.isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />, onSelect: options.onTogglePin,
@@ -66,6 +74,7 @@ export function buildSessionMenuActions(options: GroupActionsOptions & {
   });
   actions.push({
     type: "item", id: "move-to-group", label: t("session_management.move_to_group"), icon: <Tag className="size-4" />,
+    disabled: Boolean(moveDisabledReason), disabledReason: moveDisabledReason,
     submenu: buildSessionGroupActions(options), submenuClassName: { dropdown: "w-52" },
   });
   if (options.onArchive) actions.push({

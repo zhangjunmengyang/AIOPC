@@ -30,6 +30,9 @@ export type SidebarContextValue = {
   onArchiveSession?: (sessionId: string, archived: boolean, workspaceId: string) => void;
   archiveDisabledReason?: string;
   onOpenCreateGroupModal?: (workspaceId: string) => void;
+  onOpenProject?: (workspaceId: string, projectName: string) => void;
+  onOpenProjects?: (workspaceId: string) => void;
+  projectsActive?: boolean;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;

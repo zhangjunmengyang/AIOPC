@@ -1026,7 +1026,7 @@ const sandboxBrowser = createSandboxBrowser({ app, aiopcService,
   resolveSessionContext: async (sessionId) => {
     const runtime = await runtimeManager.openworkServerInfo();
     if (!runtime?.running || !runtime.baseUrl || !runtime.hostToken) throw new Error("会话服务还没有就绪");
-    const response = await fetch(new URL("/runtime/session-context", runtime.baseUrl), {
+    const response = await electronNet.fetch(new URL("/runtime/session-context", runtime.baseUrl).href, {
       method: "POST", headers: { "Content-Type": "application/json", "x-openwork-host-token": runtime.hostToken },
       body: JSON.stringify({ sessionId }), signal: AbortSignal.timeout(15_000),
     });

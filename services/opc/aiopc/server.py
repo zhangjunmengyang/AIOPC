@@ -20,6 +20,7 @@ import os
 import secrets
 import shutil
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, get_type_hints
 
@@ -31,33 +32,43 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
+from aiopc.authorized_workspaces import AuthorizedWorkspaces
+from aiopc.company import Company
+from aiopc.environment_api import EnvironmentRoutes
 from aiopc.media.image import ImageService
 from aiopc.media.video import VideoConfig, VideoService
 from aiopc.platforms import catalog
 from aiopc.project import Project, ProjectError
+from aiopc.runtime_context import RuntimeContextError, RuntimeContextResolver, use_runtime_context
 from aiopc.sandbox import Sandboxes
+from aiopc.sandbox.environment import SandboxError
+from aiopc.sandbox.leases import LeaseError
+from aiopc.social.context import use_browser_context
 from aiopc.social.review import RESOURCE, PublishReview
 from aiopc.social.service import SocialError, SocialService
 from aiopc.space import SpaceCatalog
+from aiopc.workspace_scope import WorkspaceScope
 from aiopc.xdata import XDataService
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 EXTERNAL = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 INSTRUCTIONS = (
-    "The current workspace folder is the project (one product). Before writing for it, read get_project_brief; "
+    "The workspace is a company. Its projects live under projects/<name>. Use the project parameter from the session instructions "
+    "for project-related tool calls; never infer another project's path. Before writing, read get_project_brief; "
     "keep its memory in its files. Publishing first shows an approval card. Only a user-approved card fills the composer in the project environment; the user "
     "presses publish; never claim something is published until the user confirms. Generated images and videos are "
     "saved into the project's assets; show their paths."
 )
-ERRORS = (SocialError, ProjectError, ValueError)
+ERRORS = (SocialError, ProjectError, ValueError, SandboxError)
 
 
 class Workspace:
     """Every service for one workspace folder, built once and shared by tools and pages."""
 
-    def __init__(self, home: Path, workspace: Path):
+    def __init__(self, home: Path, workspace: Path, *, company: Company | None = None):
         self.home, self.root = home.resolve(), workspace.resolve()
+        self.company = company or Company.from_directory(self.root)
         self.project = Project(self.root)
         self.sandboxes = Sandboxes(self.home)
         self.social = SocialService(self.home, self.root, sandboxes=self.sandboxes)
@@ -83,14 +94,37 @@ def _with_image(result: dict[str, Any], png_base64: str) -> Any:
     return [json.dumps(result, ensure_ascii=False), Image(data=base64.b64decode(png_base64), format="png")]
 
 
-def _tool(server: FastMCP, name: str, method: Any, description: str, annotations: ToolAnnotations) -> None:
+def _tool(server: FastMCP, name: str, method: Any, description: str, annotations: ToolAnnotations,
+          scope: WorkspaceScope | None = None, runtime: RuntimeContextResolver | None = None) -> None:
     """Expose a service method with its own argument schema; errors become readable tool errors."""
     signature = inspect.signature(method)
 
     async def invoke(**kwargs: Any) -> Any:
         try:
-            result = method(**kwargs)
-            return await result if inspect.isawaitable(result) else result
+            with ExitStack() as context:
+                selected = kwargs.pop("project", "") if scope else ""
+                if runtime and scope:
+                    environment = kwargs.get("environment", "")
+                    if "environment" not in signature.parameters:
+                        kwargs.pop("environment", None)
+                    context.enter_context(use_browser_context(environment=environment))
+                    ctx = kwargs.pop("ctx", None)
+                    try:
+                        meta = ctx.request_context.meta if ctx else None
+                    except (ValueError, LookupError):
+                        meta = None
+                    if ctx is None:
+                        raise RuntimeContextError("浏览器操作需要可信会话上下文")
+                    requested = str(scope.company.resolve_project(selected)) if selected else ""
+                    identity = await runtime.resolve(meta, requested)
+                    if identity.company != scope.company.root:
+                        raise RuntimeContextError("会话不属于当前公司")
+                    context.enter_context(use_runtime_context(identity))
+                    selected = str(identity.project_directory) if identity.project_directory != scope.company.root else ""
+                if scope:
+                    context.enter_context(scope.use(selected))
+                result = method(**kwargs)
+                return await result if inspect.isawaitable(result) else result
         except ERRORS as exc:
             raise ValueError(getattr(exc, "message", None) or str(exc)) from None
 
@@ -98,25 +132,38 @@ def _tool(server: FastMCP, name: str, method: Any, description: str, annotations
     invoke.__name__ = name
     invoke.__doc__ = description
     invoke.__annotations__ = {**hints, "return": Any}
-    invoke.__signature__ = signature.replace(  # type: ignore[attr-defined]
-        parameters=[parameter.replace(annotation=hints.get(parameter.name, parameter.annotation))
-                    for parameter in signature.parameters.values()], return_annotation=Any)
+    parameters = [parameter.replace(annotation=hints.get(parameter.name, parameter.annotation))
+                  for parameter in signature.parameters.values()]
+    if scope:
+        parameters.append(inspect.Parameter("project", inspect.Parameter.KEYWORD_ONLY, default="", annotation=str))
+        invoke.__annotations__["project"] = str
+    if runtime and "environment" not in signature.parameters:
+        parameters.append(inspect.Parameter("environment", inspect.Parameter.KEYWORD_ONLY, default="", annotation=str))
+        invoke.__annotations__["environment"] = str
+    if runtime:
+        parameters.append(inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context))
+        invoke.__annotations__["ctx"] = Context
+    invoke.__signature__ = signature.replace(parameters=parameters, return_annotation=Any)  # type: ignore[attr-defined]
     server.tool(name=name, description=description, annotations=annotations)(invoke)
 
 
 def create_server(home: Path, workspace: Path, library: Path | None = None) -> FastMCP:
     """The MCP server the agent runtime starts for one workspace."""
-    ws = Workspace(home, workspace)
+    scope = WorkspaceScope(home, workspace, Workspace)
+    ws = scope.proxy()
     project, social = ws.project, ws.social
     server = FastMCP("aiopc", instructions=INSTRUCTIONS, log_level="WARNING")
+    runtime = RuntimeContextResolver(home)
+    browser_tools = {"start_project_environment", "social_connect", "social_read", "login_open", "login_look",
+                     "login_fill", "login_click", "login_screenshot", "login_finish"}
 
     def get_project_brief() -> dict:
-        """What this project (the current workspace) knows: context, brand, memory, knowledge files, and the
+        """What the selected project knows: context, brand, memory, knowledge files, and the
         accounts it can use with each account's voice for this project. Read before writing anything."""
         return project.brief(social.accounts())
 
     def init_project(description: str = "") -> dict:
-        """Create the project's starter files in this workspace (CONTEXT.md, brand.md, MEMORY.md, knowledge/, assets/).
+        """Create starter files in the selected project (CONTEXT.md, brand.md, MEMORY.md, knowledge/, assets/).
         Existing files are kept. Use only facts the user gave."""
         return project.init(description)
 
@@ -204,28 +251,38 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         ("x_posts", xdata.posts, "Refresh metrics for up to 50 X posts by ID.", READ),
         ("x_data_usage", xdata.usage, "Estimated third-party X data requests and cost over recent days.", READ),
     ]:
-        _tool(server, name, method, description, annotation)
-
-    reviews = PublishReview(social)
+        _tool(server, name, method, description, annotation, scope=scope, runtime=runtime if name in browser_tools else None)
 
     @server.tool(name="social_publish", annotations=WRITE,
                  meta={"ui": {"resourceUri": RESOURCE}})
     def social_publish(account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                       form: str = "post", tags: list[str] | None = None) -> CallToolResult:
+                       form: str = "post", tags: list[str] | None = None, project: str = "") -> CallToolResult:
         """Prepare a frozen draft and show its approval card. Does not fill or publish anything.
         The user confirms on the card; only then is the project's website composer filled.
         After rejection or edits, call again with the revised copy. Never approve on the user's behalf."""
-        review = reviews.prepare(account_id, text, title, media, form, tags)
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(review, ensure_ascii=False))],
-                              structuredContent=review, _meta={"media": reviews.preview_media(review)})
+        with scope.use(project) as selected:
+            reviews = PublishReview(selected.social)
+            review = reviews.prepare(account_id, text, title, media, form, tags)
+            review["project"] = str(selected.root) if selected.root != scope.company.root else ""
+            return CallToolResult(content=[TextContent(type="text", text=json.dumps(review, ensure_ascii=False))],
+                                  structuredContent=review, _meta={"media": reviews.preview_media(review)})
 
     @server.tool(name="social_confirm_publish", annotations=EXTERNAL,
                  meta={"ui": {"resourceUri": RESOURCE, "visibility": ["app"]}})
-    async def social_confirm_publish(review_id: str, revision: str, decision: str, ctx: Context) -> dict:
+    async def social_confirm_publish(review_id: str, revision: str, decision: str, ctx: Context, project: str = "") -> dict:
         """User action from the approval card: approve fills the page; reject returns the draft. Never publishes."""
         meta = ctx.request_context.meta
         action = meta.model_dump().get("io.aiopc/app-action") if meta else None
-        return await reviews.decide(review_id, revision, decision, app_action=action)
+        with ExitStack() as contexts:
+            if decision == "approve":
+                requested = str(scope.company.resolve_project(project)) if project else ""
+                identity = await runtime.resolve(meta, requested)
+                if identity.company != scope.company.root:
+                    raise RuntimeContextError("会话不属于当前公司")
+                contexts.enter_context(use_runtime_context(identity))
+                project = str(identity.project_directory) if identity.project_directory != scope.company.root else ""
+            selected = contexts.enter_context(scope.use(project))
+            return await PublishReview(selected.social).decide(review_id, revision, decision, app_action=action)
 
     @server.resource(RESOURCE, mime_type="text/html;profile=mcp-app",
                      meta={"ui": {"prefersBorder": True}})
@@ -242,9 +299,10 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     return server
 
 
-def create_api(home: Path, token: str) -> Starlette:
+def create_api(home: Path, token: str, *, authorized_roots=None) -> Starlette:
     """The HTTP API behind the app's pages. Every request names its workspace folder."""
     workspaces: dict[Path, Workspace] = {}
+    workspace_access = AuthorizedWorkspaces(authorized_roots)
     cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type",
             "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS"}
 
@@ -252,13 +310,9 @@ def create_api(home: Path, token: str) -> Starlette:
         return JSONResponse(data, status_code=status, headers={"Cache-Control": "no-store", **cors})
 
     def workspace_of(request: Request) -> Workspace:
-        value = request.query_params.get("workspace", "")
-        path = Path(value).expanduser()
-        if not value or not path.is_absolute() or not path.is_dir():
-            raise ValueError("缺少有效的工作区路径")
-        path = path.resolve()
-        if path not in workspaces:
-            workspaces[path] = Workspace(home, path)
+        path, company = workspace_access.resolve_context(request.query_params.get("workspace", ""))
+        if path not in workspaces or workspaces[path].company.root != company.root:
+            workspaces[path] = Workspace(home, path, company=company)
         return workspaces[path]
 
     def authorized(request: Request) -> bool:
@@ -275,7 +329,8 @@ def create_api(home: Path, token: str) -> Starlette:
             try:
                 return await handler(request)
             except ERRORS as exc:
-                return respond({"error": getattr(exc, "message", None) or str(exc)}, getattr(exc, "status", 400))
+                return respond({"error": getattr(exc, "message", None) or str(exc), "code": getattr(exc, "code", "invalid_request")},
+                               getattr(exc, "status", 409 if isinstance(exc, LeaseError) else 400))
         return wrapped
 
     async def body(request: Request) -> dict[str, Any]:
@@ -295,7 +350,16 @@ def create_api(home: Path, token: str) -> Starlette:
         if request.method == "POST":
             data = await body(request)
             return respond(ws.project.init(str(data.get("description") or "")))
-        return respond(ws.project.describe())
+        company = ws.company
+        return respond(company.project(ws.root) if company.root != ws.root
+                       else {**ws.project.describe(), "company": company.describe()})
+
+    async def projects_route(request: Request) -> Response:
+        company = workspace_of(request).company
+        if request.method == "POST":
+            data = await body(request)
+            return respond(await asyncio.to_thread(company.create, data.get("name", ""), data.get("description", "")))
+        return respond(await asyncio.to_thread(company.list))
 
     async def space_route(request: Request) -> Response:
         return respond(workspace_of(request).space.files())
@@ -311,45 +375,36 @@ def create_api(home: Path, token: str) -> Starlette:
         # Every platform connects through the built-in browser; some also offer official ways in.
         return respond({"platforms": [{**item, "methods": ENHANCEMENTS.get(item["id"], [])} for item in catalog()]})
 
+    def ui_browser_context(request, ws):
+        environment = request.query_params.get("environment", "")
+        owner = {"runtimeId": "desktop-ui", "sessionId": f"accounts:{ws.root}:{environment}",
+                 "company": str(ws.company.root), "projectDirectory": str(ws.root),
+                 "kind": "human", "label": "账号管理"}
+        return use_browser_context(environment=environment, owner=owner)
+
     checking: dict[str, asyncio.Task[Any]] = {}
 
     async def accounts_route(request: Request) -> Response:
         ws = workspace_of(request)
         if request.query_params.get("check"):
             # Re-checking visits each platform; it runs in the background while the page keeps polling.
-            key = str(ws.root)
+            key = str(ws.root) + ":" + request.query_params.get("environment", "")
             if key not in checking or checking[key].done():
-                checking[key] = asyncio.get_running_loop().create_task(ws.social.check_logins())
+                async def check_accounts():
+                    with ui_browser_context(request, ws):
+                        return await ws.social.check_logins()
+                checking[key] = asyncio.get_running_loop().create_task(check_accounts())
         return respond({"accounts": ws.social.accounts()})
 
     async def connect_route(request: Request) -> Response:
         data = await body(request)
         # The app's page shows the browser panel itself, so no screenshot (and a faster answer).
-        result = await workspace_of(request).social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")),
-                                                            screenshot=False, method=str(data.get("method") or "auto"))
+        ws = workspace_of(request)
+        with ui_browser_context(request, ws):
+            result = await ws.social.connect(data.get("platform", ""), data.get("alias", ""), bool(data.get("check")),
+                                             screenshot=False, method=str(data.get("method") or "auto"))
         result.pop("screenshot", None)
         return respond(result)
-
-    async def environment_route(request: Request) -> Response:
-        """The project's environment: where its browser runs, and whether it is up."""
-        ws = workspace_of(request)
-        if request.method == "GET":
-            return respond(await ws.social.environment())
-        data = await body(request)
-        action = str(data.get("action") or "start")
-        if action == "start":
-            return respond(await ws.social.start_environment())
-        if action == "stop":
-            return respond(await ws.sandboxes.stop(str(ws.root)))
-        if action == "destroy":
-            return respond(await ws.sandboxes.destroy(str(ws.root)))
-        if action == "provider":
-            return respond((await ws.sandboxes.move(str(ws.root), str(data.get("provider") or "local"))).describe())
-        if action == "install-engine":
-            from aiopc.sandbox import install_engine
-
-            return respond(await install_engine(str(data.get("engine_name") or "orbstack")))
-        raise ValueError(f"不认识的操作：{action}")
 
     async def environment_providers_route(request: Request) -> Response:
         ws = workspace_of(request)
@@ -390,13 +445,14 @@ def create_api(home: Path, token: str) -> Starlette:
 
     routes = [
         ("/api/project", project_route, ["GET", "POST"]),
+        ("/api/projects", projects_route, ["GET", "POST"]),
         ("/api/space", space_route, ["GET"]),
         ("/api/file", file_route, ["GET"]),
         ("/api/platforms", platforms_route, ["GET"]),
         ("/api/accounts", accounts_route, ["GET"]),
         ("/api/accounts/connect", connect_route, ["POST"]),
         ("/api/accounts/connect-route", connect_route_route, ["POST"]),
-        ("/api/environment", environment_route, ["GET", "POST"]),
+        *EnvironmentRoutes(home, workspace_of, respond, body).routes(),
         ("/api/environment/providers", environment_providers_route, ["GET"]),
         ("/api/environment/providers/{provider_id}", environment_providers_route, ["PUT"]),
         ("/api/accounts/{account_id}", account_route, ["PATCH", "DELETE"]),

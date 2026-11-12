@@ -79,6 +79,8 @@ describe("session group management", () => {
   });
 
   test("does not publish an equivalent server group snapshot", () => {
+    const cached = useSessionManagementStore.getState().groupsByWorkspace[workspaceId]!;
+    useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, { ...cached, sessionMeta: {} });
     const before = useSessionManagementStore.getState().groupsByWorkspace[workspaceId];
     let notifications = 0;
     const unsubscribe = useSessionManagementStore.subscribe(() => {
@@ -88,6 +90,7 @@ describe("session group management", () => {
     useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, {
       groups: before.groups.map((group) => ({ ...group })),
       assignments: { ...before.assignments },
+      sessionMeta: {},
     });
 
     unsubscribe();
@@ -124,5 +127,38 @@ describe("sidebar view", () => {
       store.persist.setOptions({ storage: originalStorage });
       store.setState({ sidebarView: store.getInitialState().sidebarView });
     }
+  });
+});
+
+describe("company project groups and role metadata", () => {
+  beforeEach(() => {
+    resetStore();
+    useSessionManagementStore.setState({ groupsByWorkspace: { [workspaceId]: {
+      groups: [{ id: "proj:Alpha", label: "Alpha" }, { id: "group-b", label: "Notes" }],
+      assignments: { "session-1": "proj:Alpha" },
+      sessionMeta: { "session-1": { agentName: "designer" } },
+    } } });
+  });
+
+  test("a project group cannot be renamed or removed through the store", () => {
+    useSessionManagementStore.getState().renameGroup(workspaceId, "proj:Alpha", "Changed");
+    useSessionManagementStore.getState().removeGroup(workspaceId, "proj:Alpha", "group-b");
+    expect(useSessionManagementStore.getState().groupsByWorkspace[workspaceId]?.groups).toEqual([
+      { id: "proj:Alpha", label: "Alpha" }, { id: "group-b", label: "Notes" },
+    ]);
+    expect(useSessionManagementStore.getState().groupsByWorkspace[workspaceId]?.assignments).toEqual({ "session-1": "proj:Alpha" });
+  });
+
+  test("server role changes publish a fresh snapshot even when groups and assignments have not changed", () => {
+    const before = useSessionManagementStore.getState().groupsByWorkspace[workspaceId]!;
+    useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, {
+      ...before, sessionMeta: { "session-1": { agentName: "growth" } },
+    });
+    expect(useSessionManagementStore.getState().groupsByWorkspace[workspaceId]?.sessionMeta).toEqual({ "session-1": { agentName: "growth" } });
+  });
+
+  test("deleting an ordinary folder leaves role bindings intact", () => {
+    useSessionManagementStore.getState().removeGroup(workspaceId, "group-b");
+    expect(useSessionManagementStore.getState().groupsByWorkspace[workspaceId]?.sessionMeta).toEqual({ "session-1": { agentName: "designer" } });
   });
 });
