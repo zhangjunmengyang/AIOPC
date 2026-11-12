@@ -176,8 +176,8 @@ export function createV2SessionHomes(
     }
     return null;
   };
-  const project = async (value: unknown) => {
-    const home = await resolve(value);
+  const project = async (value: unknown, verifiedHome?: string) => {
+    const home = verifiedHome ?? await resolve(value);
     const session = nativeSession(value);
     const directory = nativeSessionDirectory(value);
     if (!session || !home || !directory) return value;
