@@ -166,12 +166,18 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
             assert.ok(error.includes(`Skill not found: ${name}`), error);
           }
         }
-        await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta, [ids[0]!]: { ...state.sessionMeta[ids[0]!], agentName: "designer" } } }));
+        await mkdir(join(projects[0]!, "tasks"));
+        await writeFile(join(projects[0]!, "tasks", "native-task.md"), "---\ntitle: Native task\n---\n");
+        await updateSessionGroupState(config, workspace.id, state => ({
+          ...state,
+          sessionMeta: { ...state.sessionMeta, [ids[0]!]: { ...state.sessionMeta[ids[0]!], agentName: "designer", taskId: "native-task" } },
+        }));
         const forked = await call("POST", `/session/${ids[0]}/fork`, {});
         assert.equal(forked.directory, company); assert.equal(forked.executionDirectory, projects[0]);
         const groupState = (await readSessionGroupState(config, workspace.id)).state;
         assert.equal(groupState.sessionMeta[forked.id]?.projectId, "proj:A");
         assert.equal(groupState.sessionMeta[forked.id]?.agentName, "designer");
+        assert.equal(groupState.sessionMeta[forked.id]?.taskId, "native-task");
         await call("DELETE", `/session/${forked.id}`);
         const deletedDeadline = Date.now() + 5_000;
         while (!releases.some(item => item.sessionId === forked.id && item.reason === "deleted") && Date.now() < deletedDeadline) await delay(25);
