@@ -104,7 +104,7 @@ async function readJsonFile(targetPath, fallback) {
   }
 }
 
-export function createWorkspaceStore({ app }) {
+export function createWorkspaceStore({ app, onWorkspaceStateChanged }) {
   function workspaceStatePath() {
     const override = process.env.OPENWORK_DESKTOP_WORKSPACE_STATE_PATH?.trim();
     if (override) return path.resolve(override);
@@ -348,6 +348,7 @@ export function createWorkspaceStore({ app }) {
       activeId: selectedId || null,
     };
     await writeJsonFileAtomic(outputPath, output);
+    await onWorkspaceStateChanged?.(output);
     return output;
   }
 

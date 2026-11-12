@@ -3,6 +3,7 @@ import { opencodeV1DatabasePath, v1ChatDirectory } from "./opencode-history.js";
 import { openRuntimeSqliteDatabase, runtimeDbPath, type RuntimeSqliteDatabase } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { isRecord } from "./workspace-kv-store.js";
+import { resolveCompanyExecutionDirectory } from "./company-projects.js";
 
 const databases = new Map<string, Promise<RuntimeSqliteDatabase>>();
 
@@ -60,7 +61,7 @@ export function nativeSession(value: unknown): Record<string, unknown> | null {
 export function nativeSessionDirectory(value: unknown): string | null {
   const session = nativeSession(value);
   return isRecord(session?.location) && typeof session.location.directory === "string"
-    ? session.location.directory : null;
+    ? session.location.directory : typeof session?.directory === "string" ? session.directory : null;
 }
 
 /** OpenWork owns the conversation's home; native location remains the execution
@@ -100,6 +101,32 @@ export function createV2SessionHomes(
       ON CONFLICT(session_id) DO UPDATE SET home_directory = excluded.home_directory`).run(id, home);
     return home;
   };
+  const list = async (directory: string): Promise<string[]> => {
+    const db = await database(config);
+    const rows = db.sqlite.prepare("SELECT session_id FROM opencode_v2_session_homes WHERE home_directory = ?").all(await canonical(directory));
+    return rows.flatMap((row: unknown) => isRecord(row) && typeof row.session_id === "string" ? [row.session_id] : []);
+  };
+  const storedCompany = async (id: string, company: string): Promise<string | null> => {
+    const existing = await stored(id);
+    if (!existing) return null;
+    const home = await canonical(company);
+    const project = await resolveCompanyExecutionDirectory(home, existing);
+    return project !== home && project === await canonical(existing) ? created(id, home) : existing;
+  };
+  const resolveCompany = async (value: unknown, company: string): Promise<string | null> => {
+    const session = nativeSession(value);
+    const directory = nativeSessionDirectory(value);
+    if (!session || typeof session.id !== "string" || !directory) return null;
+    const existing = await storedCompany(session.id, company);
+    if (existing) return existing;
+    const home = await canonical(company);
+    const execution = await resolveCompanyExecutionDirectory(home, directory);
+    const origin = await resolve(value);
+    // Only an original project folder maps to its company. A conversation
+    // moved here from another home never gains access from its mutable CWD.
+    if (execution !== home && origin === await canonical(directory)) return created(session.id, home);
+    return origin;
+  };
   const resolve = async (value: unknown, ancestors = new Set<string>()): Promise<string | null> => {
     const session = nativeSession(value);
     const directory = nativeSessionDirectory(value);
@@ -131,7 +158,7 @@ export function createV2SessionHomes(
     while (true) {
       const query = new URLSearchParams({ limit: "200", ...(cursor ? { cursor } : { order: "asc" }) });
       const page = await read(`/api/session/${encodeURIComponent(id)}/message?${query}`);
-      const items = isRecord(page) ? page.data : null;
+      const items = Array.isArray(page) ? page : isRecord(page) ? page.data : null;
       if (!Array.isArray(items)) throw new Error("Could not verify the conversation's original folder");
       for (const item of items) {
         if (!isRecord(item) || item.type !== "location-switched") continue;
@@ -153,9 +180,9 @@ export function createV2SessionHomes(
     const home = await resolve(value);
     const session = nativeSession(value);
     const directory = nativeSessionDirectory(value);
-    if (!session || !home || !directory || home === await canonical(directory)) return value;
-    const info = { ...session, openworkHomeDirectory: home };
+    if (!session || !home || !directory) return value;
+    const info = { ...session, directory: home, openworkHomeDirectory: home, executionDirectory: directory };
     return isRecord(value) && isRecord(value.info) ? { ...value, info } : info;
   };
-  return { canonical, stored, remember, created, resolve, project };
+  return { canonical, stored, storedCompany, remember, created, resolve, resolveCompany, list, project };
 }

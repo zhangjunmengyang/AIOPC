@@ -1,6 +1,6 @@
-import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, realpath, rm } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import type { SkillItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
@@ -32,13 +32,18 @@ export function renderSkillContentForResponse(item: SkillItem, content: string):
   ].join("\n");
 }
 
-async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
+async function findWorkspaceRoots(workspaceRoot: string, companyRoot?: string): Promise<string[]> {
   const roots: string[] = [];
-  let current = resolve(workspaceRoot);
+  const boundary = companyRoot ? await realpath(companyRoot).catch(() => resolve(companyRoot)) : undefined;
+  let current = await realpath(workspaceRoot).catch(() => resolve(workspaceRoot));
+  if (boundary) {
+    const child = relative(boundary, current);
+    if (child === ".." || child.startsWith(`..${sep}`)) current = boundary;
+  }
   while (true) {
     roots.push(current);
     const gitPath = join(current, ".git");
-    if (await exists(gitPath)) break;
+    if (boundary ? current === boundary : await exists(gitPath)) break;
     const parent = resolve(current, "..");
     if (parent === current) break;
     current = parent;
@@ -196,8 +201,8 @@ export function globalSkillDirectories() {
   };
 }
 
-export async function listSkills(workspaceRoot: string, includeGlobal: boolean): Promise<SkillItem[]> {
-  const roots = await findWorkspaceRoots(workspaceRoot);
+export async function listSkills(workspaceRoot: string, includeGlobal: boolean, companyRoot?: string): Promise<SkillItem[]> {
+  const roots = await findWorkspaceRoots(workspaceRoot, companyRoot);
   const dirs: { dir: string; scope: "project" | "global" }[] = [];
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");

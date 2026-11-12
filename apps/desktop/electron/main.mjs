@@ -943,7 +943,9 @@ let mainWindow = null;
 const pendingDeepLinks = [];
 const nativeContextMenus = createNativeContextMenus({ Menu, clipboard, getWindow: () => mainWindow });
 
-const workspaceStore = createWorkspaceStore({ app });
+let aiopcService;
+const workspaceStore = createWorkspaceStore({ app, onWorkspaceStateChanged: state =>
+  aiopcService?.syncAuthorizedRoots(state.workspaces.map(entry => entry?.path).filter(value => typeof value === "string")) });
 
 const desktopTransfers = createDesktopTransferRegistry();
 
@@ -1018,9 +1020,21 @@ function validateSkillName(raw) {
 // AIOPC runs only on the user's own model providers: OpenWork's hosted free models stay off.
 process.env.OPENWORK_DISABLE_FREE_INFERENCE = "1";
 process.env.OPENWORK_DISABLE_HOSTED_MODELS = "1";
-const aiopcService = createAiopcService({ app, desktopRoot: path.resolve(__dirname, "..") });
+aiopcService = createAiopcService({ app, desktopRoot: path.resolve(__dirname, ".."), workspaceStore });
 // The AI browses in the project's own environment, not inside this app.
-const sandboxBrowser = createSandboxBrowser({ app, aiopcService, workspaceStore });
+const sandboxBrowser = createSandboxBrowser({ app, aiopcService,
+  resolveSessionContext: async (sessionId) => {
+    const runtime = await runtimeManager.openworkServerInfo();
+    if (!runtime?.running || !runtime.baseUrl || !runtime.hostToken) throw new Error("会话服务还没有就绪");
+    const response = await fetch(new URL("/runtime/session-context", runtime.baseUrl), {
+      method: "POST", headers: { "Content-Type": "application/json", "x-openwork-host-token": runtime.hostToken },
+      body: JSON.stringify({ sessionId }), signal: AbortSignal.timeout(15_000),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value?.error?.message ?? value?.error ?? "无法确认会话所属项目");
+    return value;
+  },
+});
 aiopcService.configureEnvironment();
 const runtimeManager = createRuntimeManager({
   app,
@@ -1121,8 +1135,9 @@ const quitSequencer = createQuitSequencer({
       uiControlServer.stop(),
       computerControl.reset(true),
       Promise.resolve(sandboxBrowser.close()),
-      aiopcService.stop(),
     ]);
+    // Runtime shutdown releases browser leases through OPC before stopping its HTTP service.
+    await aiopcService.stop();
   },
   quit: () => {
     scheduleBlankSlateProfileCleanup();
@@ -2516,6 +2531,7 @@ or use: pnpm dev:worktree`);
 
   app.whenReady().then(() => withStartupPhase("bootstrap.apply", async () => {
     endAppReady();
+    await aiopcService.syncAuthorizedRoots();
     void aiopcService.start();
     const systemCaCertificates = await runtimeManager.systemCaCertificates();
     session.defaultSession.setCertificateVerifyProc(createSystemCaCertificateVerifyProc(systemCaCertificates));
