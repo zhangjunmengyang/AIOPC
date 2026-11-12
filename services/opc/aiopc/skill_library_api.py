@@ -23,10 +23,10 @@ def skill_library_routes(home: Path, workspace_access: AuthorizedWorkspaces, bod
     hub = SkillHub(library, _QmdSearch(home, library / "skills-index"))
 
     def company_of(request: Request) -> Company:
-        root = workspace_access.resolve(request.query_params.get("workspace", ""))
-        if root not in workspace_access.roots():
+        root, company = workspace_access.resolve_context(request.query_params.get("workspace", ""))
+        if root != company.root:
             raise WorkspaceForbidden("技能库需要已打开的公司根目录")
-        return Company(root)
+        return company
 
     def header_auth(request: Request) -> bool:
         # create_api validates the bearer token before dispatch. Its query-token
@@ -55,7 +55,9 @@ def skill_library_routes(home: Path, workspace_access: AuthorizedWorkspaces, bod
             name = data.get("project", "")
             if company.project_name(name) != name:
                 raise ValueError("项目名称不能包含首尾空白")
-            project = company.resolve_project(str(company.root / "projects" / name))
+            project, owner = workspace_access.resolve_context(str(company.root / "projects" / name))
+            if owner.root != company.root:
+                raise WorkspaceForbidden("目标目录不属于当前公司的项目")
         elif "project" in data:
             raise ValueError("采纳为公司技能时无需选择项目")
 

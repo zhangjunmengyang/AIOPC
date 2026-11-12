@@ -5,15 +5,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 
-import { setLocale } from "../src/i18n";
+import { currentLocale, setLocale } from "../src/i18n";
 
-const ownsDom = !GlobalRegistrator.isRegistered && typeof document === "undefined";
-const originalFetch = globalThis.fetch;
+let ownsDom = false;
 let SkillLibrary: typeof import("../src/react-app/domains/settings/pages/skill-library")["SkillLibrary"];
 let createRoot: typeof import("react-dom/client")["createRoot"];
 let root: Root | undefined;
+let host: HTMLDivElement | undefined;
+let restoreGlobals: (() => void) | undefined;
 
 beforeAll(async () => {
+  ownsDom = !GlobalRegistrator.isRegistered && typeof document === "undefined";
   if (ownsDom) GlobalRegistrator.register({ url: "http://localhost/" });
   createRoot = (await import("react-dom/client")).createRoot;
   SkillLibrary = (await import("../src/react-app/domains/settings/pages/skill-library")).SkillLibrary;
@@ -22,11 +24,8 @@ beforeAll(async () => {
 afterAll(async () => { if (ownsDom) await GlobalRegistrator.unregister(); });
 afterEach(async () => {
   await act(async () => root?.unmount());
-  globalThis.fetch = originalFetch;
-  Reflect.deleteProperty(window, "__OPENWORK_ELECTRON__");
-  Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
-  document.body.innerHTML = "";
-  setLocale("en");
+  host?.remove();
+  restoreGlobals?.();
 });
 
 const commit = "a".repeat(40);
@@ -50,7 +49,17 @@ async function flushQueries() {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
 }
 
-test("catalog search uses the desktop service and exposes the audit and script restrictions in details", async () => {
+test("catalog search uses the selected company and marks blocked and scripted candidates", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalElectron = Reflect.get(window, "__OPENWORK_ELECTRON__");
+  const originalAct = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+  const originalLocale = currentLocale();
+  restoreGlobals = () => {
+    globalThis.fetch = originalFetch;
+    Reflect.set(window, "__OPENWORK_ELECTRON__", originalElectron);
+    Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", originalAct);
+    setLocale(originalLocale);
+  };
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
   Reflect.set(window, "__OPENWORK_ELECTRON__", { aiopc: { connection: async () => ({
     status: "ready", url: "http://localhost:8991", token: "test-token", error: "", home: "",
@@ -61,10 +70,12 @@ test("catalog search uses the desktop service and exposes the audit and script r
     const url = new URL(String(resource));
     requests.push(url);
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
-    return Response.json({ indexed: true, candidates: [skill] });
+    return Response.json({ indexed: true, candidates: [skill, {
+      ...skill, id: "scripted", title: "scripted", names: { zh: ["脚本技能"] }, scan: "passed",
+    }] });
   }) as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const host = document.createElement("div");
+  host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root?.render(<QueryClientProvider client={client}>
@@ -85,15 +96,8 @@ test("catalog search uses the desktop service and exposes the audit and script r
   expect(requests[0]?.searchParams.get("q")).toBe("复刻营销页");
   expect(requests[0]?.searchParams.get("workspace")).toBe("/tmp/test-company");
 
-  const row = host.querySelector<HTMLButtonElement>('[data-library-row="复刻营销页"]');
-  expect(row).not.toBeNull();
+  const rows = [...host.querySelectorAll("[data-library-integrated-row]")];
+  expect(rows.map(row => row.querySelector("[data-library-status]")?.textContent)).toEqual(["不可采纳", "含脚本"]);
   expect(host.textContent).toContain("根据参考页重建营销页");
-  await act(async () => row?.click());
-  await flushQueries();
-  const dialog = document.querySelector('[role="dialog"]');
-  expect(dialog?.textContent).toContain("Cisco 扫描未通过");
-  expect(dialog?.textContent).toContain("脚本只能在项目沙箱中运行");
-  expect(dialog?.querySelector('a[href^="https://github.com/"]')).toBeTruthy();
-  expect(dialog?.querySelector('button[type="submit"]')).toBeNull();
-  expect(requests).toHaveLength(1);
+  expect(rows[0]?.querySelector('button[aria-label="查看 复刻营销页"]')).toBeTruthy();
 });

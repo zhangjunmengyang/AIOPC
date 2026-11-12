@@ -96,9 +96,28 @@ def test_adoption_rejects_untrusted_paths_stale_revision_and_failed_audit(deskto
     for workspace in (outside, alpha):
         assert client.post(route, params={"workspace": str(workspace)}, json=payload).status_code == 403
     params = {"workspace": str(company)}
-    for changes in ({"project": str(outside)}, {"project": "Alias"}, {"commit": "old"}, {"id": blocked.id},
+    for changes in ({"project": str(outside)}, {"commit": "old"}, {"id": blocked.id},
                     {"scope": "company", "project": "Beta"}):
         assert client.post(route, params=params, json={**payload, **changes}).status_code == 400
+    assert client.post(route, params=params, json={**payload, "project": "Alias"}).status_code == 403
     assert client.post(route, params={**params, "token": "skill-test"}, headers={"Authorization": ""},
                        json=payload).status_code == 401
     assert all(not (path / ".opencode").exists() for path in (company, alpha, beta, outside))
+
+
+def test_adoption_respects_independently_registered_company_below_projects(desktop):
+    _, parent, _, _, _, skill, _ = desktop
+    independent = parent / "projects" / "Separate company"
+    independent.mkdir()
+    client = TestClient(create_api(parent.parent / "home", "skill-test", authorized_roots=[parent, independent]),
+                        headers={"Authorization": "Bearer skill-test"})
+    route = "/api/skillhub/adopt"
+    revision = {"id": skill.id, "commit": skill.commit}
+    result = client.post(route, params={"workspace": str(parent)},
+                         json={**revision, "scope": "project", "project": independent.name})
+    assert result.status_code == 403, result.text
+    assert not (independent / ".opencode" / "skills-lock.json").exists()
+
+    result = client.post(route, params={"workspace": str(independent)}, json={**revision, "scope": "company"})
+    assert result.status_code == 200, result.text
+    assert (independent / ".opencode" / "skills-lock.json").is_file()
