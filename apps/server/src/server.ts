@@ -2923,8 +2923,8 @@ function createRoutes(
     if (!authorizeRuntimeContextRequest(ctx.request, config)) throw new ApiError(401, "unauthorized", "Trusted runtime credential required");
     const body = await readJsonBody(ctx.request);
     const sessionId = isRecord(body) && typeof body.sessionId === "string" ? body.sessionId : "";
-    const v2 = engineV2Preview.status().chatRouting;
     const readNative = async (path: string, workspace: WorkspaceInfo): Promise<unknown> => {
+      const v2 = engineV2Preview.status().chatRouting;
       const preview = v2 ? engineV2Preview.connection() : undefined;
       if (v2 && !preview) throw new ApiError(503, "engine_unavailable", "会话引擎未就绪");
       const nativePath = v2 ? path : path.replace(/^\/api/, "");
@@ -2940,7 +2940,7 @@ function createRoutes(
       if (!response.ok) throw new ApiError(response.status, "session_unavailable", "会话无法读取");
       return response.json();
     };
-    return jsonResponse({ ...await resolveRuntimeSessionContext(config, sessionId, readNative), engine: v2 ? "v2" : "v1" });
+    return jsonResponse(await resolveRuntimeSessionContext(config, sessionId, readNative));
   });
   // The login runs with what the engine's own `claude` gets: OS paths, never this server's credentials.
   const claudeCodeLogin = createClaudeCodeLogin({ env: inheritedEngineEnv(undefined) });
@@ -4051,7 +4051,7 @@ function createRoutes(
                 signal: AbortSignal.timeout(10_000),
               });
               return response.ok ? response.json() : null;
-            });
+            } });
             return;
           }
           await assertWorkspaceOwnsProxiedSessionRead(config, workspace, "GET", `/session/${encodeURIComponent(sessionId)}`, true);
