@@ -1789,10 +1789,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshSkills();
               void loadLibraryLists();
             }}
-            mcpView={({ initialFilter, onFilterChange, initialState, pluginsContent, detailId, onDetailIdChange, onRefresh }) => (
+            onCatalogSkillAdopted={({ name, scope, installed }) => {
+              if (!installed) return;
+              reloadCoordinator.markReloadRequired("skills", { type: "skill", name, action: "added" });
+              if (scope === "company") void extensionsStore.refreshSkills({ force: true });
+            }}
+            mcpView={({ initialFilter, onFilterChange, initialState, pluginsContent, skillLibrary, detailId, onDetailIdChange, onRefresh }) => (
               <McpView
                 headerActionsTarget={props.libraryHeaderActionsTarget}
                 pluginsContent={pluginsContent}
+                skillLibrary={skillLibrary}
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
                     mcpServers={connectionsSnapshot.mcpServers}

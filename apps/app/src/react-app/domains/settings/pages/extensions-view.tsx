@@ -4,6 +4,7 @@ import { Cpu } from "lucide-react";
 
 import type { ExtensionInventoryFilter, ExtensionInventoryState } from "../extension-taxonomy";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
+import { SkillLibrary, type CatalogAdoption } from "./skill-library";
 
 export type ExtensionsSection =
   | "all"
@@ -100,11 +101,13 @@ export type ExtensionsViewProps = {
     onFilterChange: (filter: ExtensionInventoryFilter) => void;
     initialState: ExtensionInventoryState;
     pluginsContent: ReactNode;
+    skillLibrary: ReactNode;
     detailId: string | null;
     onDetailIdChange?: (id: string | null, filter?: ExtensionInventoryFilter) => void;
     onRefresh: () => void;
   }) => ReactNode;
   onRefresh: () => void;
+  onCatalogSkillAdopted: (adoption: CatalogAdoption) => void;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: ExtensionsSection) => void;
   showHeader?: boolean;
@@ -145,6 +148,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </details>
     ) : null,
+    skillLibrary: (
+      <SkillLibrary
+        key={props.selectedWorkspaceRoot}
+        companyRoot={props.selectedWorkspaceRoot}
+        canAdopt={props.canEditPlugins}
+        onAdopted={props.onCatalogSkillAdopted}
+      />
+    ),
     detailId,
     onDetailIdChange: props.onDetailIdChange,
     onRefresh: props.onRefresh,
