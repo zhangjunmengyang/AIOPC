@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,7 @@ import { readSessionGroupState, writeSessionGroupState } from "../src/session-gr
 import type { ServerConfig, WorkspaceInfo } from "../src/types.js";
 
 type NativeSession = { id: string; title: string; location: { directory: string } };
+type ProjectedSession = NativeSession & { projectId: string | null; executionDirectory: string; openworkHomeDirectory: string };
 type Engine = { url: string; messageReads: string[]; maxConcurrentMessageReads: number; stop: () => void };
 
 // A stand-in v2 engine: an opaque-cursor session list over every folder, plus
@@ -85,7 +86,9 @@ function workspace(id: string, path: string): WorkspaceInfo {
 }
 
 /** Pages the workspace list the way the app does: until the native cursor ends. */
-async function listWorkspace(config: ServerConfig, engine: Engine, target: WorkspaceInfo, warnings: string[] = []) {
+async function listWorkspace(
+  config: ServerConfig, engine: Engine, target: WorkspaceInfo, warnings: string[] = [], projected?: ProjectedSession[],
+) {
   const ids: string[] = [];
   let cursor: string | null = null;
   for (let pages = 0; pages < 20; pages++) {
@@ -98,7 +101,8 @@ async function listWorkspace(config: ServerConfig, engine: Engine, target: Works
       logWarning: (message, attributes) => warnings.push(`${message}: ${attributes.sessionId}`),
     });
     assert.equal(response.status, 200, await response.clone().text());
-    const payload: { data: Array<{ id: string }>; cursor: { next: string | null } } = await response.json();
+    const payload: { data: ProjectedSession[]; cursor: { next: string | null } } = await response.json();
+    projected?.push(...payload.data);
     ids.push(...payload.data.map(session => session.id));
     cursor = payload.cursor.next;
     if (!cursor) return ids;
@@ -164,7 +168,22 @@ test("session list backfills project metadata in one KV write and skips writes o
       const writes = db.query("SELECT workspace_id FROM session_group_writes");
       const target = workspace("ws_a", a);
       const expected = owned.map(item => item.id);
-      assert.deepEqual(await listWorkspace(config, engine, target), expected);
+      const projected: ProjectedSession[] = [];
+      assert.deepEqual(await listWorkspace(config, engine, target, [], projected), expected);
+      const company = await realpath(a);
+      const project = await realpath(beta);
+      const fixed = projected.find(item => item.id === "ses_fixed_project");
+      assert.ok(fixed);
+      assert.equal(fixed.projectId, "proj:beta");
+      assert.equal(fixed.executionDirectory, project);
+      assert.equal(fixed.location.directory, project);
+      assert.equal(fixed.openworkHomeDirectory, company);
+      const companyOnly = projected.find(item => item.id === "ses_fixed_company");
+      assert.ok(companyOnly);
+      assert.equal(companyOnly.projectId, null);
+      assert.equal(companyOnly.executionDirectory, company);
+      assert.equal(companyOnly.location.directory, company);
+      assert.equal(companyOnly.openworkHomeDirectory, company);
       assert.deepEqual(writes.all(), [{ workspace_id: target.id }]);
       assert.deepEqual((await readSessionGroupState(config, target.id)).state.sessionMeta, {
         ses_company: { projectId: null },
@@ -178,6 +197,31 @@ test("session list backfills project metadata in one KV write and skips writes o
       assert.deepEqual(await listWorkspace(config, engine, target), expected);
       assert.deepEqual(writes.all(), []);
       assert.deepEqual(await listWorkspace(config, engine, workspace("ws_b", b)), [moved.id]);
+    } finally {
+      engine.stop();
+      db.close();
+    }
+  });
+});
+
+test("a failed batch write leaves already initialized conversations visible", async () => {
+  await profile(async ({ root, config, v1, a }) => {
+    const known = session("ses_known", a);
+    const legacy = session("ses_legacy", a);
+    writeV1History(v1, [known, legacy]);
+    await writeSessionGroupState(config, "ws_a", {
+      groups: [], assignments: {}, sessionMeta: { [known.id]: { projectId: null, agentName: "design" } },
+    });
+    const db = new Database(join(root, "runtime.sqlite"));
+    const engine = startEngine([known, legacy]);
+    try {
+      db.exec(`CREATE TRIGGER block_group_writes BEFORE UPDATE ON session_group_states
+        BEGIN SELECT RAISE(ABORT, 'simulated SQLite write failure'); END;`);
+      assert.deepEqual(await listWorkspace(config, engine, workspace("ws_a", a)), [known.id]);
+      assert.deepEqual((await readSessionGroupState(config, "ws_a")).state.sessionMeta,
+        { [known.id]: { projectId: null, agentName: "design" } });
+      db.exec("DROP TRIGGER block_group_writes");
+      assert.deepEqual(await listWorkspace(config, engine, workspace("ws_a", a)), [known.id, legacy.id]);
     } finally {
       engine.stop();
       db.close();

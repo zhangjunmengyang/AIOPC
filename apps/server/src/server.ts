@@ -1753,12 +1753,13 @@ async function forwardOpencodeV2Request(input: {
       const sessionId = nativeSession(item)?.id;
       return typeof sessionId === "string" ? [{ item, sessionId, nativeDirectory: nativeSessionDirectory(item) }] : [];
     });
-    const bySession = await resolveVerifiedSessionProjects(input.config, input.workspace, verified, projects);
+    const bySession = await resolveVerifiedSessionProjects(input.config, input.workspace, verified, projects,
+      error => warnUnreadable(null, error));
     signal?.throwIfAborted();
     const owned = (await Promise.all(verified.map(({ item, sessionId }) => {
       const project = bySession.get(sessionId);
       if (project) return projectCompanySession(input.config, input.workspace, homes, item, { home: expectedHome, project });
-      warnUnreadable(sessionId, "会话所属项目目录不存在或会话编号无效");
+      warnUnreadable(sessionId, "无法读取会话项目归属");
       return null;
     }))).filter(item => item !== null);
     const cursor = input.url.searchParams.get("cursor");
