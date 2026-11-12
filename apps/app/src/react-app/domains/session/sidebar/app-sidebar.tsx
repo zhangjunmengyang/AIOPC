@@ -22,6 +22,7 @@ import {
   Clock3,
   ChevronRight,
   FolderPlus,
+  Inbox,
   LayoutGrid,
   ListFilter,
   MoreHorizontal,
@@ -30,6 +31,7 @@ import {
   PinOff,
   Plus,
   Trash2,
+  Users,
   RotateCcw,
   FolderOpen,
   SquarePen,
@@ -38,6 +40,7 @@ import {
 import { LazyMotion, MotionContext, Reorder, domMax, m, useDragControls } from "motion/react";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
+import { teamText } from "../../aiopc/team-text";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import { SidebarActions, SidebarTitlebar, type ConversationHistoryControls } from "./sidebar-chrome";
 import { useUiStateStore } from "../../../shell/ui-state-store";
@@ -650,6 +653,10 @@ export type AppSidebarProps = {
   onOpenSpace?: () => void;
   accountsActive?: boolean;
   onOpenAccounts?: () => void;
+  teamActive?: boolean;
+  onOpenTeam?: () => void;
+  inboxActive?: boolean;
+  onOpenInbox?: () => void;
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
@@ -858,6 +865,12 @@ export function AppSidebar(props: AppSidebarProps) {
                 label={t("aiopc.nav.accounts")}
                 onSelect={props.onOpenAccounts}
               />
+            ) : null}
+            {props.onOpenTeam ? (
+              <SidebarDestination active={props.teamActive === true} icon={Users} label={teamText("title")} onSelect={props.onOpenTeam} />
+            ) : null}
+            {props.onOpenInbox ? (
+              <SidebarDestination active={props.inboxActive === true} icon={Inbox} label={t("aiopc.inbox.title")} onSelect={props.onOpenInbox} />
             ) : null}
             {props.onOpenDashboard ? (
               <SidebarDestination

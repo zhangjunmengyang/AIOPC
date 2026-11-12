@@ -125,3 +125,34 @@ def test_fill_uses_frozen_media_even_if_original_changes_during_identity_check(t
     uploaded = browser.calls[0]["media"][0]
     assert uploaded != image
     assert uploaded.read_bytes() == original
+
+
+def test_originating_session_is_required_and_history_keeps_it(tmp_path):
+    browser, reviews, original, _ = setup(tmp_path)
+    draft = reviews.prepare(**original["payload"], session_id="ses_owner", project=str(tmp_path))
+    assert reviews.read(draft["id"])["sessionId"] == "ses_owner"
+    assert [item["id"] for item in reviews.recent()] == [draft["id"]]
+    for decision in ("reject", "approve"):
+        with pytest.raises(SocialError, match="发起审批的会话"):
+            asyncio.run(reviews.decide(draft["id"], draft["digest"], decision, app_action=ACTION, session_id="ses_other"))
+    assert not browser.calls
+    result = asyncio.run(reviews.decide(draft["id"], draft["digest"], "approve", app_action=ACTION, session_id="ses_owner"))
+    assert result["status"] == "composer_filled"
+    assert reviews.read(draft["id"])["status"] == "composer_filled"
+    assert reviews.social.history()[0]["session_id"] == "ses_owner"
+    assert len(browser.calls) == 1
+
+
+def test_explicit_revision_compares_only_a_rejected_draft_in_the_same_session(tmp_path):
+    _, reviews, original, _ = setup(tmp_path)
+    payload = original["payload"]
+    draft = reviews.prepare(**payload, session_id="ses_owner")
+    with pytest.raises(SocialError, match="上一版稿件"):
+        reviews.prepare(**payload, session_id="ses_owner", previous_review_id=draft["id"])
+    asyncio.run(reviews.decide(draft["id"], draft["digest"], "reject", app_action=ACTION, session_id="ses_owner"))
+    with pytest.raises(SocialError, match="上一版稿件"):
+        reviews.prepare(**payload, session_id="ses_other", previous_review_id=draft["id"])
+    revised = reviews.prepare(**{**payload, "text": "修改后的正文"}, session_id="ses_owner", previous_review_id=draft["id"])
+    assert reviews.read(revised["id"])["previousPayload"]["text"] == payload["text"]
+    assert reviews.read(revised["id"])["payload"]["text"] == "修改后的正文"
+    assert reviews.read(draft["id"])["status"] == "rejected"

@@ -85,8 +85,21 @@ function normalizedTool(tool: string): string {
   return tool.replace(/^([^.]+)\./, "$1_");
 }
 
+function publishReviewOutput(event: ExecuteAfter): Record<string, unknown> | null {
+  if (event.status !== "completed" || normalizedTool(event.tool) !== "aiopc_social_publish") return null;
+  const output = event.result.output;
+  const draft = isRecord(output) && isRecord(output.structuredContent) ? output.structuredContent
+    : isRecord(output) ? output : typeof output === "string" ? parseRecord(output) : null;
+  if (!draft || typeof draft.id !== "string" || !/^[a-f0-9]{32}$/.test(draft.id)
+    || typeof draft.digest !== "string" || !/^[a-f0-9]{64}$/.test(draft.digest)
+    || draft.status !== "awaiting_approval" || !isRecord(draft.payload)) return null;
+  return new TextEncoder().encode(JSON.stringify(draft)).byteLength <= MAX_ENTRY_BYTES - 256 ? draft : null;
+}
+
 export function preservedEntry(rawEvent: ExecuteAfter): PreservedMcpResult | null {
   const event = { ...rawEvent, tool: normalizedTool(rawEvent.tool) };
+  const review = publishReviewOutput(event);
+  if (review) return { tool: event.tool, input: {}, status: "completed", output: jsonCopy(review) };
   const appBuilder = /_(?:search_capabilities|prepare_app|create_app|update_app)$/.test(event.tool);
   const appLaunch = event.status === "completed" && isRecord(event.result.output) && isRecord(event.result.output.launch);
   const input = jsonCopy(event.input);
@@ -209,7 +222,13 @@ export function createMcpResultsCollector() {
         }
         return;
       }
-      if (!execution) return;
+      if (!execution) {
+        const review = publishReviewOutput(event);
+        if (review && event.status === "completed") {
+          event.result.metadata = { ...event.result.metadata, openworkMcpResult: { content: [], structuredContent: review } };
+        }
+        return;
+      }
       // The hook sees the same input object as `execute.before`. Matching by
       // tool name alone would cross-wire parallel repeated calls.
       const tool = normalizedTool(event.tool);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createAiopcLeaseLifecycle, type LeaseRelease } from "../src/aiopc-lease-lifecycle.js";
 import { renderOpencodeV2Config } from "../src/managed-opencode-v2.js";
+import { seedOpencodePluginDeps } from "../src/selfhost-web.js";
 import type { ServerConfig, WorkspaceInfo } from "../src/types.js";
 import { ensureWorkspaceFiles } from "../src/workspace-init.js";
 import { readSessionGroupState, updateSessionGroupState } from "../src/session-groups.js";
@@ -28,8 +29,19 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
     let text = ""; for await (const chunk of req) text += String(chunk);
     const request = JSON.parse(text);
     modelRequests.push(request);
+    const serialized = JSON.stringify(request.messages);
+    const skillTool = request.tools?.find((tool: { function?: { name?: string } }) => tool.function?.name === "skill");
+    const callRoleTool = serialized.includes("TEST_ROLE_TOOL") && skillTool
+      && !request.messages.some((message: { role: string }) => message.role === "tool");
     const frame = (delta: unknown, finish: string | null = null) => `data: ${JSON.stringify({ id: "company-scope", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
     res.writeHead(200, { "content-type": "text/event-stream" });
+    if (callRoleTool) {
+      const id = serialized.includes("TEST_ROLE_TOOL_ALLOWED") ? "brand-naming" : "company-common";
+      res.end(frame({ role: "assistant", tool_calls: [{ index: 0, id: "fixture_role_skill", type: "function", function: {
+        name: "skill", arguments: JSON.stringify(skillTool.function.parameters.properties.id ? { id } : { name: id }),
+      } }] }) + frame({}, "tool_calls") + "data: [DONE]\n\n");
+      return;
+    }
     res.end(frame({ role: "assistant", content: "Local company scope verified" }) + frame({}, "stop") + "data: [DONE]\n\n");
   });
   await new Promise<void>(resolve => model.listen(0, "127.0.0.1", resolve));
@@ -48,11 +60,14 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
       const projects = [join(company, "projects", "A"), join(company, "projects", "B")];
       await mkdir(projects[0], { recursive: true }); await mkdir(projects[1]);
       await ensureWorkspaceFiles(company, "starter");
-      for (const [folder, name] of [[lane, "global-user"], [join(lane, "outer"), "outside-company"], [company, "company-common"], [projects[0], "project-a"], [projects[1], "project-b"]]) {
+      for (const [folder, name] of [[lane, "global-user"], [join(lane, "outer"), "outside-company"], [company, "company-common"], [projects[0], "project-a"], [projects[0], "project-later"], [projects[1], "project-b"]]) {
         const skill = join(folder!, ".opencode", "skills", name!);
         await mkdir(skill, { recursive: true });
         await writeFile(join(skill, "SKILL.md"), `---\nname: ${name}\ndescription: isolated test skill\n---\nLocal test.\n`);
       }
+      await writeFile(join(projects[0], ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: {
+        "project-a": { id: "audited-project-a", hash: "a".repeat(64) },
+      } }));
       await mkdir(join(company, ".opencode", "agent"), { recursive: true });
       await writeFile(join(company, ".opencode", "agent", "designer.md"), "---\ndescription: Company designer\nmode: primary\n---\nDesign for the current project.\n");
       const probe = createServer();
@@ -66,11 +81,29 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
         OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true" };
       if (!v2) {
         const nativeConfigDirectory = join(lane, "native-config"); await mkdir(nativeConfigDirectory, { recursive: true });
-        await writeFile(join(nativeConfigDirectory, "opencode.json"), JSON.stringify({ provider: { native_fixture: {
+        const pluginDirectory = join(lane, "capabilities-plugin");
+        await mkdir(pluginDirectory);
+        await writeFile(join(pluginDirectory, "package.json"), JSON.stringify({ type: "module" }));
+        const pluginPath = join(pluginDirectory, "server.js");
+        await writeFile(pluginPath, `export { OpenWorkCapabilitiesKnowledge } from ${JSON.stringify(new URL("../src/opencode-plugins/openwork-capabilities-knowledge.ts", import.meta.url).href)};\n`);
+        await writeFile(join(nativeConfigDirectory, "opencode.json"), JSON.stringify({ plugin: [pluginPath], provider: { native_fixture: {
           npm: "@ai-sdk/openai-compatible", name: "Local fixture", options: { baseURL: `http://127.0.0.1:${modelAddress.port}/v1`, apiKey: "fixture" },
           models: { fixture: { name: "Fixture", limit: { context: 128000, output: 4096 } } },
         } } }));
         env.OPENCODE_CONFIG_DIR = nativeConfigDirectory;
+        const dependencies = join(lane, "config", "opencode");
+        const archive = process.env.OPENWORK_TEST_OPENCODE_PLUGIN_DEPS ?? "/Applications/AIOPC.app/Contents/Resources/app.asar.unpacked/server/dist/opencode-plugin-deps-1.18.33.tgz";
+        const seed = await seedOpencodePluginDeps({ archive: await realpath(archive).catch(() => archive), configDir: dependencies });
+        if (seed.seeded) {
+          // All paths are local to the fixture. Share the unpacked dependency
+          // snapshot so one test does not extract it for every native location.
+          for (const directory of [nativeConfigDirectory, join(lane, ".opencode"), join(lane, "outer", ".opencode"),
+            join(company, ".opencode"), ...projects.map(project => join(project, ".opencode"))]) {
+            for (const name of ["node_modules", "package.json", "package-lock.json"]) {
+              await symlink(join(dependencies, name), join(directory, name));
+            }
+          }
+        }
       }
       if (v2) {
         const trustedSkills = join(lane, "trusted-skills");
@@ -142,6 +175,30 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
           while (!releases.some(item => item.sessionId === ids[0] && item.reason === "turn_end") && Date.now() < idleDeadline) await delay(25);
           assert.ok(releases.some(item => item.sessionId === ids[0] && item.reason === "turn_end"), "native v1 completion must release without renderer");
           assert.ok(modelRequests.length, "v1 used the loopback model fixture");
+          const roleChat = await call("POST", "/session", { title: "品牌设计师验收" }, projects[0]);
+          await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta,
+            [roleChat.id]: { ...state.sessionMeta[roleChat.id], agentName: "brand-designer" },
+          } }));
+          const first = modelRequests.length;
+          await call("POST", `/session/${roleChat.id}/message`, { agent: "build", model: { providerID: "native_fixture", modelID: "fixture" },
+            parts: [{ type: "text", text: "TEST_ROLE_TOOL_DENIED" }],
+          });
+          const visible = modelRequests.slice(first).map(item => JSON.stringify((item as { messages: unknown }).messages));
+          assert.ok(visible[0]?.includes("brand-naming"), visible[0]?.slice(-4500));
+          assert.ok(visible[0]?.includes("project-a"), visible[0]?.slice(-4500));
+          assert.ok(!visible[0]?.includes("company-common"), visible[0]?.slice(-4500));
+          assert.ok(visible.some(request => request.includes("rule which prevents you from using this specific tool call")), visible.at(-1)?.slice(-4500));
+          const allowedChat = await call("POST", "/session", { title: "允许加载角色技能" }, projects[0]);
+          await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta,
+            [allowedChat.id]: { ...state.sessionMeta[allowedChat.id], agentName: "brand-designer" },
+          } }));
+          const previous = modelRequests.length;
+          await call("POST", `/session/${allowedChat.id}/message`, { model: { providerID: "native_fixture", modelID: "fixture" },
+            parts: [{ type: "text", text: "TEST_ROLE_TOOL_ALLOWED" }],
+          });
+          assert.ok(modelRequests.slice(previous).some(item => JSON.stringify(item).includes("为不同语义方向各拟候选")));
+
+          console.log("GREEN native v1 role: resident + adopted catalog and skill tool allow/deny");
         }
         if (v2) {
           await call("POST", `/session/${ids[0]}/prompt`, { text: "State the available project skills. Do not use tools." });
@@ -165,6 +222,54 @@ test("real v1 and v2 preserve project CWD, company home and project skill discov
             assert.ok(rejected.status >= 400, `explicit forbidden skill was admitted: ${name}: ${error}`);
             assert.ok(error.includes(`Skill not found: ${name}`), error);
           }
+        }
+        if (v2) {
+          const roleChat = async () => {
+            const created = await call("POST", "/session", { title: "品牌设计师验收", location: { directory: projects[0] }, model: { providerID: "native_fixture", id: "fixture" } }, projects[0]);
+            await updateSessionGroupState(config, workspace.id, state => ({ ...state, sessionMeta: { ...state.sessionMeta, [created.id]: { ...state.sessionMeta[created.id], agentName: "brand-designer" } } }));
+            return created.id as string;
+          };
+          const roleId = await roleChat();
+          const roleTurn = async (id: string, text: string, body = {}) => {
+            const before = modelRequests.length;
+            await call("POST", `/session/${id}/prompt`, { text, ...body });
+            const deadline = Date.now() + 10_000;
+            while (!releases.some(item => item.sessionId === id && item.reason === "turn_end") && Date.now() < deadline) await delay(50);
+            assert.ok(releases.some(item => item.sessionId === id && item.reason === "turn_end"), logs.slice(-5000));
+            return modelRequests.slice(before).map(item => JSON.stringify((item as { messages: unknown }).messages));
+          };
+          const [visible] = await roleTurn(roleId, "列出当前角色可以使用的技能。", { skills: [{ id: "project-a" }] });
+          assert.ok(visible?.includes("brand-naming"), visible?.slice(-7000));
+          assert.ok(visible?.includes("project-a"), visible?.slice(-7000));
+          for (const hidden of ["company-common", "trusted-bundle", "global-user", "project-b", "project-later"]) {
+            assert.ok(!visible?.includes(hidden), `unexpected role skill: ${hidden}`);
+          }
+          const denied = await roleTurn(await roleChat(), "TEST_ROLE_TOOL_DENIED");
+          assert.ok(denied.some(request => /permission denied|denied permission|BlockedError|Unable to load skill company-common/i.test(request)), denied.at(-1)?.slice(-4500));
+          const allowed = await roleTurn(await roleChat(), "TEST_ROLE_TOOL_ALLOWED");
+          assert.ok(allowed.some(request => request.includes("为不同语义方向各拟候选")), allowed.at(-1)?.slice(-6000));
+          for (const endpoint of ["prompt", "skill"]) {
+            const path = endpoint === "skill" ? `/opencode2/api/experimental/session/${roleId}/skill` : `/opencode2/api/session/${roleId}/prompt`;
+            const url = new URL(`http://host${path}`);
+            const request = new Request(url, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(endpoint === "skill" ? { id: "company-common", resume: false } : { text: "附带越权技能", skills: [{ id: "company-common" }] }) });
+            await assert.rejects(() => proxyOpencodeV2Request({ actor: { type: "host" }, config, request, url, workspace, proxyPath: path,
+              connection: { url: baseUrl, username: "opencode", password: "native-test" } }), /company-common/);
+          }
+          const deniedNative = await fetch(`${baseUrl}/api/session/${roleId}/prompt`, {
+            method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: "Native forbidden attachment", skills: [{ id: "company-common" }] }),
+          });
+          assert.ok(deniedNative.status >= 400, await deniedNative.text());
+          await writeFile(join(projects[0], ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: {
+            "project-a": { id: "audited-project-a", hash: "a".repeat(64) },
+            "project-later": { id: "audited-project-later", hash: "b".repeat(64) },
+          } }));
+          const [refreshed] = await roleTurn(await roleChat(), "检查刚采纳的技能。", { skills: [{ id: "project-later" }] });
+          assert.ok(refreshed?.includes("project-later"));
+          assert.ok(refreshed?.includes("brand-naming"));
+          assert.ok(!refreshed?.includes("company-common"));
+          console.log("GREEN native v2 role: resident + adopted catalog, skill tool allow/deny, explicit attachments + activation denied, adoption refresh");
         }
         await mkdir(join(projects[0]!, "tasks"));
         await writeFile(join(projects[0]!, "tasks", "native-task.md"), "---\ntitle: Native task\n---\n");

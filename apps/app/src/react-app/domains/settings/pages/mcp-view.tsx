@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
 import { TextInput } from "../../../design-system/text-input";
 import { ExtensionCard } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
@@ -40,7 +41,7 @@ export type McpViewProps = {
   onDetailIdChange?: (id: string | null, filter?: ExtensionInventoryFilter) => void;
   createLibraryItem?: (kind: LibraryAuthorableKind, input: CreateLibraryItemInput) => Promise<string>;
   onLibraryListsRefresh?: () => Promise<void> | void; onRefresh?: () => void;
-  headerActionsTarget?: HTMLDivElement | null; pluginsContent?: ReactNode;
+  headerActionsTarget?: HTMLDivElement | null; pluginsContent?: ReactNode; skillLibrary?: ReactNode;
 };
 type Item = { id: string; name: string; description: string; taxonomy: ExtensionTaxonomy;
   entry?: McpDirectoryInfo; server?: McpServerEntry; skill?: SkillItem; command?: LibraryCommandItem; agent?: LibraryAgentItem };
@@ -113,15 +114,23 @@ export function McpView(props: McpViewProps) {
     sourceLabel="当前项目" onUninstall={server ? () => props.removeMcp(server.name) : detail.skill && props.uninstallSkill ? () => props.uninstallSkill!(detail.skill!.name) : undefined}
   />;
   if (detail && props.onDetailIdChange) return detailView;
-  const visible = items.filter(item => (filter === "all" || primaryLibraryFilter(item.taxonomy) === filter) && `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const inventory = items.filter(item => filter === "all" || primaryLibraryFilter(item.taxonomy) === filter);
+  const visible = inventory.filter(item => `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const showSkillLibrary = filter === "skill" && Boolean(props.skillLibrary);
+  const filterLabel = showSkillLibrary ? t("skill_library.filter_installed") : "搜索扩展";
   return <section className="grid gap-5">
     {props.headerActionsTarget ? createPortal(controls, props.headerActionsTarget) : <div className="flex justify-end">{controls}</div>}
     <div className="flex flex-wrap items-center gap-2">{extensionInventoryFilters.map(value => <Button key={value} variant={filter === value ? "secondary" : "ghost"} size="sm" onClick={() => {setFilter(value); props.onFilterChange?.(value);}}>{extensionFilterLabel(value)}</Button>)}</div>
-    <TextInput aria-label="搜索扩展" placeholder="搜索扩展" value={query} onChange={event => setQuery(event.target.value)} />
+    {showSkillLibrary && props.skillLibrary}
+    {showSkillLibrary && <h2 className="text-sm font-semibold text-foreground">{t("skill_library.installed")}</h2>}
+    {(!showSkillLibrary || inventory.length > 0) && <TextInput aria-label={filterLabel} placeholder={filterLabel} value={query} onChange={event => setQuery(event.target.value)} />}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {props.mcpStatus && <p role="status" className="text-sm text-muted-foreground">{props.mcpStatus}</p>}
     <div className="grid gap-2">{visible.map(item => <ExtensionCard key={item.id} name={item.name} description={item.description} taxonomy={item.taxonomy} iconSlug={item.entry?.iconSlug} iconSrc={item.entry?.iconSrc} connected={connected(item)} onClick={() => openDetail(item.id)} />)}</div>
-    {!visible.length && filter !== "plugin" && <p className="py-8 text-center text-sm text-muted-foreground">这里还没有扩展，可从右上角添加。</p>}
+    {!visible.length && showSkillLibrary && <p className="text-sm text-muted-foreground">
+      {t(inventory.length ? "skill_library.none_matching_installed" : "skill_library.none_installed")}
+    </p>}
+    {!visible.length && !showSkillLibrary && filter !== "plugin" && <p className="py-8 text-center text-sm text-muted-foreground">这里还没有扩展，可从右上角添加。</p>}
     {(filter === "plugin" || filter === "all") && props.pluginsContent}
     {detailView}<AddMcpModal open={addMcp} onClose={() => setAddMcp(false)} onAdd={props.connectMcp} busy={props.busy} />
   </section>;

@@ -55,6 +55,7 @@ import {
   readConfiguredInstructions,
 } from "./opencode-v2-instructions.js";
 import {
+  assertActiveV2McpAppSession,
   callMcpAppTool,
   listMcpAppCatalog,
   McpAppHostError,
@@ -112,7 +113,9 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
-import { registerCreatedSessionGroup, resolveSessionProject, resolveVerifiedSessionProjects, type SessionProject } from "./session-groups.js";
+import { assertCompanyRoleSkillInput, companyRoleV1Prompt, listCompanyProjectSkillNames } from "./company-role-admission.js";
+import { listCompanyRoles, readRoleSkillPolicy } from "./company-roles.js";
+import { readSessionGroupState, registerCreatedSessionGroup, resolveSessionProject, resolveVerifiedSessionProjects, type SessionProject } from "./session-groups.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
 import { registerUiControlRoutes } from "./routes/ui-control.js";
@@ -1486,6 +1489,7 @@ async function forwardOpencodeV2Request(input: {
   const sessionMatch = forwardedPath.match(/^\/api\/(?:experimental\/)?session\/([^/]+)(?:\/|$)/);
   const sessionId = sessionMatch?.[1] ? decodeURIComponent(sessionMatch[1]) : null;
   let executionDirectory = input.workspace.path;
+  let sessionAgent: string | undefined;
   // Authorization follows the persistent home, not the agent's mutable CWD.
   // The actual native location still controls execution and tool discovery.
   if (sessionId?.startsWith("ses_")) {
@@ -1495,6 +1499,8 @@ async function forwardOpencodeV2Request(input: {
     }
     executionDirectory = (await resolveSessionProject(input.config, input.workspace, sessionId, nativeSessionDirectory(session) ?? undefined)).executionDirectory;
     target.searchParams.set("location[directory]", executionDirectory);
+    const agent = nativeSession(session)?.agent;
+    if (typeof agent === "string") sessionAgent = agent;
   }
   if (method === "POST" && /^\/api\/session\/[^/]+\/move$/.test(forwardedPath)) {
     throw new ApiError(409, "session_project_managed", "会话项目固定，不能跨项目移动");
@@ -1503,6 +1509,27 @@ async function forwardOpencodeV2Request(input: {
   if (method !== "GET" && method !== "HEAD" && [OPENWORK_V2_INSTRUCTION_KEY, OPENWORK_V2_CONFIGURED_INSTRUCTION_KEY]
     .some((key) => decodeURIComponent(forwardedPath).endsWith(`/instructions/entries/${key}`))) {
     throw new ApiError(403, "engine_instructions_managed", "OpenWork instructions are managed by the server");
+  }
+
+  const roleOperation = method === "POST" && sessionId?.startsWith("ses_")
+    ? /^\/api\/(?:experimental\/)?session\/[^/]+\/(prompt|command|generate|skill|permission)$/.exec(decodedPath)?.[1] : null;
+  if (roleOperation && sessionId) {
+    const binding = (await readSessionGroupState(input.config, input.workspace.id)).state.sessionMeta[sessionId]?.agentName;
+    const agent = binding ?? sessionAgent;
+    const policy = agent ? await readRoleSkillPolicy(expectedHome, executionDirectory === expectedHome ? null : executionDirectory, agent) : null;
+    if (policy) {
+      const payload: unknown = await input.request.clone().json().catch(() => null);
+      await assertCompanyRoleSkillInput(policy, roleOperation, payload, () => readNative("/api/skill", executionDirectory));
+      if (binding && binding !== sessionAgent) {
+        const url = new URL(target);
+        url.pathname = `/api/session/${encodeURIComponent(sessionId)}/agent`;
+        const switched = await engineFetch(url.toString(), {
+          method: "POST", headers: { authorization: headers.get("authorization") ?? "", "content-type": "application/json" },
+          body: JSON.stringify({ agent: binding }), signal: AbortSignal.timeout(10_000),
+        });
+        if (!switched.ok) throw new ApiError(502, "role_agent_unavailable", "OpenCode 未能切换到会话绑定的角色");
+      }
+    }
   }
 
   if (method === "POST" && sessionId && /^\/api\/session\/[^/]+\/(?:prompt|command|generate)$/.test(forwardedPath)) {
@@ -2106,9 +2133,23 @@ async function forwardOpencodeRequest(input: {
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
-  const body = method === "GET" || method === "HEAD"
+  let body = method === "GET" || method === "HEAD"
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
+  if (method === "POST" && workspace && companyDirectory && directory && sessionId && body instanceof ArrayBuffer
+    && /^\/session\/[^/]+\/(?:message|prompt_async|command|shell)$/.test(normalizedPath)) {
+    const binding = (await readSessionGroupState(input.config, workspace.id)).state.sessionMeta[sessionId]?.agentName;
+    const company = await homes!.canonical(companyDirectory);
+    const policy = binding ? await readRoleSkillPolicy(company, directory === company ? null : directory, binding) : null;
+    if (policy) {
+      const payload: unknown = await new Response(body).json().catch(() => null);
+      if (isRecord(payload)) {
+        body = new TextEncoder().encode(companyRoleV1Prompt(policy, payload)).buffer;
+        headers.delete("content-length");
+        headers.set("content-type", "application/json");
+      }
+    }
+  }
   if (pool && method === "GET" && isEngineEventPath(proxyPath)) {
     // An open engine event stream means this workspace is visible somewhere in
     // the UI; hold its instance so the idle reaper leaves it alone until the
@@ -3794,6 +3835,15 @@ function createRoutes(
     return jsonResponse(result);
   });
 
+  addRoute(routes, "GET", "/workspace/:id/roles", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const [items, projectSkills] = await Promise.all([
+      listCompanyRoles(workspace.path),
+      listCompanyProjectSkillNames(workspace.path, config.workspaces.map(entry => entry.path)),
+    ]);
+    return jsonResponse({ items, projectSkills });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/skills", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
@@ -4032,24 +4082,15 @@ function createRoutes(
           if (engine === "v2") {
             const connection = engineV2Preview.connection();
             if (!connection) throw new McpAppHostError("inactive_session", "The original conversation engine is unavailable. Reopen it before using App actions.");
-            const url = new URL(`/api/session/${encodeURIComponent(sessionId)}`, connection.url);
-            url.searchParams.set("location[directory]", workspace.path);
-            const response = await loopbackFetch(url.toString(), {
-              headers: { authorization: `Basic ${Buffer.from(`opencode:${connection.password}`).toString("base64")}` },
-              signal: AbortSignal.timeout(10_000),
-            });
-            const payload: unknown = response.ok ? await response.json() : null;
-            const data = isRecord(payload) && isRecord(payload.data) ? payload.data : payload;
-            const session = isRecord(data) && isRecord(data.info) ? data.info : data;
-            const location = isRecord(session) && isRecord(session.location) ? session.location : null;
-            const directory = location && typeof location.directory === "string" ? location.directory : null;
-            const [expected, actual] = await Promise.all([
-              realpath(workspace.path).catch(() => workspace.path),
-              directory ? realpath(directory).catch(() => directory) : null,
-            ]);
-            if (!isRecord(session) || (session.id ?? session.sessionID) !== sessionId || !actual || actual !== expected || (isRecord(session.time) && session.time.archived)) {
-              throw new McpAppHostError("inactive_session", "The original conversation is archived or unavailable. Reopen it before using App actions.");
-            }
+            await assertActiveV2McpAppSession({ serverConfig: config, workspaceRoot: workspace.path, sessionId, read: async (path) => {
+              const url = new URL(path, connection.url);
+              url.searchParams.set("location[directory]", workspace.path);
+              const response = await loopbackFetch(url.toString(), {
+                headers: { authorization: `Basic ${Buffer.from(`opencode:${connection.password}`).toString("base64")}` },
+                signal: AbortSignal.timeout(10_000),
+              });
+              return response.ok ? response.json() : null;
+            } });
             return;
           }
           await assertWorkspaceOwnsProxiedSessionRead(config, workspace, "GET", `/session/${encodeURIComponent(sessionId)}`, true);

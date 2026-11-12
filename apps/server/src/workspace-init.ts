@@ -6,6 +6,7 @@ import { ApiError } from "./errors.js";
 import { opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile, updateJsoncTopLevel } from "./jsonc.js";
 import type { ReloadReason, WorkspaceInfo } from "./types.js";
+import { ensureCompanyRolePacks } from "./company-roles.js";
 import { ensureCompanyProjectBoundary } from "./company-projects.js";
 
 type WorkspaceOpenworkConfig = {
@@ -129,6 +130,7 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   }
   const reloadReasons = new Set<ReloadReason>();
   await ensureCompanyProjectBoundary(workspaceRoot);
+  await ensureCompanyRolePacks(workspaceRoot);
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
   // openwork config is seeded into the runtime DB by the caller, not written
   // as a file here.

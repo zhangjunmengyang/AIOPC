@@ -556,27 +556,29 @@ class SocialService:
                                     ensure_ascii=False) + "\n")
 
     async def publish(self, account_id: str, text: str, title: str = "", media: list[str] | None = None,
-                      form: str = "post", tags: list[str] | None = None) -> dict[str, Any]:
+                      form: str = "post", tags: list[str] | None = None, *, audit_session_id: str = "") -> dict[str, Any]:
         checked = self.check_publish(account_id, text, title, media, form, tags)
         account, info, route, post = checked["account"], checked["info"], checked["route"], checked["post"]
         digest = hashlib.sha256(post.text.encode()).hexdigest()[:12]
+        origin = {"session_id": audit_session_id} if audit_session_id else {}
         try:
             result = await route.publish(account, post)
         except (BrowserError, RouteError) as exc:
-            self._log(account, {"action": "compose", "status": "failed", "route": route.id, "text_sha": digest, "error": str(exc)})
+            self._log(account, {"action": "compose", "status": "failed", "route": route.id, "text_sha": digest, "error": str(exc), **origin})
             raise SocialError(str(exc)) from None
         if result["status"] == "published":
-            self._log(account, {"action": "published", "status": "published", "route": route.id, "text_sha": digest, "url": result.get("url", "")})
+            self._log(account, {"action": "published", "status": "published", "route": route.id, "text_sha": digest, "url": result.get("url", ""), **origin})
         else:
             self._log(account, {"action": "compose", "status": result["status"], "route": route.id, "text_sha": digest,
-                                "page_url": result.get("page_url", "")})
+                                "page_url": result.get("page_url", ""), **origin})
         return {"account": info["name"], "account_id": account["id"], "route": route.name, **result}
 
-    def record_published(self, account_id: str, url: str, note: str = "") -> dict[str, Any]:
+    def record_published(self, account_id: str, url: str, note: str = "", *, audit_session_id: str = "") -> dict[str, Any]:
         account = self._account(account_id)
         if not str(url).startswith("https://"):
             raise SocialError("请提供帖子的 https 链接")
-        self._log(account, {"action": "published", "status": "published", "url": url, "note": note[:500]})
+        origin = {"session_id": audit_session_id} if audit_session_id else {}
+        self._log(account, {"action": "published", "status": "published", "url": url, "note": note[:500], **origin})
         return {"recorded": True, "account": self.describe(account)["name"], "url": url}
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:

@@ -641,6 +641,16 @@ export type OpenworkSessionGroupState = {
   sessionMeta: Record<string, { agentName?: string; projectId?: string | null; taskId?: string }>;
 };
 
+export type OpenworkCompanyRole = {
+  id: string;
+  name: string;
+  description: string;
+  reportsTo: string | null;
+  skills: string[];
+  source: "factory" | "local";
+  mode: "primary" | "subagent" | "all";
+};
+
 export type OpenworkSessionGroupEvent = {
   id: string;
   seq: number;
@@ -1258,6 +1268,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
+        { token, hostToken, timeoutMs: timeouts.sessionRead },
+      ),
+    listCompanyRoles: (workspaceId: string) =>
+      requestJson<{ items: OpenworkCompanyRole[]; projectSkills: Record<string, string[]> }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/roles`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       ),
     putSessionGroups: (workspaceId: string, state: OpenworkSessionGroupState) =>

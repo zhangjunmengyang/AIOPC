@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { nativeDiscoveryCode } from "../src/opencode-plugins/openwork-codemode-discovery-v2.js";
-import plugin from "../src/opencode-plugins/openwork-mcp-results-v2.js";
+import plugin, { createMcpResultsCollector } from "../src/opencode-plugins/openwork-mcp-results-v2.js";
 import { mcpToolId } from "../src/opencode-v2-mcp-readiness.js";
 
 type Tool = { options?: Record<string, unknown>; execute(input: unknown, call: unknown): Promise<{ output?: unknown }> };
@@ -62,4 +62,24 @@ test("Code Mode keeps a server's own search tool and rewrites the missing one", 
   };
   assert.equal(run('await tools["local-apps"].search({ query: "app" })'), 'await search({ query: "app" })');
   assert.equal(run('await tools.github.search({ q: "x" })'), 'await tools.github.search({ q: "x" })');
+});
+
+test("v2 retains the AIOPC publish approval from a direct call or Code Mode without its media thumbnails", () => {
+  const collector = createMcpResultsCollector();
+  const input = { text: "Frozen copy" };
+  const draft = { id: "a".repeat(32), digest: "b".repeat(64), status: "awaiting_approval", payload: input };
+  const output = { structuredContent: draft, content: [], _meta: { media: [{ preview: "x".repeat(65536) }] } };
+  const base = { messageID: "m", id: "call", input, status: "completed" as const };
+  const direct = { ...base, tool: "aiopc_social_publish", result: { output, metadata: {} } };
+  collector.after(direct);
+  assert.deepEqual(direct.result.metadata, { openworkMcpResult: { content: [], structuredContent: draft } });
+
+  const execute = { ...base, tool: "execute", result: { metadata: {} } };
+  collector.before(execute);
+  const inner = { ...base, tool: "aiopc.social_publish", result: { output } };
+  collector.before(inner);
+  collector.after(inner);
+  collector.after(execute);
+  const metadata = execute.result.metadata as { openworkMcpResults?: unknown };
+  assert.deepEqual(metadata.openworkMcpResults, [{ tool: "aiopc_social_publish", input: {}, status: "completed", output: draft }]);
 });

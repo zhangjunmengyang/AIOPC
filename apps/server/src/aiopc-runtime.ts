@@ -17,7 +17,7 @@ export function aiopcMcpServers(environment: NodeJS.ProcessEnv = process.env): R
   const serviceDir = serviceDirectory(environment);
   if (!serviceDir) return schedulerMcpServers(environment);
   const passthrough = [
-    "AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT", "AIOPC_RUNTIME_CONTEXT_FILE",
+    "AIOPC_HOME", "AIOPC_LIBRARY", "UV_PROJECT_ENVIRONMENT", "AIOPC_RUNTIME_CONTEXT_FILE", "AIOPC_AUTHORIZED_COMPANIES_FILE",
     "AIOPC_QMD_NODE", "AIOPC_QMD_RUNNER", "AIOPC_QMD_VECTOR_EXTENSION",
   ] as const;
   const serviceEnvironment = Object.fromEntries(passthrough.flatMap((key) => {

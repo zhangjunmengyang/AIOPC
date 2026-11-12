@@ -1,3 +1,4 @@
+import { applyCompanyRoleSkillsV1 } from "./company-role-skills-v1.js";
 import { companyDirectoryForExecution, companyProjectInstructions } from "../company-projects.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -167,6 +168,9 @@ type Context = NonNullable<Parameters<typeof workspaceFileHooks>[0]> & { worktre
 
 export const OpenWorkCapabilitiesKnowledge = async (context?: Context) => ({
   ...workspaceFileHooks(context),
+  config: async (config: Parameters<typeof applyCompanyRoleSkillsV1>[0]) => {
+    if (context?.directory) await applyCompanyRoleSkillsV1(config, context.directory);
+  },
   "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
     const directory = context?.directory;
     const company = directory && await companyDirectoryForExecution(directory, context?.worktree, input.sessionID);
