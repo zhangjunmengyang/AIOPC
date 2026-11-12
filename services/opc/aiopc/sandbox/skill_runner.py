@@ -11,7 +11,7 @@ import os
 import re
 import stat
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -203,8 +203,8 @@ async def _execute(docker: tuple[str, ...], image_id: str, staged: Path, entry: 
 
 
 async def run_skill_script(provider: local.LocalDockerProvider, bundle: Path, entry: str, args: Sequence[str] = (), *,
-                           timeout_s: float = 30) -> ScriptResult:
-    """The caller authorizes the project and role, and supplies a private, hash-verified snapshot."""
+                           timeout_s: float = 30, verify_staged: Callable[[Path], None] | None = None) -> ScriptResult:
+    """Run an authorized skill, optionally verifying the exact copy Docker will mount."""
     if not isinstance(provider, local.LocalDockerProvider):
         raise SandboxError("此项目环境不支持隔离运行技能脚本，请选择本机 Docker 环境")
     if not isinstance(timeout_s, (int, float)) or isinstance(timeout_s, bool) or not math.isfinite(timeout_s) or not 0 < timeout_s <= 60:
@@ -218,6 +218,8 @@ async def run_skill_script(provider: local.LocalDockerProvider, bundle: Path, en
         with TemporaryDirectory(prefix=".skill-run-", dir=provider.home) as temporary:
             staged = Path(temporary) / "skill"
             _stage(bundle, staged, path)
+            if verify_staged is not None:
+                verify_staged(staged)
             docker = await _local_command()
             image_id = await _image_id(provider, docker)
             return await _execute(docker, image_id, staged, path, tuple(args), timeout_s)

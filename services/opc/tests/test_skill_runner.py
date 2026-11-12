@@ -87,6 +87,29 @@ async def test_run_pins_image_and_only_mounts_a_read_only_copy(setup, monkeypatc
     assert commands[-1] == ("rm", "--force", "--volumes", CONTAINER_ID)
 
 
+async def test_rejected_snapshot_is_removed_without_contacting_docker(setup, monkeypatch):
+    provider, bundle = setup
+    commands, image_ready = fake_docker(monkeypatch, provider)
+    snapshots = []
+
+    def reject(staged):
+        assert staged != bundle
+        assert (staged / "scripts/example.py").read_bytes() == (bundle / "scripts/example.py").read_bytes()
+        snapshots.append(staged)
+        raise ValueError("snapshot hash mismatch")
+
+    async def unexpected_docker():
+        pytest.fail("Docker resolution must follow snapshot verification")
+
+    monkeypatch.setattr(skill_runner, "_local_command", unexpected_docker)
+    with pytest.raises(ValueError, match="snapshot hash mismatch"):
+        await skill_runner.run_skill_script(provider, bundle, "scripts/example.py", verify_staged=reject)
+
+    assert commands == image_ready == []
+    assert len(snapshots) == 1 and not snapshots[0].parent.exists()
+    assert (bundle / "scripts/example.py").is_file()
+
+
 @pytest.mark.parametrize("entry", ["/scripts/example.py", "scripts/../example.py", "scripts//example.py", "other.py", "scripts/example.js"])
 async def test_invalid_entry_never_reaches_docker(setup, monkeypatch, entry):
     provider, bundle = setup
