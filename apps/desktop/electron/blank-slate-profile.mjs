@@ -47,7 +47,6 @@ export function prepareBlankSlateProfile({
   const userDataPath = paths.join(rootPath, "electron", "user-data");
   const homePath = paths.join(rootPath, "home");
   const openworkConfigPath = paths.join(rootPath, "openwork", "config");
-  const opencodeDataPath = paths.join(rootPath, "opencode", "data");
   const environment = {
     HOME: homePath,
     USERPROFILE: homePath,
@@ -65,7 +64,6 @@ export function prepareBlankSlateProfile({
     OPENWORK_RUNTIME_DB: paths.join(openworkConfigPath, "runtime.sqlite"),
     OPENWORK_DATA_DIR: paths.join(rootPath, "openwork", "data"),
     OPENCODE_CONFIG_DIR: paths.join(rootPath, "opencode", "config"),
-    OPENCODE_DB: paths.join(opencodeDataPath, "opencode.db"),
   };
 
   const directories = new Set([
@@ -80,9 +78,11 @@ export function prepareBlankSlateProfile({
     openworkConfigPath,
     environment.OPENWORK_DATA_DIR,
     environment.OPENCODE_CONFIG_DIR,
-    opencodeDataPath,
   ]);
   for (const directory of directories) createDirectory(directory);
+  // Keep native engine database selection under the isolated XDG data root.
+  // An explicit override disables v1 recovery when v2 initialized that file.
+  delete env.OPENCODE_DB;
   Object.assign(env, environment);
 
   return {
