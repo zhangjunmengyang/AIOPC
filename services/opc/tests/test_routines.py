@@ -122,6 +122,19 @@ async def test_active_one_time_schedule_is_finished_once(tmp_path, project):
     assert service.runs(project, created["id"])[0]["trigger"] == "scheduled"
 
 
+def test_routine_can_be_paused_after_its_role_is_removed(tmp_path, project):
+    role = project.parent.parent / ".opencode" / "agent" / "editor.md"
+    role.parent.mkdir(parents=True)
+    role.write_text("编辑角色")
+    service = LocalRoutines(tmp_path / "local-data")
+    created = service.create(project, {**draft(), "agent": "editor"})
+    role.unlink()
+    assert service.update(project, created["id"], {"state": "inactive"})["state"] == "inactive"
+    with pytest.raises(RoutineError, match="请选择公司内的角色"):
+        service.update(project, created["id"], {"state": "active"})
+    assert service.update(project, created["id"], {"state": "active", "agent": None})["state"] == "active"
+
+
 async def test_local_launcher_returns_agent_text_instead_of_raw_logs(tmp_path, project, monkeypatch):
     home = tmp_path / "local-data"
     monkeypatch.setenv("AIOPC_TOKEN", "http-service-only")

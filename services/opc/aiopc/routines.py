@@ -178,7 +178,9 @@ class LocalRoutines:
         agent = draft.get("agent")
         if agent is not None:
             agent = _text(agent, "角色", 160)
-            if agent not in _roles(project.parent.parent):
+            changed = current is None or agent != current["agent"]
+            resuming = current is not None and current["state"] == "inactive" and state == "active"
+            if (changed or resuming) and agent not in _roles(project.parent.parent):
                 raise RoutineError("请选择公司内的角色")
         schedule = parse_schedule(draft.get("schedule"))
         due = None
