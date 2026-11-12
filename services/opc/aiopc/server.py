@@ -28,9 +28,12 @@ from mcp.server.fastmcp import Context, FastMCP, Image
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from aiopc.knowledge import Knowledge
+from aiopc.knowledge_routes import knowledge_routes
+from aiopc.knowledge_tool import register_knowledge_tool
 from aiopc.media.image import ImageService
 from aiopc.media.video import VideoConfig, VideoService
 from aiopc.platforms import catalog
@@ -48,7 +51,7 @@ INSTRUCTIONS = (
     "The current workspace folder is the project (one product). Before writing for it, read get_project_brief; "
     "keep its memory in its files. Publishing first shows an approval card. Only a user-approved card fills the composer in the project environment; the user "
     "presses publish; never claim something is published until the user confirms. Generated images and videos are "
-    "saved into the project's assets; show their paths."
+    "saved into the project's assets; show their paths. Use kb_query to retrieve documents and associated media."
 )
 ERRORS = (SocialError, ProjectError, ValueError)
 
@@ -62,7 +65,8 @@ class Workspace:
         self.sandboxes = Sandboxes(self.home)
         self.social = SocialService(self.home, self.root, sandboxes=self.sandboxes)
         self.space = SpaceCatalog(self.root)
-        self.images = ImageService(self.home, self.root)
+        self.knowledge = Knowledge(self.home, self.root)
+        self.images = ImageService(self.home, self.root, reference_resolver=self.knowledge.resolve)
         self.xdata = XDataService(self.home)
         self._video: VideoService | None = None
 
@@ -109,6 +113,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     ws = Workspace(home, workspace)
     project, social = ws.project, ws.social
     server = FastMCP("aiopc", instructions=INSTRUCTIONS, log_level="WARNING")
+    register_knowledge_tool(server, ws.knowledge, READ)
 
     def get_project_brief() -> dict:
         """What this project (the current workspace) knows: context, brand, memory, knowledge files, and the
@@ -123,6 +128,16 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
     async def create_video(prompt: str, first_frame: str = "", options: dict | None = None, request_id: str = "") -> dict:
         """Create a video from a prompt and optional first-frame image. Keep request_id stable to avoid duplicates."""
         return await ws.video().create(prompt, first_frame=first_frame or None, options=options, request_id=request_id or None)
+
+    async def generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images: list[str] | None = None,
+                             count: int = 1, source_documents: list[str] | None = None) -> dict:
+        if source_documents is not None and len(source_documents) > 20:
+            raise ValueError("来源资料最多 20 个")
+        sources = [str(ws.knowledge.resolve(str(ws.root / value))) for value in (source_documents or [])]
+        result = await ws.images.generate(prompt, aspect_ratio, reference_images, count)
+        await asyncio.to_thread(ws.knowledge.record_generation, result["images"], prompt, result["edited_from"] + sources)
+        result["source_documents"] = sources
+        return result
 
     async def get_video(job_id: str) -> dict:
         """Query a video job's real status."""
@@ -190,7 +205,7 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         ("social_record_published", social.record_published, "Record the public link of a post the user published, into the project's social log.", WRITE),
         ("social_history", social.history, "Recent publishing activity of this project (filled composers, published links).", READ),
         ("social_read", social.read, "Read an account's own posts, stats or comments/mentions (X: post_id reads replies to one post).", READ),
-        ("generate_image", ws.images.generate, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into this project's assets/generated; returns paths.", EXTERNAL),
+        ("generate_image", generate_image, "Generate images, or edit from up to 4 reference images. aspect_ratio 1:1, 3:4, 4:3, 9:16, 16:9. Saved into assets/generated; use source_documents to retain links to the material used to generate the image.", EXTERNAL),
         ("create_video", create_video, create_video.__doc__, EXTERNAL),
         ("get_video", get_video, get_video.__doc__, READ),
         ("wait_video", wait_video, wait_video.__doc__, READ),
@@ -298,12 +313,9 @@ def create_api(home: Path, token: str) -> Starlette:
         return respond(ws.project.describe())
 
     async def space_route(request: Request) -> Response:
-        return respond(workspace_of(request).space.files())
-
-    async def file_route(request: Request) -> Response:
         ws = workspace_of(request)
-        target = ws.space.resolve(request.query_params.get("path", ""))
-        return FileResponse(target, media_type=ws.space.mime(target), headers={"Cache-Control": "no-store", **cors})
+        exclusions = frozenset({"projects"}) if ws.knowledge.scope == "company" else frozenset()
+        return respond(await asyncio.to_thread(ws.space.files, exclude_top=exclusions))
 
     async def platforms_route(_request: Request) -> Response:
         from aiopc.social.routes import ENHANCEMENTS
@@ -391,7 +403,7 @@ def create_api(home: Path, token: str) -> Starlette:
     routes = [
         ("/api/project", project_route, ["GET", "POST"]),
         ("/api/space", space_route, ["GET"]),
-        ("/api/file", file_route, ["GET"]),
+        *knowledge_routes(workspace_of, body, respond, cors),
         ("/api/platforms", platforms_route, ["GET"]),
         ("/api/accounts", accounts_route, ["GET"]),
         ("/api/accounts/connect", connect_route, ["POST"]),

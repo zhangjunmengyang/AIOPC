@@ -14,6 +14,7 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,12 @@ def _expand(value: Any) -> Any:
 
 
 class ImageService:
-    def __init__(self, instance: Path, workspace: Path, client: httpx.AsyncClient | None = None):
+    def __init__(self, instance: Path, workspace: Path, client: httpx.AsyncClient | None = None,
+                 reference_resolver: Callable[[str], Path] | None = None):
         self.instance = Path(instance)
         self.workspace = Path(workspace)
         self.client = client
+        self.reference_resolver = reference_resolver
 
     def _profile(self) -> dict[str, Any]:
         path = self.instance / "media-profiles.json"
@@ -59,6 +62,11 @@ class ImageService:
         path = (self.workspace / path).resolve() if not path.is_absolute() else path.resolve()
         roots = [self.workspace.resolve(), (self.instance / "media").resolve()]
         if not any(path.is_relative_to(root) for root in roots) or not path.is_file():
+            if self.reference_resolver:
+                try:
+                    return self.reference_resolver(str(path))
+                except ValueError:
+                    pass
             raise ImageError(f"参考图需在工作区或已生成的媒体目录中：{item}")
         return path
 

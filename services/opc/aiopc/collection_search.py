@@ -53,7 +53,8 @@ class CollectionSearch:
         selected = tuple(dict.fromkeys(scopes))
         if not query.strip() or not selected:
             return []
-        result = await self._run(collection, selected, operation="search", query=query.strip(), kind=kind, limit=limit)
+        options = {"kind": kind} if kind is not None else {}
+        result = await self._run(collection, selected, operation="search", query=query.strip(), limit=limit, **options)
         if not isinstance(result, list):
             raise CollectionSearchError("qmd 返回了无法读取的搜索结果")
         root = self.roots[collection]
@@ -95,7 +96,7 @@ class CollectionSearch:
             if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.query or url.fragment:
                 raise ValueError
             dimensions = int(env.get("AIOPC_KB_EMBEDDING_DIMENSIONS") or "0")
-            if not model or not 0 <= dimensions <= 65536:
+            if not model or not 0 <= dimensions <= 8192:
                 raise ValueError
         except ValueError:
             raise CollectionSearchError("qmd embedding 地址、模型或维度配置无效") from None
