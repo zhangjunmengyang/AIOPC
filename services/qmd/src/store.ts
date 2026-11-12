@@ -2345,16 +2345,16 @@ function prepareEmbeddingIndex(db: Database, signature: EmbeddingIndexSignature)
   return db.transaction(() => {
     const previous = readEmbeddingSignature(db);
     const layout = vecLayout(db);
-    const hasDifferentShape = layout.kind === "partitioned" && layout.dimensions !== signature.dimensions;
+    const indexDimensionsChanged = layout.kind === "partitioned" && layout.dimensions !== signature.dimensions;
     const hasDifferentModel = previous
       ? previous.indexKey !== signature.indexKey || previous.dimensions !== signature.dimensions
       : signature.provider !== "gguf" && layout.kind !== "none";
-    if (hasDifferentShape || hasDifferentModel) clearAllEmbeddings(db);
+    if (indexDimensionsChanged || hasDifferentModel) clearAllEmbeddings(db);
     if (!previous || hasDifferentModel) {
       db.prepare(`INSERT OR REPLACE INTO store_config(key, value) VALUES (?, ?)`)
         .run(EMBEDDING_SIGNATURE_KEY, JSON.stringify(signature));
     }
-    return hasDifferentShape || hasDifferentModel;
+    return indexDimensionsChanged || hasDifferentModel;
   }).immediate();
 }
 

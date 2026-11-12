@@ -32,9 +32,11 @@ async function run(request: z.output<typeof requestSchema>): Promise<unknown> {
   if (request.operation === "search" && (!query || !scopes.length)) return [];
 
   const warnings: string[] = [];
+  // Leave time for the keyword fallback before the bridge's subprocess deadline.
+  const provider = embedding && { ...embedding, signal: AbortSignal.timeout(75_000) };
   let store;
   try {
-    store = await createStore({ dbPath, embedding });
+    store = await createStore({ dbPath, embedding: provider });
   } catch (error) {
     if (!embedding) throw error;
     store = await createStore({ dbPath });

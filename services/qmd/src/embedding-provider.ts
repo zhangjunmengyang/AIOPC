@@ -7,6 +7,7 @@ export type EmbeddingProviderConfig = {
   model: string;
   apiKey?: string;
   dimensions?: number;
+  signal?: AbortSignal;
 };
 
 export type EmbeddingProvider = {
@@ -57,11 +58,11 @@ export function createEmbeddingProvider(config: EmbeddingProviderConfig): Embedd
       if (input.length === 0) return [];
       let response: Response;
       try {
-        const timeout = AbortSignal.timeout(30_000);
+        const signals = [AbortSignal.timeout(30_000), config.signal, signal].filter(value => value !== undefined);
         response = await fetch(endpoint, {
           method: "POST",
           redirect: "error",
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+          signal: AbortSignal.any(signals),
           headers: {
             "content-type": "application/json",
             ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),

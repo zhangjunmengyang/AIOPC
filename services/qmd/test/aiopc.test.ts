@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createStore } from "../src/index.js";
+import { createStore, type EmbeddingProviderConfig } from "../src/index.js";
 
 let directory: string;
 let root: string;
@@ -34,7 +34,7 @@ async function write(name: string, title: string, scope: string, kind: string, b
 
 const collection = "knowledge";
 
-async function open(embedding?: { provider: "openai" | "ollama"; baseUrl: string; model: string; dimensions?: number; apiKey?: string }) {
+async function open(embedding?: EmbeddingProviderConfig) {
   const store = await createStore({ dbPath, embedding });
   await store.addCollection(collection, { path: root });
   await store.update();
@@ -136,6 +136,14 @@ test("OpenAI-compatible embedding rebuilds after equal-dimension model and same-
 
   expect(calls.every(call => call.path === "/v1/embeddings" && call.key === "Bearer fixture-key")).toBe(true);
   expect(calls.at(-1)?.dimensions).toBe(3);
+
+  const cancelled = await open({ provider: "openai", baseUrl, model: "cancelled", signal: AbortSignal.abort() });
+  try {
+    await expect(cancelled.embed()).rejects.toThrow("request failed");
+    expect(calls.some(call => call.model === "cancelled")).toBe(false);
+  } finally {
+    await cancelled.close();
+  }
 });
 
 test("Ollama batch request returns vectors without loading a GGUF model", async () => {
