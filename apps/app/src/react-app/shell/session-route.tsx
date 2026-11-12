@@ -15,7 +15,7 @@ useReducer,
 useRef,
 useState,
 } from "react";
-import { useLocation,useNavigate } from "react-router";
+import { useLocation,useNavigate,useParams } from "react-router";
 
 import { DEFAULT_MODEL } from "@/app/constants";
 import { captureAnalyticsEvent,markTaskRunStart } from "@/app/lib/analytics";
@@ -142,6 +142,7 @@ import { captureFavoriteModelTarget,isFavoriteModelTargetCurrent } from "./favor
 
 import { AccountsPage } from "@/react-app/domains/aiopc/accounts-page";
 import { SpacePage } from "@/react-app/domains/aiopc/space-page";
+import { CompanyPageOutlet } from "@/react-app/domains/aiopc/company-page-outlet";
 import {
 readManagedDisabledProviders,
 updateManagedDisabledProviders,
@@ -208,6 +209,7 @@ import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
+import { companyPageRoute, type CompanyPage } from "./company-page-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
 accountsRoute,
@@ -312,15 +314,16 @@ function focusedWorkbenchPaneOwner() {
     : null;
 }
 
-export function SessionRoute() {
+export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { goalId } = useParams<{ goalId?: string }>();
   const platform = usePlatform();
   const toggleSidebar = useUiStateStore((state) => state.toggleSidebar);
   const { config: shellConfig } = useShellConfig();
   const spaceRouteActive = location.pathname === "/space";
   const accountsRouteActive = location.pathname === "/accounts";
-  const pageRouteActive = spaceRouteActive || accountsRouteActive;
+  const pageRouteActive = spaceRouteActive || accountsRouteActive || Boolean(companyPage);
   const local = useLocal();
   const sessionDraftScope = "local";
   const pendingConversations = usePendingConversationStore((state) => state.conversations);
@@ -386,6 +389,7 @@ export function SessionRoute() {
     preservePendingConversationRoute: Boolean(requestedPendingId && pendingConversations[requestedPendingId]?.scope === sessionDraftScope),
     developerMode,
     workspaceRoute: spaceRouteActive ? "space" : accountsRouteActive ? "accounts" : "session",
+    companyPage,
     onServerSettingsChanged: () => undefined,
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -3141,10 +3145,19 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title") : undefined}
+      primaryTitle={companyPage ? t(`aiopc.nav.${companyPage}`) : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title") : undefined}
       primarySurface={pageRouteActive || extensionsMainOpen ? "flat" : undefined}
       primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation)}
-      primarySlot={spaceRouteActive ? (
+      primarySlot={companyPage ? (
+        <CompanyPageOutlet
+          page={companyPage}
+          goalId={goalId}
+          workspaceId={selectedWorkspaceId}
+          endpoint={selectedWorkspaceEndpoint}
+          loading={effectiveLoading}
+          onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
+        />
+      ) : spaceRouteActive ? (
         <SpacePage workspaceRoot={selectedWorkspaceRoot} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
       ) : accountsRouteActive ? (
         <AccountsPage workspaceRoot={selectedWorkspaceRoot} />
@@ -3173,10 +3186,16 @@ export function SessionRoute() {
         onOpenSpace: () => navigate(spaceRoute()),
         accountsActive: accountsRouteActive,
         onOpenAccounts: () => navigate(accountsRoute()),
+        companyPage,
+        onOpenCompanyPage: selectedWorkspaceId ? (page) => navigate(companyPageRoute(selectedWorkspaceId, page)) : undefined,
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
+          if (companyPage) {
+            navigate(companyPageRoute(workspaceId, companyPage));
+            return true;
+          }
           // Route adoption owns desktop persistence and server activation.
           // Centralizing those effects lets rapid navigation coalesce to the
           // last route instead of racing stale IPC and engine reloads.

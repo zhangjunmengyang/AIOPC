@@ -2,12 +2,15 @@ import { z } from "zod";
 import { claudeCodeSignInSchema, parseClaudeAgentIntegrationList } from "./claude-agent";
 import type { McpStatusMap } from "../types";
 import type { ConnectionActionIntent } from "@openwork/types/connection-action-app";
+import type { CompanyCostReport } from "@openwork/types/company-costs";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { normalizeBaseUrl } from "@openwork/types/url";
 import { desktopFetch, desktopFetchViaMain } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import { claudeImportItemsSchema, claudeImportResultsSchema } from "./claude-import";
+import type { CompanyOrgSnapshot } from "@/react-app/domains/aiopc/company-org-page";
+import { createCompanyGoalsClient } from "@/react-app/domains/aiopc/goals/goal-client";
 
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
@@ -1141,6 +1144,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
 
   return {
     baseUrl,
+    ...createCompanyGoalsClient((path, options) => requestJson(baseUrl, path, { ...options, token, timeoutMs: timeouts.config })),
+    readCompanyOrg: (workspaceId: string) => requestJson<CompanyOrgSnapshot>(
+      baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/company/org-chart`, { token, timeoutMs: timeouts.config },
+    ),
+    updateCompanyReportingLine: (workspaceId: string, roleId: string, reportsTo: string | null) => requestJson<CompanyOrgSnapshot>(
+      baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/company/org-chart/${encodeURIComponent(roleId)}`,
+      { token, method: "PATCH", body: { reportsTo }, timeoutMs: timeouts.config },
+    ),
+    readCompanyCosts: (workspaceId: string, signal: AbortSignal) => requestJson<CompanyCostReport>(
+      baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/company-costs`, { token, signal, timeoutMs: 60_000 },
+    ),
     claudeAgentIntegration: async (workspaceId: string) => {
       // Listing initializes the native built-in plugin catalog. An item GET can
       // return IntegrationNotFoundError on a fresh engine before this read.

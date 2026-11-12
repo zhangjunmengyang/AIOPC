@@ -52,7 +52,7 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { WorkbenchPanelGroup, PRIMARY_PANEL_ID, SECONDARY_PANEL_ID } from "./workbench-panel-group";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
-import { AppSidebar } from "../sidebar/app-sidebar";
+import { AppSidebar, type AppSidebarProps } from "../sidebar/app-sidebar";
 import { WorkbenchPaneStatus } from "./workbench-pane-status";
 import { MainSidebarControls } from "../sidebar/sidebar-chrome";
 import { MobileChatActions, MobileChatNavigation } from "./mobile-chat-navigation";
@@ -203,7 +203,7 @@ export type SessionPageSidebarProps = {
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
-};
+} & Pick<AppSidebarProps, "companyPage" | "onOpenCompanyPage">;
 
 export type SessionPageSurfaceProps = Omit<
   SessionSurfaceProps,
@@ -1351,6 +1351,8 @@ export function SessionPage(props: SessionPageProps) {
           onOpenSpace={props.sidebar.onOpenSpace}
           accountsActive={props.sidebar.accountsActive}
           onOpenAccounts={props.sidebar.onOpenAccounts}
+          companyPage={props.sidebar.companyPage}
+          onOpenCompanyPage={props.sidebar.onOpenCompanyPage}
           automationsActive={props.sidebar.automationsActive}
           automationsNeedAttention={props.sidebar.automationsNeedAttention}
           onOpenAutomations={props.sidebar.onOpenAutomations}

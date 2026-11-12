@@ -6,6 +6,7 @@ import * as React from "react";
 import { useLocation, useNavigate } from "react-router";
 import { usePendingConversationStore, withPendingGroupAssignments, type PendingConversation } from "../chat/pending-conversation-store";
 import { workspaceSessionRoute } from "../../../shell/workspace-routes";
+import { COMPANY_PAGES, type CompanyPage } from "../../../shell/company-page-routes";
 import { useSessionPrefetchIntent } from "../surface/session-history";
 import { hasPendingComposerAutoSend, subscribeComposerAutoSend } from "../surface/composer-auto-send";
 import { getQueuedDrainState, subscribeQueuedDrain } from "../surface/queued-drain-machine";
@@ -16,6 +17,7 @@ import {
   Archive,
   ArchiveRestore,
   Blocks,
+  ChartNoAxesColumn,
   Folder,
   Clock3,
   ChevronRight,
@@ -23,6 +25,7 @@ import {
   LayoutGrid,
   ListFilter,
   MoreHorizontal,
+  Network,
   Pencil,
   Pin,
   PinOff,
@@ -31,6 +34,7 @@ import {
   RotateCcw,
   FolderOpen,
   SquarePen,
+  Target,
   X,
 } from "lucide-react";
 import { LazyMotion, MotionContext, Reorder, domMax, m, useDragControls } from "motion/react";
@@ -170,6 +174,8 @@ import { getSessionOrder } from "./session-order";
 import { SESSION_DRAG_TYPE, SessionDragScope, SessionReorderList, useDraggedSession, useSessionReorderTarget, type SessionReorderMove } from "./session-reorder";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
+const companyPageIcons = { "org-chart": Network, goals: Target, costs: ChartNoAxesColumn };
+
 const OUTCOME_DOT_UNREAD = "#2FBE54";
 const OUTCOME_DOT_NEEDS_ACTION = "#E8933A";
 
@@ -638,6 +644,8 @@ export type AppSidebarProps = {
   onOpenSpace?: () => void;
   accountsActive?: boolean;
   onOpenAccounts?: () => void;
+  companyPage?: CompanyPage;
+  onOpenCompanyPage?: (page: CompanyPage) => void;
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
@@ -841,6 +849,15 @@ export function AppSidebar(props: AppSidebarProps) {
                 onSelect={props.onOpenAccounts}
               />
             ) : null}
+            {props.onOpenCompanyPage ? COMPANY_PAGES.map((page) => (
+              <SidebarDestination
+                key={page}
+                active={props.companyPage === page}
+                icon={companyPageIcons[page]}
+                label={t(`aiopc.nav.${page}`)}
+                onSelect={() => props.onOpenCompanyPage?.(page)}
+              />
+            )) : null}
             {props.onOpenDashboard ? (
               <SidebarDestination
                 active={props.dashboardActive === true}

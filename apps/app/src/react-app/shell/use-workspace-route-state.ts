@@ -42,6 +42,7 @@ import {
 } from "@/react-app/infra/workspace-server-client";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useBootState } from "./boot-state";
+import { companyPageRoute, type CompanyPage } from "./company-page-routes";
 import {
   ensureDesktopLocalOpenworkConnection,
   shouldAttemptDesktopLocalReconnect,
@@ -93,6 +94,7 @@ export type UseWorkspaceRouteStateInput = {
   preservePendingConversationRoute?: boolean;
   developerMode: boolean;
   workspaceRoute?: "session" | "activity" | "space" | "accounts";
+  companyPage?: CompanyPage;
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -151,7 +153,7 @@ function withRouteRefreshTimeout<T>(promise: Promise<T>, label: string): Promise
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { developerMode, onServerSettingsChanged, onHostInfo, workspaceRoute = "session" } = input;
+  const { developerMode, onServerSettingsChanged, onHostInfo, workspaceRoute = "session", companyPage } = input;
   const navigate = useNavigate();
   const location = useLocation();
   const local = useLocal();
@@ -183,6 +185,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     navigate(workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
   const normalizeWorkspaceRoute = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
+    if (companyPage) {
+      navigate(companyPageRoute(workspaceId, companyPage), options);
+      return;
+    }
     if (extensionsRouteActive) {
       navigate(workspaceExtensionsRoute(workspaceId, extensionsRoutePath), options);
       return;
@@ -194,7 +200,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       return;
     }
     navigateToWorkspaceSession(workspaceId, sessionId, options);
-  }, [extensionsRouteActive, extensionsRoutePath, location.pathname, navigate, navigateToWorkspaceSession, workspaceRoute]);
+  }, [companyPage, extensionsRouteActive, extensionsRoutePath, location.pathname, navigate, navigateToWorkspaceSession, workspaceRoute]);
 
   const {
     markRouteReady: markBootRouteReady,
