@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -28,6 +29,13 @@ class RuntimeIdentity:
     label: str
     ancestors: tuple[str, ...] = ()
     agent_name: str | None = None
+    resident_skills: tuple[str, ...] = ()
+    adopted_skills: tuple[str, ...] = ()
+
+    def allows_skill(self, name: str, scope: Literal["project", "company"]) -> bool:
+        if self.agent_name is None:
+            return True
+        return name in (self.adopted_skills if scope == "project" else self.resident_skills)
 
     def owner(self):
         return {'runtimeId': self.runtime_id, 'sessionId': self.session_id, 'company': str(self.company),
@@ -129,8 +137,19 @@ class RuntimeContextResolver:
                 ancestors = value.get('ancestors', [])
                 if not isinstance(ancestors, list) or not all(isinstance(item, str) and item for item in ancestors):
                     raise RuntimeContextError('会话父链无效')
+                agent_name = value.get('agentName')
+                if agent_name is not None and (not isinstance(agent_name, str) or not agent_name.strip()):
+                    raise RuntimeContextError('会话角色无效')
+                role_skills = value.get('roleSkills', {'resident': [], 'adopted': []})
+                if not isinstance(role_skills, dict):
+                    raise RuntimeContextError('会话技能权限无效')
+                resident, adopted = role_skills.get('resident'), role_skills.get('adopted')
+                if not all(isinstance(items, list) and all(isinstance(item, str) and item for item in items)
+                           for items in (resident, adopted)):
+                    raise RuntimeContextError('会话技能权限无效')
                 identities.append(RuntimeIdentity(discovery['runtimeId'], session_id, company, project_id, project,
-                                                  str(value.get('label') or session_id)[:256], tuple(ancestors), value.get('agentName')))
+                                                  str(value.get('label') or session_id)[:256], tuple(ancestors), agent_name,
+                                                  tuple(resident), tuple(adopted)))
             except (httpx.HTTPError, OSError, KeyError, TypeError, ValueError) as exc:
                 if len(paths) == 1:
                     if isinstance(exc, RuntimeContextError):

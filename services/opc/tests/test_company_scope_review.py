@@ -95,7 +95,7 @@ async def test_all_project_tools_have_project_schema_and_scope_restores_on_error
     company = company_fixture(tmp_path)
     server = create_server(tmp_path / "home", company.root)
     for tool in await server.list_tools():
-        if tool.name != "kb_query":
+        if tool.name not in {"kb_query", "find_skill", "adopt_skill", "run_skill_script"}:
             assert tool.inputSchema["properties"]["project"]["type"] == "string", tool.name
     scope = WorkspaceScope(tmp_path / "home", company.root, lambda home, path, *, company: SimpleNamespace(root=path))
     with scope.use("alpha"):

@@ -56,10 +56,9 @@ def wired(tmp_path, monkeypatch):
         assert meta == {"trusted": True}
         return authority
 
-    async def authorize(identity, name, scope):
-        assert identity is authority
+    def authorize(name, scope):
         assert name == "sample"
-        return scope == "project" and identity.agent_name == "designer"
+        return scope == "project" and authority.agent_name == "designer"
 
     async def execute(actual_provider, path, entry, args, *, verify_staged):
         assert actual_provider is provider
@@ -70,7 +69,8 @@ def wired(tmp_path, monkeypatch):
 
     monkeypatch.setattr(script_tool, "run_script_in_sandbox", execute)
     server = FastMCP("test")
-    script_tool.register_script_tool(server, tmp_path, FakeSandboxes(), resolve_session=resolve_session, authorize=authorize)
+    authority.allows_skill = authorize
+    script_tool.register_script_tool(server, tmp_path, FakeSandboxes(), resolve_session=resolve_session)
     fn = server._tool_manager.get_tool("run_skill_script").fn
     ctx = SimpleNamespace(request_context=SimpleNamespace(meta={"trusted": True}))
     return SimpleNamespace(

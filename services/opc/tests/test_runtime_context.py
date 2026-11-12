@@ -61,6 +61,26 @@ async def test_http_runtime_selection_rejects_foreign_or_changed_response(tmp_pa
         await resolver.resolve_session('ses_one', runtime_id=runtime)
 
 
+async def test_runtime_skill_policy_uses_verified_role_and_scope(tmp_path):
+    _runtime, discovery, payload = setup(tmp_path)
+    resolver = RuntimeContextResolver(tmp_path, discovery_file=discovery,
+                                      transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)))
+    meta = {'ai.opencode/sessionID': 'ses_one'}
+    unbound = await resolver.resolve(meta)
+    assert unbound.allows_skill('sample', 'project')
+    payload['agentName'] = 'designer'
+    assert not (await resolver.resolve(meta)).allows_skill('sample', 'project')
+    payload['roleSkills'] = {'resident': ['brand-guide'], 'adopted': ['sample']}
+    role = await resolver.resolve(meta)
+    assert role.allows_skill('brand-guide', 'company')
+    assert role.allows_skill('sample', 'project')
+    assert not role.allows_skill('sample', 'company')
+    assert not role.allows_skill('brand-guide', 'project')
+    payload['roleSkills']['adopted'] = 'sample'
+    with pytest.raises(RuntimeContextError):
+        await resolver.resolve(meta)
+
+
 @pytest.mark.asyncio
 async def test_context_is_isolated_between_concurrent_tools_and_restores(tmp_path):
     _runtime, discovery, payload = setup(tmp_path)

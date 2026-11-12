@@ -314,9 +314,17 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         _tool(server, "library_read", methods.read, "Read lines from a methods-library document.", READ)
         _tool(server, "library_search", methods.search, "Find literal text in the methods library.", READ)
 
+    from aiopc.skillhub.script_tool import register_script_tool
     from aiopc.skillhub.tools import register_tools as register_skillhub_tools
 
-    register_skillhub_tools(server, home)
+    async def resolve_skill_session(meta):
+        identity = await runtime.resolve(meta)
+        if identity.company != scope.company.root:
+            raise RuntimeContextError("技能工具只能用于此运行时所在公司的会话")
+        return identity
+
+    register_skillhub_tools(server, home, resolve_session=resolve_skill_session)
+    register_script_tool(server, home, ws.sandboxes, resolve_session=resolve_skill_session)
     return server
 
 

@@ -24,6 +24,8 @@ class ScriptSession(Protocol):
     project_id: str | None
     project_directory: Path
 
+    def allows_skill(self, name: str, scope: Scope) -> bool: ...
+
 
 def register_script_tool(
     server: FastMCP,
@@ -31,7 +33,6 @@ def register_script_tool(
     sandboxes: Sandboxes,
     *,
     resolve_session: Callable[[Any], Awaitable[ScriptSession]],
-    authorize: Callable[[ScriptSession, str, Scope], Awaitable[bool]],
 ) -> None:
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
                                              openWorldHint=False))
@@ -47,7 +48,7 @@ def register_script_tool(
             resolve_adopted_script, home / "library", skill_id, company=identity.company,
             project=identity.project_directory, scope=scope, can_access_company=scope == "company",
         )
-        if not await authorize(identity, installed_skill_name(record), scope):
+        if not identity.allows_skill(installed_skill_name(record), scope):
             raise ValueError("当前角色无权运行这个技能")
         selected = sandboxes.resolve(str(identity.project_directory), environment)
         if selected["provider"] != "local":
