@@ -4,6 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./company-costs": {
+      "types": {
+        "openwork-build": "./dist/types/src/company-costs.d.ts",
+        "default": "./src/company-costs.ts"
+      },
+      "development": "./src/company-costs.ts",
+      "default": "./src/company-costs.ts"
+    },
     "./connector-brand": {
       "types": {
         "openwork-build": "./dist/types/src/connector-brand.d.ts",

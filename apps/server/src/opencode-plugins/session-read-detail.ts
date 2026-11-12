@@ -170,6 +170,44 @@ function richTokens(value: unknown): RichTokens | undefined {
   });
 }
 
+function usageEvent(info: JsonRecord, kind: "message" | "step") {
+  const id = str(info.id);
+  if (!id) throw new Error("Native usage event has no stable ID");
+  const tokens = richTokens(info.tokens);
+  const cost = num(info.cost);
+  const tokenCounts = [tokens?.input, tokens?.output, tokens?.reasoning, tokens?.cache?.read, tokens?.cache?.write];
+  if (cost === undefined && tokenCounts.every(value => value === undefined)) return null;
+  return { id: `${kind}:${id}`, cost, tokens };
+}
+
+/** Usage fields from the same native rows as a full session read, without mapping content. */
+export function nativeSessionUsage(row: unknown, engine: "v1" | "v2") {
+  const raw = rec(row);
+  const info = engine === "v1" ? rec(raw?.info) : raw;
+  if (!info) return null;
+  const type = engine === "v1" ? info.role : info.type;
+  if (type !== "assistant" && !(engine === "v2" && type === "compaction")) return null;
+  const id = str(info.id);
+  if (!id) throw new Error("Native message has no stable ID");
+  // The v1 projector adds each step-finish to the session counters. The
+  // assistant's token snapshot may only contain its last step, so use it
+  // solely for older messages whose finish parts are missing.
+  const events = engine === "v1" ? list(raw?.parts).flatMap(part => {
+    if (!isRecord(part) || part.type !== "step-finish") return [];
+    if ((part.messageID !== undefined && part.messageID !== id)
+      || (part.sessionID !== undefined && part.sessionID !== info.sessionID)) {
+      throw new Error("Native usage event belongs to a different message");
+    }
+    const event = usageEvent(part, "step");
+    return event ? [event] : [];
+  }) : [];
+  if (!events.length) {
+    const event = usageEvent(info, "message");
+    if (event) events.push(event);
+  }
+  return { id, events, agent: str(info.agent) ?? str(info.mode) };
+}
+
 /** v2 `Session.StructuredError`; the provider response body is omitted. */
 function richV2Error(value: unknown, clip: Clipper): RichError | undefined {
   const error = rec(value);
