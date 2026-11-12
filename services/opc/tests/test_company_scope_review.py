@@ -94,8 +94,11 @@ async def test_video_request_id_is_scoped_to_its_project(tmp_path):
 async def test_all_project_tools_have_project_schema_and_scope_restores_on_error(tmp_path):
     company = company_fixture(tmp_path)
     server = create_server(tmp_path / "home", company.root)
-    for tool in await server.list_tools():
-        assert tool.inputSchema["properties"]["project"]["type"] == "string", tool.name
+    schemas = {tool.name: tool.inputSchema["properties"] for tool in await server.list_tools()}
+    assert set(schemas.pop("find_skill")) == {"query"}
+    assert set(schemas.pop("adopt_skill")) == {"id", "scope"}
+    for name, properties in schemas.items():
+        assert properties.get("project", {}).get("type") == "string", name
     scope = WorkspaceScope(tmp_path / "home", company.root, lambda home, path: SimpleNamespace(root=path))
     with scope.use("alpha"):
         try:
