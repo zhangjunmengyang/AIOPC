@@ -1,7 +1,7 @@
 # 公司 · 项目 · 角色 · 知识库:整体方案
 
 状态:设计稿,2026-11-12。依据:外部框架调研、AIOPC 代码盘点、技能与知识库检索调研、子目录会话可行性代码调查。
-标注约定:**[证据]** 读到了代码或文档;**[待测]** 必须运行实测;**[推断]** 我的判断。
+标注约定:**[证据]** 读到了代码或文档。本文是目标态,不含备选方案。
 
 ## 1. 要纠正的骨架
 
@@ -17,7 +17,7 @@
 | 公司 | 唯一根,即 OpenWork 的 workspace `W` | - | `W/` |
 | 项目 | 一个产品或一次事业:简介、品牌、记忆、资料、交付物、社交账号、沙箱 | 公司 | `W/projects/<名>/` |
 | 角色 | 设计、产品、增长等:persona + 技能包 + 工具权限 | 公司 | opencode agent,`W/.opencode/agent/<角色>.md` |
-| 会话 | 一次对话,属于一个项目,可绑定一个角色 | 项目 | opencode session,元数据存服务端 KV |
+| 会话 | 一次对话，创建时确定 `projectId`，可绑定角色和任务 | 项目 | opencode session,元数据存服务端 KV |
 | 知识库 | 公司共享资料 + 项目资料 + 技能库,统一检索 | 公司/项目 | Markdown 文件为真源 |
 | 技能 | 一套可复用步骤。常驻、项目、目录三层 | 见第 6 节 | `SKILL.md` |
 | 环境 | 沙箱,"AI 的电脑",可用资源。有自己的 id、提供方(本地 Docker 或云浏览器)、登录态 | 公司(资源池) | `sandbox/registry.py`,key 由项目路径改为环境 id |
@@ -50,21 +50,16 @@ W/                              公司
 **项目 = 侧栏分组。** 侧栏已有 workspace 下的自定义分组,带拖拽、折叠、服务端同步和"新会话进指定分组" [证据:`session-management-store.ts`、`routes/session-groups.ts`、`new-session-destination.ts`]。创建项目时建一个稳定 id 为 `proj:<名>` 的分组。需要做:项目分组禁止改名删除;"未分组"改名"公司级会话";分组上的"+"传入 `groupId`。
 
 ### 4.2 会话元数据
-会话到角色的绑定现在只在浏览器 localStorage [证据:`session-mode-memory.ts:4`]。扩展服务端分组 KV(主键是 workspace_id 的 JSON),加 `sessionMeta: {sessionId: {agentName?}}`;`normalizeSessionGroupState` 目前会丢弃未知字段,必须同步修改 [证据:`session-groups.ts:52-79`]。项目归属由分组反推,不另存。
 
-### 4.3 会话的执行目录:先做 Phase 0 判定
-目标是让会话的工作目录是 `W/projects/<名>`,这样 agent 的相对路径、项目级技能、MCP 都天然指向项目。**现状做不到** [证据:`apps/server/src/server.ts:1455` 把创建请求的 `location.directory` 强制改写为 workspace 根,v1 代理在 `:1721-1736` 同样覆盖]。
+服务端 `sessionMeta` 保存 `projectId`、`agentName` 和可选的 `taskId`。其中 `projectId` 为空表示公司级会话。旧记录从项目分组补齐归属，之后由项目归属确定侧栏分组。
 
-- **方案 A(目标):** 放行 `W` 内的子目录(realpath 校验后),会话"之家"仍记为 `W`,列表过滤逻辑(`:1660`)不用动 [证据:已支持之家与执行目录不同,`opencode-v2-session-home.ts`、`server.ts:1383-1395`]。
-- **方案 B(回退):** 执行目录仍是 `W`,靠第 4.4 节的 `project` 参数和指令注入区分项目。不依赖引擎行为,但 agent 的相对路径会落在公司根。
+### 4.3 会话的执行目录
 
-选择条件 **[待测]**:(1) 引擎原生 `session.list` 是否返回子目录会话,否则要按 `:1627-1642` 的写法补列;(2) 非 git 的 `W` 下,子目录会话的 project 归属;(3) 引擎 stdio MCP 是否按会话目录各起进程;(4) 引擎向上查找 `.opencode/skills`、`.opencode/agent` 到哪层为止(可在 `W` 里 `git init` 作为边界)。
+项目会话在 `W/projects/<名>` 下执行，公司级会话在 `W` 下执行。两者都按会话之家 `W` 列到同一个公司侧栏。v1、v2 的创建代理都校验真实路径，技能列表从会话目录开始向上查找。
 
-### 4.4 OPC MCP 的项目定位(与 A/B 无关,都要做)
-MCP 全局注入,没有 `--workspace`,进程内 cwd 固定,`get_project_brief` 读的是启动时 cwd [证据:`aiopc-runtime.ts:27`、`server.py:109,437`]。做法:
-1. 项目相关工具加可选参数 `project`,服务端用 `paths.inside()` 限制在 `W/projects/*` 内。
-2. 在会话的指令注入点追加"当前项目目录"[证据:v2 在 `server.ts:1402-1437`,`executionDirectory` 已在 `:1385-1394` 算好;v1 的 `withAiopcInstructions` 是静态的,需另找注入点]。
-3. 不用环境变量:MCP 配置是进程级,无法按会话区分。
+### 4.4 OPC MCP 的项目定位
+
+宿主根据已确认的会话归属注入当前项目目录。项目工具使用 `project` 参数，服务端校验目标项目在已授权公司根下。
 
 ### 4.5 环境是资源,不是项目的附属
 修正:沙箱不再"一项目一台"。一个项目做多套账号矩阵时,绑定多个环境;空闲环境留在公司资源池里,可以重新分配。
@@ -76,9 +71,28 @@ MCP 全局注入,没有 `--workspace`,进程内 cwd 固定,`get_project_brief` �
   3. 项目的 `environments.json` 记录绑定;工具参数 `environment`(可省略,项目只有一个环境时默认)用于选择。
   4. 前端:设置里的"环境"页改为资源池视图(全部环境、状态、绑定到哪个项目);项目页里显示已绑定环境和"添加环境";右侧面板标签由 `environment:<workspaceRoot>` 改为 `environment:<envId>` [证据:`use-side-panel-tabs.ts:9`]。
   5. 迁移:现有 `sandbox.json` 里每个 `projects[path]` 转成一个环境并绑定到该项目。
-- **[待测]**:同一环境内并发会话共用浏览器登录态、文件冲突的处理;多环境之间的账号一致性检查(`xdata`、登录检测)是否假定单环境。
+- **并发与账号**:见 4.6。账号一致性检查(`xdata`、登录检测)按环境逐个执行。
 
 另外 `server.py:254-262 workspace_of` 现在接受任意绝对目录,要限制为已授权公司根之内。`space.py` 若收到公司根会递归扫描全部项目,需排除 `projects/`。项目相关请求继续以 `?workspace=<项目目录>` 定位,环境相关请求另带 `environment=<id>`。
+
+### 4.6 规则细则
+
+会话的项目归属在创建时确定。侧栏分组、执行目录、环境、可见技能和 `kb_query` 的默认范围都以此为准。需要切换项目时，在目标项目中新建会话。
+
+**项目分组标题**:点击标题打开项目总览,左侧小箭头单独负责展开/收起。
+
+**环境重新分配**:登录状态跟环境走,账号记录归项目。
+- 解绑后环境回到资源池,记录 `lastProject`。
+- 绑回同一个项目:登录状态恢复。
+- 绑给另一个项目时，先列出受影响账号，由用户确认清空浏览器档案。仅支持完整清除档案的提供方可以跨项目重绑。
+- 原项目的账号记录保留,状态变为"需要重新登录",并清除其 `environment` 字段。
+
+**环境租约**:独占的是浏览器使用权,不是整个会话。
+- 会话要操作浏览器时获取租约;连续 60 秒无浏览器操作、本轮结束或会话关闭即释放。
+- 等待用户扫码或接管登录时租约保持,上限 10 分钟。
+- 排队先进先出,界面显示"会话 X 正在使用";人工接管实时画面时优先获得租约。
+- 文件不加锁,写入走项目目录。
+- 60 秒、10 分钟为初始值,做成可配置。
 
 ## 5. 知识库(原"资料空间")
 
@@ -88,12 +102,15 @@ MCP 全局注入,没有 `--workspace`,进程内 cwd 固定,`get_project_brief` �
 - 不自己造检索引擎;embedding 用外部模型,不强依赖自带向量库。
 
 ### 5.2 现成件选型(调研结论)
-没有一个现成件同时满足全部要求。**起步选 tobi/qmd**(MIT,31k star):Markdown 为真源,BM25 + 向量 + 重排,RRF 融合,stdio/HTTP MCP,命名 collection,frontmatter 元数据上的递归 JSON 过滤 [证据:github.com/tobi/qmd README]。缺口有两处:
-- **外部 embedding**:README 只写本地 GGUF,没写 OpenAI 兼容接口或 Ollama **[待测:查 issue 与源码]**。用户要求外部模型,所以这是 Phase 0 的验证项;不成立时走回退:Python 侧自写一层(SQLite FTS5 + 外部 embedding + RRF),约多出分块、索引、融合三块。
-- **图片与媒体**:所有候选都没有"别名/关联"的一等支持,见 5.3。
+**决定:fork tobi/qmd 作为检索核心并直接改源码。** 它已具备 Markdown 为真源、BM25 + 向量 + 重排、RRF 融合、stdio/HTTP MCP、命名 collection、frontmatter 元数据递归 JSON 过滤 [证据:github.com/tobi/qmd README]。项目在 qmd 和包装层加入以下能力。
+- **外部 embedding**:增加 embedding provider 抽象,支持 OpenAI 兼容接口和 Ollama,本地 GGUF 作为可选项;`qmd embed` 重建索引时记录模型 id 和维度,换模型自动全量重建。
+- **中文检索**:BM25 路对中文用 trigram 分词(并对 1~2 字查询退回 LIKE),向量路用外部多语言 embedding(bge-m3 或同级);索引文本附上中英文别名。
+- **媒体**:见 5.3,sidecar 在包装层处理,qmd 本身不用理解图片。
+
+fork 放在 `services/` 下的独立目录,保留 `UPSTREAM.md` 记录同步点,与 OpenWork 的做法一致。
 
 排除:Basic Memory(AGPL-3.0)、Khoj(AGPL-3.0)、RAGFlow(重,macOS Docker 镜像不支持)、LightRAG 与 Cognee(建图成本高,LightRAG 无元数据过滤)、Qdrant MCP(find 无过滤参数,只支持 FastEmbed)。
-解析层用 Docling(MIT)或 MarkItDown(MIT)把 PDF/Office 转成 Markdown 再入库。
+PDF 和 DOCX 保留页码或段落。MarkItDown 把 PPTX、XLSX 转为可检索文本。
 
 ### 5.3 媒体靠关联,不靠多模态 embedding
 每个图片、视频、音频配一个同名 sidecar:`logo-v2.png` + `logo-v2.md`。
@@ -111,7 +128,7 @@ AI 或人工写的描述:深蓝底,字母 A 的负形……
 
 - sidecar 进索引,命中它就等于命中图片。
 - 文档命中时,包装层读 `related` 反查 sidecar,把关联媒体一并返回。
-- 描述可先由 AI 生成草稿(MarkItDown 的 `llm_client` 或 Docling 的视觉模型),人工可改。
+- 用户可以编辑媒体描述。生成图的提示词作为生成记录保存。
 - 上传时必须选归属(项目 / 公司),默认当前项目,可"提升为公司知识"。这解决"传上去混在一起"。
 
 ### 5.4 作用域
@@ -136,11 +153,11 @@ opencode 每步会把所有允许的技能名与描述列给模型 [证据:openc
 
 ### 6.3 技能库(采纳用户决定:全量本地镜像 + 独立检索)
 来源 `AIOPC-skills/catalog.json`:2766 条,2674 条直指 `SKILL.md`,60 条仓库入口,26 条非 GitHub,6 条其他 [证据:本机解析]。
-1. **镜像脚本**:按仓库浅克隆并固定提交号,复制 `SKILL.md` 及其目录;记录 来源仓库、提交号、许可证、是否含 `scripts/`、分类。60 个仓库入口先跳过或展开,非 GitHub 先跳过。
+1. **镜像脚本**:按仓库浅克隆并固定提交号,复制 `SKILL.md` 及其目录;记录 来源仓库、提交号、许可证、是否含 `scripts/`、分类。60 个仓库入口展开为其中的具体 `SKILL.md`;非 GitHub 的 26 条按需手工补。
 2. **索引视图**:为每个技能生成一份索引 Markdown(frontmatter 含中英文名、`catalog.json` 的中英文描述、分类、`has_scripts`,正文为 `SKILL.md` 内容),作为 qmd 的 `skills` collection。目录里自带中文描述,恰好补上英文技能的中文检索缺口。
 3. **审核闸门**(镜像时一次完成):校验 agentskills.io 规范(name ≤ 64、description ≤ 1024);Cisco skill-scanner(Apache-2.0,可离线)扫描;含 `scripts/` 的打标记,默认只允许在项目沙箱内运行。注意其自述"仅规则只能抓到约 7.7% 恶意样本",干净结果不等于安全。
 4. **工具**:`find_skill(query)` 返回 3~5 个候选;`adopt_skill(id, scope)` 复制到项目(或提升到公司),写 `skills-lock.json` 记 hash。
-5. **限权**:各角色用 opencode 的 skill 权限 `deny *` + 白名单 [待测:对照所用 opencode 版本,文档把 `permission`/`tools` 标为旧写法]。
+5. **限权**:各角色用 opencode 的 skill 权限 `deny *` + 白名单(以当前 opencode 版本的写法为准,文档把 `permission`/`tools` 标为旧写法)。
 
 ## 7. 页面:新增、改造、复用、抄谁
 
@@ -164,36 +181,58 @@ opencode 每步会把所有允许的技能名与描述列给模型 [证据:openc
 
 | 区域 | 文件 | 改动 |
 |---|---|---|
-| 会话目录 | `apps/server/src/server.ts:1455`、`:1721-1736` | 放行 `W` 内子目录(方案 A) |
+| 会话目录 | `apps/server/src/server.ts` | 校验并采用会话所属的项目目录 |
 | 会话元数据 | `session-groups.ts`、`routes/session-groups.ts` | 加 `sessionMeta`,改 normalize,加 PATCH |
 | 角色绑定 | `session-mode-memory.ts` | 写服务端,localStorage 作缓存 |
 | 侧栏 | `app-sidebar.tsx`、`utils.ts`、`zh.ts` | 项目分组只读保护、"+"传 groupId、文案 |
 | MCP | `services/opc/aiopc/server.py`、`project.py`、`space.py` | `project`/`environment` 参数,措辞改"项目目录",`workspace_of` 校验 |
 | 环境 | `sandbox/registry.py`、`social/service.py`、`social/review.py`、前端 `aiopc-client.ts` | key 改环境 id,账号加 `environment` |
-| 知识库 | 新模块 `services/opc/aiopc/knowledge/` | qmd 集成、sidecar 生成、`kb_query` |
+| 知识库 | `services/opc/aiopc/knowledge.py`、`services/qmd/` | qmd 集成、sidecar 生成、`kb_query` |
 | 技能库 | 新模块 `services/opc/aiopc/skillhub/` + 镜像脚本 | 镜像、索引视图、审核、`find_skill`/`adopt_skill` |
 | 迁移 | 一次性脚本 | 旧 workspace → `projects/<名>`;旧沙箱 → 环境 |
 
-## 9. 分期与验证门槛
+## 9. 目标、分期与验收
 
-**Phase 0:验证(先做,约 1~2 天,不合并功能代码)** 每项出结论和证据,写进 `docs/design/02-phase0-findings.md`:
-1. 子目录会话:列表、project 归属、MCP cwd、技能向上查找(第 4.3 节四个待测点),决定 A 或 B。
-2. qmd:能否接外部 embedding;中文检索质量(用真实中文资料 + 技能目录的中文描述各抽样);2700 个技能的索引耗时与内存;Electron 内嵌或作为独立进程的打包可行性。不成立时启动回退方案。
-3. 同一环境并发会话的冲突行为。
-4. opencode 当前版本的 skill 权限语法。
-5. 目录 60 个仓库入口能展开多少个技能。
+目标态以第 1~8 节为准。实现中遇到上游或引擎行为与预期不符,改我们的代理层或 fork,不降低目标。
 
-**Phase 1:骨架** 项目分组 + 会话元数据 + `project` 参数 + 环境资源池 + 知识库(含 sidecar、`kb_query`、上传选归属)+ 迁移。验收:同一公司下两个项目,会话互不串目录,设计角色能同时查到本项目与公司资料,环境可新增、绑定、解绑。
-**Phase 2:技能与角色** 技能库镜像与检索、角色详情与出厂包、团队页、收件箱、发布审批卡。
-**Phase 3:** 任务看板、例行任务。 **Phase 4:** 组织架构、目标、成本。
+**Phase 1:骨架**
+1. 项目分组、会话元数据、会话执行目录(4.3)、MCP `project` 参数与指令注入(4.4)。
+2. 环境资源池与项目绑定(4.5),旧沙箱迁移。
+3. 知识库:qmd fork(外部 embedding、中文 trigram)、sidecar、`kb_query`、上传选归属、页面改造。
+4. 旧 workspace → `projects/<名>` 迁移脚本(可预演,不删原文件)。
 
-## 10. 风险与未决
-- 引擎对子目录会话的行为未知(Phase 0)。
-- qmd 外部 embedding 与打包未知(Phase 0)。回退成本:约多出分块、索引、融合三块。
-- 技能第三方内容的安全:扫描只降低风险,不保证。含脚本的技能只在沙箱运行。
-- 技能库许可证:各仓库不同,镜像只用于本机检索和采纳;若 OPC 开源分发镜像本身,需逐仓库核对,`NOTICE.md` 已有来源信息。
-- 隔壁窗口正在改 `services/opc`(`server.py`、`social/`、新增 `ui/`)且工作区有约 600 处未提交改动,执行时先同步,避免覆盖。
-- 此前的 `opc-platform-direction` 记忆写着"workspace = project";方案确认后需更新。
+验收(写成自动化测试或可复现脚本):
+- 同一公司下建两个项目,各自会话的工作目录是各自的 `projects/<名>`,侧栏按项目分组,重启后分组与角色绑定还在。
+- 子目录会话在侧栏列表中可见、可恢复;`get_project_brief` 返回的是该项目;项目级 `.opencode/skills` 被加载。
+- 设计角色在项目 A 的会话里,`kb_query` 能同时命中项目 A 的资料和公司共享资料,查不到项目 B 的私有资料(`scope=all` 除外)。
+- 图片通过 sidecar 的别名被检索到,文档命中时带出关联图片。
+- 换 embedding 模型后索引自动重建;中英混合查询(含 1~2 字中文)有结果。
+- 一个项目绑定两个环境,账号分别登录互不影响;解绑后环境回到资源池。
+- 同一环境两个会话并发时有明确的互斥或排队行为,不出现登录态串用。
+
+**Phase 2:技能与角色** 技能库镜像与检索(全量 2674 条直链 + 展开的仓库入口)、`find_skill`/`adopt_skill`、角色详情与出厂包、按角色限权、团队页、收件箱、发布审批卡。
+验收:角色在提示中只看到自己的常驻技能与项目已采纳技能;`find_skill("复刻营销页")` 返回相关候选;采纳后写入项目并生成 hash 锁;含脚本的技能被标记且只在沙箱内运行。
+
+**Phase 3:任务与例行**
+- 任务(工单)实体:属于项目,字段 `title、description、status(待办/进行中/待审/完成/阻塞)、assignee(角色)、parent、blockedBy、deliverables(文件或发布稿)`,会话可挂在任务下;存项目目录 `tasks/*.md`(frontmatter + 正文),与知识库同为 Markdown 真源。
+- 任务看板:按状态分列,卡片显示负责角色和交付物,点开进会话;任务与交付物同板。
+- 例行任务:保留 `packages/types/src/automations.ts` 的 schema 和调度表单,后端换成本地调度(`services/opc` 内),增加 `agent` 字段,运行产出进收件箱。
+验收:AI 可创建、领取、流转任务;任务可阻塞与依赖;例行任务按计划触发并在收件箱留下结果;重启后调度不丢。
+
+**Phase 4:组织与成本**
+- 组织架构图:角色与汇报线(`reportsTo`,可空)。
+- 目标树:公司目标 → 项目目标 → 任务,任务可挂目标。
+- 成本:按会话、角色、项目统计模型用量与费用,先统计,不做硬停。
+验收:组织图可编辑;目标与任务双向可见;成本页数字与会话用量一致。
+
+**补充验收(Phase 1/2 共用)**
+- 跨项目拖动会话时，项目归属保持固定。目标项目的新会话在对应目录运行。
+- 解绑后直接绑回同一项目时恢复登录态。经用户确认绑给另一个项目时清空浏览器档案，原账号显示需要重新登录。
+- 租约 60 秒空闲释放,排队先进先出,等待扫码时保持。
+
+## 10. 注意事项
+- 第三方技能是第三方提示词,入库扫描(Cisco skill-scanner)只降低风险;含脚本的技能只在项目环境内运行。
+- 技能库先作内部使用,不对外分发镜像。
 
 ## 11. 主要依据
 tobi/qmd、Docling、MarkItDown、Cisco skill-scanner、vercel-labs/skills、agentskills.io、opencode.ai/docs/skills、Paperclip、Multica、OneManCompany、Markus、Kortix 的公开仓库与文档;代码证据来自 `~/project/AIOPC` 当前工作区。
