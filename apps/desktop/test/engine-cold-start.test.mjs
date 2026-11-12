@@ -15,7 +15,7 @@ const engineBin = process.env.OPENWORK_TEST_ENGINE_BIN
 // A clean profile expands the bundled dependencies into several isolated config
 // directories before serving requests. Allow that disk work on a cold machine;
 // the API readiness requests below retain their separate five-second deadlines.
-test("a fresh bundled engine lists sessions and loads OpenWork tools without npm access", { timeout: 120_000 }, async () => {
+test("a fresh bundled engine lists sessions and loads OpenWork tools without npm access", { timeout: 240_000 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "openwork-cold-engine-"));
   const previousEnv = { ...process.env };
   const registryRequests = [];

@@ -494,14 +494,14 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       { name: "groupId", type: "string", required: false, description: "Group ID to move into. Omit or null to ungrouped." },
       { name: "workspaceId", type: "string", required: false, description: "Workspace ID. Defaults to session's workspace." },
     ],
-    execute: (args) => {
+    execute: async (args) => {
       const sessionId = stringArg(args, "sessionId");
       const groupId = stringArg(args, "groupId") || null;
       if (!sessionId) return { ok: false, error: "sessionId is required" };
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       const wsId = resolveWorkspaceId(stringArg(args, "workspaceId")) || targetWorkspace?.id;
       if (!wsId) return { ok: false, error: "Could not determine workspace" };
-      store.getState().assignGroup(wsId, sessionId, groupId);
+      await store.getState().assignGroup(wsId, sessionId, groupId);
       return { ok: true, sessionId, groupId, workspaceId: wsId };
     },
   }), [resolveWorkspaceId, sessionsByWorkspaceId, workspaces]);

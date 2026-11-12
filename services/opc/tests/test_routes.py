@@ -21,7 +21,7 @@ class FakeBrowser:
 def make(tmp_path, platform="x", identity=None):
     browser = FakeBrowser()
     social = SocialService(tmp_path / "home", tmp_path, browser=browser)
-    account = AccountStore(tmp_path / "home").upsert(platform, identity or {"id": "1", "name": "me", "handle": "me"})
+    account = AccountStore(tmp_path / "home").upsert(platform, identity or {"id": "1", "name": "me", "handle": "me"}, project=str(tmp_path))
     return social, browser, account
 
 
@@ -109,8 +109,8 @@ def test_routes_endpoints(tmp_path, monkeypatch):
         return {"did": "did:plc:x", "handle": "me.bsky.social"}
 
     monkeypatch.setattr(routes.BlueskyRoute, "verify", verify)
-    account = AccountStore(tmp_path / "home").upsert("bluesky", {"id": "b", "name": "me"})
-    api = TestClient(create_api(tmp_path / "home", "t"))
+    account = AccountStore(tmp_path / "home").upsert("bluesky", {"id": "b", "name": "me"}, project=str(tmp_path))
+    api = TestClient(create_api(tmp_path / "home", "t", authorized_roots=[tmp_path]))
     params, headers = {"workspace": str(tmp_path)}, {"Authorization": "Bearer t"}
     added = api.post(f"/api/accounts/{account['id']}/routes", params=params, headers=headers,
                      json={"route": "bluesky-api", "fields": {"handle": "me", "app_password": "abcd-efgh"}}).json()
@@ -130,6 +130,7 @@ def test_connect_with_official_api_alone(tmp_path, monkeypatch):
     keys = {"api_key": "a", "api_secret": "b", "access_token": "c", "access_token_secret": "d"}
     connected = asyncio.run(social.connect_with_route("X", "x-api", keys))
     account = connected["account"]
+    assert social.update(account["account_id"], alias="本项目账号")["name"] == "本项目账号"
     assert account["handle"] == "opc_lab" and account["publish"] == "compose"
     assert account["services"][0]["id"] == "twitterapi"
     with pytest.raises(SocialError, match="四项"):

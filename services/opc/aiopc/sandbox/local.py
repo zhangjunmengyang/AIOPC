@@ -118,11 +118,11 @@ class LocalDockerProvider(Provider):
             return Environment(provider=self.info.id, status="missing")
         running = bool((info.get("State") or {}).get("Running"))
         if not running:
-            return Environment(provider=self.info.id, status="stopped", id=self.container(key))
+            return Environment(provider=self.info.id, status="stopped", id=str(state.get("container") or self.container(key)))
         view_port, cdp_port = self._published(info, "8080/tcp"), self._published(info, "9223/tcp")
         password = str(state.get("password") or "")
         return Environment(
-            provider=self.info.id, status="running", id=self.container(key),
+            provider=self.info.id, status="running", id=str(state.get("container") or self.container(key)),
             cdp_url=f"http://127.0.0.1:{cdp_port}" if cdp_port else "",
             live_view_url=(f"http://127.0.0.1:{view_port}/?usr=aiopc&pwd={password}&embed=1&cast=0"
                            if view_port and password else ""),
@@ -146,7 +146,7 @@ class LocalDockerProvider(Provider):
             ok, why = await self.available()
             if not ok:
                 raise SandboxError(f"{why}。请先安装并启动 OrbStack 或 Docker Desktop。")
-            name = self.container(key)
+            name = str(state.get("container") or self.container(key))
             info = await self._inspect(name)
             if info is not None and not (info.get("State") or {}).get("Running"):
                 await _docker("start", name, timeout=120)
@@ -166,7 +166,7 @@ class LocalDockerProvider(Provider):
                     "-e", f"NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD={state['password']}",
                     "-e", f"NEKO_WEBRTC_TCPMUX={media_port}", "-e", f"NEKO_WEBRTC_UDPMUX={media_port}",
                     "-e", "NEKO_WEBRTC_ICELITE=1", "-e", "NEKO_WEBRTC_NAT1TO1=127.0.0.1",
-                    "-v", f"{self.volume(key)}:/home/neko/.config/chromium",
+                    "-v", f"{state.get('volume') or self.volume(key)}:/home/neko/.config/chromium",
                     IMAGE, timeout=180)
                 info = await self._inspect(name)
             environment = await self._environment(key, state, info)
@@ -174,21 +174,35 @@ class LocalDockerProvider(Provider):
                 raise SandboxError("沙箱启动了，但没有拿到浏览器的调试端口")
             await self._wait_ready(environment)
             state["container"] = name
+            state.setdefault("volume", self.volume(key))
             return environment
 
     async def status(self, key: ProjectKey, state: dict[str, Any]) -> Environment:
         if find_docker() is None:
             return Environment(provider=self.info.id, status="missing", detail="没有容器引擎")
-        return await self._environment(key, state, await self._inspect(self.container(key)))
+        return await self._environment(key, state, await self._inspect(str(state.get("container") or self.container(key))))
 
     async def stop(self, key: ProjectKey, state: dict[str, Any]) -> None:
-        await _docker("stop", self.container(key), check=False, timeout=120)
+        await _docker("stop", str(state.get("container") or self.container(key)), check=False, timeout=120)
 
     async def destroy(self, key: ProjectKey, state: dict[str, Any]) -> None:
         """Remove the container and, with it, every login kept in its profile."""
-        await _docker("rm", "-f", self.container(key), check=False, timeout=120)
-        await _docker("volume", "rm", self.volume(key), check=False, timeout=60)
+        await _docker("rm", "-f", str(state.get("container") or self.container(key)), check=False, timeout=120)
+        await _docker("volume", "rm", str(state.get("volume") or self.volume(key)), check=False, timeout=60)
         state.pop("container", None)
+
+    async def reset(self, key: ProjectKey, state: dict[str, Any]) -> None:
+        # Listing with checked commands distinguishes "already absent" from an
+        # unavailable daemon. Failed deletion must never transfer an old profile.
+        name = str(state.get("container") or self.container(key))
+        volume = str(state.get("volume") or self.volume(key))
+        containers = (await _docker("ps", "-a", "--format", "{{.Names}}", timeout=30)).splitlines()
+        if name in containers:
+            await _docker("rm", "-f", name, timeout=120)
+        volumes = (await _docker("volume", "ls", "--format", "{{.Name}}", timeout=30)).splitlines()
+        if volume in volumes:
+            await _docker("volume", "rm", volume, timeout=60)
+        state.clear()
 
 
 INSTALLERS = {

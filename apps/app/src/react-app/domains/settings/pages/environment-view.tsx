@@ -1,3 +1,4 @@
+import { EnvironmentPoolView } from "../../aiopc/environment-pool";
 /** @jsxImportSource react */
 import { useEffect, useId, useState, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -60,6 +61,7 @@ type EnvItem = EnvironmentVariableItem;
 type EnvironmentEditorState = EnvironmentEditorDraft | null;
 
 export type EnvironmentViewProps = {
+  companyRoot?: string;
   client: OpenworkServerClient | null;
   onApplyChanges?: () => Promise<ApplyEnvironmentChangesResult>;
   applyBlocked?: boolean;
@@ -97,6 +99,7 @@ function EnvironmentViewContent(props: EnvironmentViewProps) {
 
   return (
     <LayoutStack>
+      {props.companyRoot ? <EnvironmentPoolView key={props.companyRoot} companyRoot={props.companyRoot} /> : null}
       <EnvironmentSettingsPanel
         client={client}
         canEdit={canEdit}

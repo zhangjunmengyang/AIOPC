@@ -1,3 +1,4 @@
+import { scopeNewTaskComposer } from "./new-task-project-context";
 /** @jsxImportSource react */
 import { focusPaneComposerSoon } from "./workbench-pane-focus";
 import { isOpencodeConfigErrorMessage } from "@openwork/types/opencode-config-error";
@@ -190,6 +191,10 @@ export type SessionPageSidebarProps = {
   onRetryWorkspace: (workspaceId: string) => Promise<unknown> | void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  onOpenProject?: (workspaceId: string, projectName: string) => void;
+  onOpenProjects?: (workspaceId: string) => void;
+  projectsActive?: boolean;
+
   spaceActive?: boolean;
   onOpenSpace?: () => void;
   accountsActive?: boolean;
@@ -796,7 +801,7 @@ export function SessionPage(props: SessionPageProps) {
   const openGeneralSidePanel = useCallback(() => {
     setCurrentSidePanel("panel");
   }, [setCurrentSidePanel]);
-  const openEnvironmentPane = useOpenEnvironmentPane(sidePanelSessionKey, props.selectedWorkspaceRoot, environmentRailActive, setCurrentSidePanel);
+  const { open: openEnvironmentPane, picker: environmentPicker } = useOpenEnvironmentPane(sidePanelSessionKey, props.selectedWorkspaceRoot, environmentRailActive, setCurrentSidePanel);
   const openArtifactRailPane = useCallback(() => {
     if (!hasArtifactTargets) {
       const documentTab = activePanelTab?.type !== "environment" && activePanelTab
@@ -1347,6 +1352,9 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          projectsActive={props.sidebar.projectsActive}
+          onOpenProjects={props.sidebar.onOpenProjects}
+          onOpenProject={props.sidebar.onOpenProject}
           spaceActive={props.sidebar.spaceActive}
           onOpenSpace={props.sidebar.onOpenSpace}
           accountsActive={props.sidebar.accountsActive}
@@ -1779,7 +1787,7 @@ export function SessionPage(props: SessionPageProps) {
                                   onRunTask={(prompt, attachments, handoff) => props.sidebar.onCreateTaskWithPrompt?.(splitSession.workspaceId, prompt, attachments, handoff)}
                                   onOpenProviderAuth={props.onOpenProviderAuth}
                                   composer={{
-                                    ...props.newTaskComposer,
+                                    ...(splitPaneRuntime.status === "ready" ? scopeNewTaskComposer(props.newTaskComposer, splitPaneRuntime) : props.newTaskComposer),
                                     draftOwnerKey: newSessionDraftOwnerKey(props.newTaskComposer.draftScope, splitSession.draftDestination),
                                     draftSessionId: splitSession.sessionId,
                                     destination: splitSession.draftDestination,
@@ -2057,7 +2065,7 @@ export function SessionPage(props: SessionPageProps) {
       </Dialog>
 
 
-      {/* Cloud provider notifications are now handled globally by CloudProvidersToast in app-root.tsx */}
+      {environmentPicker}
     </div>
     </SessionReferenceProvider>
   );
