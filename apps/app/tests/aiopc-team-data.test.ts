@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildTeamRoster,
   buildTeamOutputs,
+  teamCardSkillNames,
   latestTeamToolTitle,
   startOfTeamWeek,
 } from "../src/react-app/domains/aiopc/team-data";
@@ -55,6 +56,17 @@ describe("AIOPC team activity", () => {
     });
     expect(brand?.currentSession).toMatchObject({ id: "busy", projectId: "proj:Beta" });
     expect(brand?.status).toBe("working");
+  });
+
+  test("card shows resident skills plus adoptions only from its active conversation project", () => {
+    const projects = [
+      { id: "proj:Alpha", skills: ["naming", "alpha-skill"] },
+      { id: "proj:Beta", skills: ["beta-skill"] },
+    ];
+    const [working] = buildTeamRoster(roles, meta, sessions, { active: new Set(["wait"]), waiting: new Set() });
+    const [idle] = buildTeamRoster(roles, meta, sessions, { active: new Set(), waiting: new Set() });
+    expect(teamCardSkillNames(working!, projects)).toEqual(["naming", "alpha-skill"]);
+    expect(teamCardSkillNames(idle!, projects)).toEqual(["naming"]);
   });
 
   test("reads the newest actual tool title from assistant messages, with a tool-name fallback", () => {

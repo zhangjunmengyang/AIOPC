@@ -50,6 +50,11 @@ export type TeamOutput = OutputBase & (
   | { kind: "publish"; record: TeamPublishRecord }
 );
 
+export function teamCardSkillNames(member: TeamMember, projects: ReadonlyArray<Pick<TeamProject, "id" | "skills">>) {
+  const project = projects.find((item) => item.id === member.currentSession?.projectId);
+  return [...new Set([...member.role.skills, ...(project?.skills ?? [])])];
+}
+
 export function buildTeamRoster(
   roles: TeamRole[],
   metadata: TeamSessionMeta,

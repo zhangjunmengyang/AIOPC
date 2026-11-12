@@ -15,7 +15,7 @@ import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useTeamData } from "./team-client";
 import {
-  buildTeamOutputs, buildTeamRoster, latestTeamToolTitle, startOfTeamWeek,
+  buildTeamOutputs, buildTeamRoster, latestTeamToolTitle, startOfTeamWeek, teamCardSkillNames,
   type TeamMember, type TeamOutput, type TeamProject, type TeamRole, type TeamSession,
   type TeamSessionSummary, type TeamStatus, type TeamTask,
 } from "./team-data";
@@ -162,7 +162,7 @@ type MemberProps = Pick<Props, "client" | "endpoint" | "openSession"> & {
 };
 
 function MemberCard({ member, projects, outputs, loadingOutputs, ...work }: MemberProps) {
-  const skills = [...new Set([...member.role.skills, ...projects.flatMap((project) => project.skills)])];
+  const skills = teamCardSkillNames(member, projects);
   return (
     <article className="min-w-0 rounded-xl border bg-card p-4 text-card-foreground">
       <div className="flex items-center gap-3">
