@@ -14,8 +14,8 @@ export type AiopcConnection = {
   home: string;
 };
 
-/** The current workspace: in AIOPC a workspace is a project. */
-export type AiopcProject = { name: string; path: string };
+/** Company-level workspace responses have no project id. */
+export type AiopcProject = { name: string; path: string; id?: string };
 
 export type SpaceKind = "image" | "video" | "audio" | "document";
 export type SpaceSection = "brief" | "knowledge" | "assets" | "content" | "voices" | "other";
@@ -28,6 +28,41 @@ export type SpaceItem = {
   size: number;
   modified: number;
 };
+
+export type KnowledgeScope = "project" | "company" | "skills";
+export type KnowledgeWriteScope = Exclude<KnowledgeScope, "skills">;
+
+export type KnowledgeAsset = Omit<SpaceItem, "kind"> & {
+  kind: SpaceKind | "skill";
+  title: string;
+  alias: string;
+  aliases: string[];
+  scope: string;
+  description: string;
+  related_paths: string[];
+  relations: Array<{ path: string; name: string; relation: string; locator: string }>;
+  extracted: boolean;
+};
+export type KnowledgeCatalog = {
+  items: KnowledgeAsset[];
+  truncated: boolean;
+  warnings: string[];
+  indexed_at: number | null;
+};
+export type KnowledgeSearchHit = {
+  asset: KnowledgeAsset;
+  snippet: string;
+  locator: string;
+  score: number;
+  related: KnowledgeAsset[];
+};
+export type KnowledgeSearchResult = {
+  query: string;
+  mode: "hybrid" | "fts" | "empty";
+  items: KnowledgeSearchHit[];
+  warnings: string[];
+};
+export type KnowledgeIndexResult = { files: number; chunks: number; mode: string; warnings: string[] };
 
 export type AiopcPlatform = {
   id: string;
@@ -147,7 +182,7 @@ export async function aiopcRequest<T>(
   workspaceRoot: string,
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
-  options: { params?: Record<string, string | undefined>; body?: unknown } = {},
+  options: { params?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   if (connection.status !== "ready") throw new AiopcError(connection.error || "AIOPC 业务服务还没有就绪");
   const url = new URL(path, connection.url);
@@ -164,8 +199,10 @@ export async function aiopcRequest<T>(
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
     });
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
     throw new AiopcError("连不上 AIOPC 业务服务，请稍后重试");
   }
   const data = await response.json().catch(() => null) as (T & { error?: string }) | null;
@@ -173,7 +210,26 @@ export async function aiopcRequest<T>(
   return data as T;
 }
 
-/** A Space file's address for <img>/<video>, which cannot send headers. */
+/** Multipart uploads preserve each file's bytes and let the browser set its boundary. */
+export async function importKnowledgeFiles(connection: AiopcConnection, workspaceRoot: string, files: File[], scope: KnowledgeWriteScope) {
+  if (connection.status !== "ready") throw new AiopcError(connection.error || "AIOPC 业务服务还没有就绪");
+  const url = new URL("/api/knowledge/import", connection.url);
+  url.searchParams.set("workspace", workspaceRoot);
+  const body = new FormData();
+  body.append("scope", scope);
+  for (const file of files) body.append("files", file);
+  let response: Response;
+  try {
+    response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${connection.token}` }, body });
+  } catch {
+    throw new AiopcError("连不上 AIOPC 业务服务，请稍后重试");
+  }
+  const data = await response.json().catch(() => null) as { imported: number; items: KnowledgeAsset[]; error?: string } | null;
+  if (!response.ok || !data) throw new AiopcError(data?.error || `请求失败（${response.status}）`);
+  return data;
+}
+
+/** A knowledge base file's address for <img>/<video>, which cannot send headers. */
 export function aiopcFileUrl(connection: AiopcConnection, workspaceRoot: string, path: string) {
   if (connection.status !== "ready") return "";
   const url = new URL("/api/file", connection.url);
@@ -190,7 +246,7 @@ export function useAiopc(workspaceRoot: string) {
   const queryClient = useQueryClient();
   const ready = Boolean(connection?.status === "ready" && workspaceRoot);
   const request = useCallback(<T,>(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string,
-    options?: { params?: Record<string, string | undefined>; body?: unknown }) => {
+    options?: { params?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal }) => {
     if (!connection) throw new AiopcError("AIOPC 业务服务还没有就绪");
     return aiopcRequest<T>(connection, workspaceRoot, method, path, options);
   }, [connection, workspaceRoot]);
