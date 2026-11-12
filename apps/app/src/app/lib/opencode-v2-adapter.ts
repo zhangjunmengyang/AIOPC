@@ -3235,6 +3235,20 @@ export function createClientV2(
     listRunningShells,
     removeBackgroundShell,
     listSessionsPage: session.list, listMessagesPage: session.messages,
+    async listWorkspacePermissions(options?: RequestOptions): Promise<FieldsResult<PermissionRequest[]>> {
+      const result = await request("GET", "/api/permission/request", undefined, options?.signal);
+      if (!result.response.ok) return failedResult(result);
+      const items = responseData(result.payload);
+      if (!Array.isArray(items)) {
+        return failedResult({ ...result, payload: { name: "InvalidV2PermissionListResponse" } });
+      }
+      return successfulResult(result, items.flatMap((item) => {
+        const permission = mapV2Permission(item);
+        if (!permission) return [];
+        permissionSessionByRequestID.set(permission.id, permission.sessionID);
+        return [mapV2PermissionToLegacy(permission)];
+      }));
+    },
     listSessionQuestions: (parameters: SessionParameters, options?: RequestOptions) => listQuestions(parameters, options),
     replySessionQuestion: (parameters: SessionParameters & { requestID: string; answers: string[][] }, options?: RequestOptions) =>
       settleQuestion(parameters, options),

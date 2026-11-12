@@ -194,6 +194,10 @@ export type SessionPageSidebarProps = {
   onOpenSpace?: () => void;
   accountsActive?: boolean;
   onOpenAccounts?: () => void;
+  teamActive?: boolean;
+  onOpenTeam?: () => void;
+  inboxActive?: boolean;
+  onOpenInbox?: () => void;
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
@@ -1351,6 +1355,10 @@ export function SessionPage(props: SessionPageProps) {
           onOpenSpace={props.sidebar.onOpenSpace}
           accountsActive={props.sidebar.accountsActive}
           onOpenAccounts={props.sidebar.onOpenAccounts}
+          teamActive={props.sidebar.teamActive}
+          onOpenTeam={props.sidebar.onOpenTeam}
+          inboxActive={props.sidebar.inboxActive}
+          onOpenInbox={props.sidebar.onOpenInbox}
           automationsActive={props.sidebar.automationsActive}
           automationsNeedAttention={props.sidebar.automationsNeedAttention}
           onOpenAutomations={props.sidebar.onOpenAutomations}

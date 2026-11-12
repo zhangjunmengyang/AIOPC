@@ -86,6 +86,8 @@ export function AppRoot() {
 
                 <Route path="/space" element={<SessionRoute />} />
                 <Route path="/accounts" element={<SessionRoute />} />
+                <Route path="/team" element={<SessionRoute />} />
+                <Route path="/inbox" element={<SessionRoute />} />
                 <Route path="/workspace/:workspaceId/extensions/*" element={<SessionRoute />} />
                 <Route path="/extensions/*" element={<SessionRoute />} />
                 <Route path="/workspace/:workspaceId/settings/*" element={<SettingsRoute />} />

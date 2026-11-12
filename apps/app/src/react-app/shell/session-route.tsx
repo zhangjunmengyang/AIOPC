@@ -142,6 +142,9 @@ import { captureFavoriteModelTarget,isFavoriteModelTargetCurrent } from "./favor
 
 import { AccountsPage } from "@/react-app/domains/aiopc/accounts-page";
 import { SpacePage } from "@/react-app/domains/aiopc/space-page";
+import { InboxPage } from "@/react-app/domains/aiopc/inbox-page";
+import { TeamPage } from "@/react-app/domains/aiopc/team-page";
+import { teamText } from "@/react-app/domains/aiopc/team-text";
 import {
 readManagedDisabledProviders,
 updateManagedDisabledProviders,
@@ -320,7 +323,11 @@ export function SessionRoute() {
   const { config: shellConfig } = useShellConfig();
   const spaceRouteActive = location.pathname === "/space";
   const accountsRouteActive = location.pathname === "/accounts";
-  const pageRouteActive = spaceRouteActive || accountsRouteActive;
+  const teamRouteActive = location.pathname === "/team";
+  const inboxRouteActive = location.pathname === "/inbox";
+  const workspaceRoute = spaceRouteActive ? "space" : accountsRouteActive ? "accounts"
+    : teamRouteActive ? "team" : inboxRouteActive ? "inbox" : "session";
+  const pageRouteActive = workspaceRoute !== "session";
   const local = useLocal();
   const sessionDraftScope = "local";
   const pendingConversations = usePendingConversationStore((state) => state.conversations);
@@ -385,7 +392,7 @@ export function SessionRoute() {
   } = useWorkspaceRouteState({
     preservePendingConversationRoute: Boolean(requestedPendingId && pendingConversations[requestedPendingId]?.scope === sessionDraftScope),
     developerMode,
-    workspaceRoute: spaceRouteActive ? "space" : accountsRouteActive ? "accounts" : "session",
+    workspaceRoute,
     onServerSettingsChanged: () => undefined,
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -3141,13 +3148,22 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title") : undefined}
+      primaryTitle={spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title")
+        : teamRouteActive ? teamText("title") : inboxRouteActive ? t("aiopc.inbox.title") : undefined}
       primarySurface={pageRouteActive || extensionsMainOpen ? "flat" : undefined}
       primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation)}
       primarySlot={spaceRouteActive ? (
         <SpacePage workspaceRoot={selectedWorkspaceRoot} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
       ) : accountsRouteActive ? (
         <AccountsPage workspaceRoot={selectedWorkspaceRoot} />
+      ) : teamRouteActive ? (
+        <TeamPage endpoint={selectedWorkspaceEndpoint} client={opencodeClient} workspaceRoot={selectedWorkspaceRoot}
+          sessions={sessionsByWorkspaceId[selectedWorkspaceId] ?? []}
+          openSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)} />
+      ) : inboxRouteActive ? (
+        <InboxPage workspaceRoot={selectedWorkspaceRoot} workspaceId={selectedWorkspaceId}
+          client={opencodeClient} openworkServerClient={selectedWorkspaceEndpoint?.client ?? null}
+          openSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)} />
       ) : pendingConversation ? <PendingConversationView conversation={pendingConversation} composer={newTaskComposerContext} /> : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
@@ -3173,6 +3189,10 @@ export function SessionRoute() {
         onOpenSpace: () => navigate(spaceRoute()),
         accountsActive: accountsRouteActive,
         onOpenAccounts: () => navigate(accountsRoute()),
+        teamActive: teamRouteActive,
+        onOpenTeam: () => navigate("/team"),
+        inboxActive: inboxRouteActive,
+        onOpenInbox: () => navigate("/inbox"),
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
