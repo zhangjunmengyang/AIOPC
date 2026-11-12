@@ -275,6 +275,7 @@ export const automationRevisionSchema = z.object({
   automationId: idSchema,
   version: z.number().int().positive(),
   instructions: z.string().trim().min(1).max(100_000),
+  agent: idSchema.nullable().optional(),
   schedule: automationScheduleSchema,
   model: automationModelSchema,
   action: automationActionSchema.optional(),
