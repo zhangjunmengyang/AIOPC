@@ -157,7 +157,7 @@ export function buildTeamOutputs(
     }
     for (const [index, record] of history.entries()) {
       const at = record.at * 1_000;
-      if (!(at >= since) || !["published", "composer_filled", "composer_opened"].includes(record.status)) continue;
+      if (!(at >= since) || !["published", "composer_filled"].includes(record.status)) continue;
       const source = record.session_id ? metadata[record.session_id] : undefined;
       add(
         { id: `${id}:publish:${at}:${index}`, project, at, kind: "publish", record },

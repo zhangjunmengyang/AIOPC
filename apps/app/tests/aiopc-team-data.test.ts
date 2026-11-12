@@ -121,6 +121,7 @@ describe("AIOPC team activity", () => {
           { at: Date.parse(newDate) / 1_000, platform: "x", status: "published", session_id: "wait", url: "https://example.org/post" },
           { at: Date.parse(newDate) / 1_000, platform: "x", status: "composer_filled", session_id: "busy" },
           { at: Date.parse(newDate) / 1_000, platform: "x", status: "failed", session_id: "wait" },
+          { at: Date.parse(newDate) / 1_000, platform: "x", status: "composer_opened", session_id: "wait" },
           { at: Date.parse(oldDate) / 1_000, platform: "x", status: "published", session_id: "wait" },
         ],
       },
