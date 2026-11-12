@@ -201,8 +201,9 @@ def create_server(home: Path, workspace: Path, library: Path | None = None) -> F
         source = Path(result.get("path") or result.get("file") or "")
         if source.is_file():
             target = project.assets / "generated" / source.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            if source != target:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
             result["path"] = str(target)
         return result
 

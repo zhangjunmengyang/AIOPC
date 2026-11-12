@@ -287,6 +287,7 @@ export async function resolveVerifiedSessionProjects(
   workspace: Pick<WorkspaceInfo, "id" | "path">,
   sessions: ReadonlyArray<{ sessionId: string; nativeDirectory: string | null }>,
   projects: readonly CompanyProject[],
+  onWriteError: (error: unknown) => void,
 ): Promise<Map<string, SessionProject>> {
   const valid = sessions.filter(({ sessionId }) => sessionId && sessionId.trim() === sessionId && sessionId.length <= 256);
   if (!valid.length) return new Map();
@@ -304,7 +305,9 @@ export async function resolveVerifiedSessionProjects(
     return [directory, canonical ? projectsByDirectory.get(canonical) ?? null : null] as const;
   })));
   const initialized = new Map<string, SessionMetadata>();
+  let beforeWrite: SessionGroupState | undefined;
   const { state } = await updateSessionGroupState(config, workspace.id, current => {
+    beforeWrite = current;
     for (const { sessionId, nativeDirectory } of valid) {
       const meta = Object.hasOwn(current.sessionMeta, sessionId) ? current.sessionMeta[sessionId] : undefined;
       if (!Object.hasOwn(meta ?? {}, "projectId")) {
@@ -317,6 +320,11 @@ export async function resolveVerifiedSessionProjects(
       ...current,
       sessionMeta: { ...current.sessionMeta, ...Object.fromEntries(initialized) },
     }, projects);
+  }).catch(error => {
+    if (!beforeWrite) throw error;
+    initialized.clear();
+    onWriteError(error);
+    return { state: beforeWrite };
   });
   if (initialized.size) {
     const events = getSessionGroupEventStore(config);
@@ -326,7 +334,8 @@ export async function resolveVerifiedSessionProjects(
   }
   const resolved = new Map<string, SessionProject>();
   for (const { sessionId } of valid) {
-    const projectId = state.sessionMeta[sessionId]?.projectId ?? null;
+    const projectId = state.sessionMeta[sessionId]?.projectId;
+    if (projectId === undefined) continue;
     const executionDirectory = projectId === null ? company : projectsById.get(projectId)?.directory;
     if (executionDirectory) resolved.set(sessionId, { projectId, executionDirectory });
   }
