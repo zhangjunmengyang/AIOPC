@@ -257,12 +257,17 @@ class LeaseManager:
     def heartbeat(self, env, owner, lease_id, *, operation_id=None, activity=False):
         with self._db() as db:
             row = self._lease(db, env, owner, lease_id)
-            active = operation_id and db.execute("SELECT 1 FROM operations WHERE env=? AND id=? AND lease_id=?",
-                                                (env, operation_id, lease_id)).fetchone()
-            if active:
+            if operation_id is not None:
+                active = db.execute("SELECT 1 FROM operations WHERE env=? AND id=? AND lease_id=?",
+                                    (env, operation_id, lease_id)).fetchone()
+                if not active:
+                    raise LeaseError("浏览器操作已结束或已被替换", "lease_lost")
                 db.execute("UPDATE operations SET expires=? WHERE env=?", (self.clock() + self.operation_seconds, env))
-            if active or (activity and owner.get("kind") == "human"):
-                db.execute("UPDATE leases SET expires=?,hold_started=NULL,last_activity=? WHERE env=?", (self.clock() + self.idle_seconds, self.clock(), env))
+            # A late heartbeat from the operation that opened the QR code
+            # must preserve the bounded wait already requested by that operation.
+            if row["hold_started"] is None and (operation_id is not None or (activity and owner.get("kind") == "human")):
+                now = self.clock()
+                db.execute("UPDATE leases SET expires=?,last_activity=? WHERE env=?", (now + self.idle_seconds, now, env))
                 row = db.execute("SELECT * FROM leases WHERE env=?", (env,)).fetchone()
             return {"expiresAt": round(row["expires"] * 1000)}
 

@@ -30,7 +30,7 @@ class AuthorizedWorkspaces:
             if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.getuid():
                 return ()
             data = json.loads(path.read_text())
-            if data.get('version') != 1 or not isinstance(data.get('roots'), list):
+            if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('roots'), list):
                 return ()
             return tuple(Path(item) for item in data['roots'] if isinstance(item, str)
                          and self._unchanged_root(Path(item)))
