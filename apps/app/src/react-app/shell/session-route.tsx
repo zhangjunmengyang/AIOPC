@@ -1,7 +1,7 @@
 import { requestSessionGroupMove } from "@/react-app/domains/session/sidebar/session-project-move";
 import { ProjectsPage } from "@/react-app/domains/aiopc/projects-page";
-import { ProjectWorkNavigation, readProjectWorkSection } from "@/react-app/domains/aiopc/project-work-navigation";
-import { TaskBoardPage } from "@/react-app/domains/aiopc/tasks/task-board-page";
+import { ProjectWorkNavigation, projectTaskHref, readProjectWorkSection, sessionProjectTaskHref } from "@/react-app/domains/aiopc/project-work-navigation";
+import { ProjectTasksOutlet } from "@/react-app/domains/aiopc/tasks/project-tasks-outlet";
 import type { ProjectTask } from "@/react-app/domains/aiopc/tasks/task-client";
 import { RoutinesPage } from "@/react-app/domains/automations/routines-page";
 import { useQuery } from "@tanstack/react-query";
@@ -3127,7 +3127,8 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
       <ProjectWorkNavigation projectHref={projectHref} current={projectWorkSection} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {projectWorkSection === "tasks" ? (
-          <TaskBoardPage projectPath={projectPath} projectName={workProjectName} roles={taskRoles.data ?? []} sessions={sessions}
+          <ProjectTasksOutlet workspaceId={selectedWorkspaceId} projectId={projectGroupId} endpoint={selectedWorkspaceEndpoint}
+            projectPath={projectPath} projectName={workProjectName} roles={taskRoles.data ?? []} sessions={sessions}
             onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
             onStartSession={startTaskSession}
             onBindSession={(taskId, sessionId) => sessionManagementStore.getState().setSessionTask(selectedWorkspaceId, sessionId, taskId, null)}
@@ -3253,6 +3254,8 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
         />
       }
       primaryTitle={companyPage ? t(`aiopc.nav.${companyPage}`) : projectsRouteActive ? t("aiopc.projects.title") : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title") : undefined}
+      sessionTaskHref={selectedSessionId ? sessionProjectTaskHref(selectedWorkspaceId,
+        selectedWorkspaceGroupState?.sessionMeta?.[selectedSessionId]) : undefined}
       primarySurface={pageRouteActive || extensionsMainOpen ? "flat" : undefined}
       primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation)}
       primarySlot={companyPage ? (
@@ -3263,6 +3266,7 @@ export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}
           endpoint={selectedWorkspaceEndpoint}
           loading={effectiveLoading}
           onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
+          taskHref={(project, taskId) => projectTaskHref(workspaceProjectsRoute(selectedWorkspaceId, project.name), taskId)}
         />
       ) : projectsRouteActive ? projectPage : spaceRouteActive ? (
         <SpacePage workspaceRoot={selectedExecutionDirectory} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
