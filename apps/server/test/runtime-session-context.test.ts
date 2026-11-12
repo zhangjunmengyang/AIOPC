@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { authorizeRuntimeContextRequest, resolveRuntimeSessionContext, runtimeIdForConfig, writeRuntimeContextFile } from "../src/runtime-session-context.js";
+import { updateSessionGroupState } from "../src/session-groups.js";
 import type { ServerConfig } from "../src/types.js";
 
 test("runtime session context finds the owning company and fixed project instead of the selected company", async () => {
@@ -15,6 +16,18 @@ test("runtime session context finds the owning company and fixed project instead
     const context = await resolveRuntimeSessionContext(config, "ses_b", async path => path.endsWith("/message?limit=200&order=asc") ? [] : { id: "ses_b", directory: project }, async () => null);
     assert.deepEqual(context, { runtimeId: runtimeIdForConfig(config), sessionId: "ses_b", company: b, projectId: "proj:design", projectDirectory: project, ancestors: [] });
     await assert.rejects(() => resolveRuntimeSessionContext(config, "ses_spoofed", async () => ({ id: "ses_b", directory: project }), async () => null));
+    const roleDir = join(b, ".opencode", "agent");
+    await mkdir(roleDir, { recursive: true });
+    await writeFile(join(roleDir, "designer.md"), "---\nmetadata:\n  aiopc:\n    skills: [shared, resident]\n---\n角色。\n");
+    const installed = join(project, ".opencode", "skills", "shared");
+    await mkdir(installed, { recursive: true });
+    await writeFile(join(installed, "SKILL.md"), "---\nname: shared\n---\n项目技能。\n");
+    await writeFile(join(project, ".opencode", "skills-lock.json"), JSON.stringify({ version: 1, skills: { shared: { id: "audited-shared", hash: "a".repeat(64) } } }));
+    await updateSessionGroupState(config, "b", state => ({ ...state, sessionMeta: { ses_b: { agentName: "designer", projectId: "proj:design" } } }));
+    const assigned = await resolveRuntimeSessionContext(config, "ses_b", async () => ({ id: "ses_b", directory: project, agent: "untrusted-agent" }), async () => null);
+    assert.equal(assigned.agentName, "designer");
+    assert.deepEqual(assigned.roleSkills, { resident: ["shared", "resident"], adopted: ["shared"] });
+
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

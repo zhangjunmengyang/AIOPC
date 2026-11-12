@@ -2,6 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { readRoleSkillPolicy } from "./company-roles.js";
 import { ApiError } from "./errors.js";
 import { createV2SessionHomes, nativeSession, nativeSessionDirectory, type V2SessionOrigin } from "./opencode-v2-session-home.js";
 import { readSessionGroupState, resolveSessionProject } from "./session-groups.js";
@@ -84,10 +85,15 @@ export async function resolveRuntimeSessionContext(
         ancestors.push(parentId);
         parentId = typeof parent.parentID === "string" ? parent.parentID : undefined;
       }
-      const meta = (await readSessionGroupState(config, workspace.id)).state.sessionMeta[sessionId];
-      return { runtimeId: runtimeIdForConfig(config), sessionId, company: await homes.canonical(workspace.path),
-        projectId: project.projectId, projectDirectory: project.projectId ? project.executionDirectory : null, ancestors,
-        ...(meta?.agentName ? { agentName: meta.agentName } : {}),
+      const meta = (await readSessionGroupState(config, workspace.id)).state.sessionMeta;
+      const agentName = meta[sessionId]?.agentName ?? ancestors.map(id => meta[id]?.agentName).find(Boolean);
+      const company = await homes.canonical(workspace.path);
+      const projectDirectory = project.projectId ? project.executionDirectory : null;
+      const rolePolicy = agentName ? await readRoleSkillPolicy(company, projectDirectory, agentName) : null;
+      return { runtimeId: runtimeIdForConfig(config), sessionId, company,
+        projectId: project.projectId, projectDirectory, ancestors,
+        ...(agentName ? { agentName } : {}),
+        ...(rolePolicy ? { roleSkills: { resident: rolePolicy.role.skills, adopted: rolePolicy.adopted } } : {}),
         ...(typeof session.title === "string" && session.title.trim() ? { label: session.title } : {}),
       };
     } catch (error) {

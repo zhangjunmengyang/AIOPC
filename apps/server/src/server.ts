@@ -112,6 +112,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
+import { listCompanyRoles, readAdoptedProjectSkillNames } from "./company-roles.js";
 import { registerCreatedSessionGroup, resolveSessionProject } from "./session-groups.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
@@ -3768,6 +3769,14 @@ function createRoutes(
     }
     const result = await listPlugins(config, workspace.id, workspace.path, false);
     return jsonResponse(result);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/roles", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const [items, projects] = await Promise.all([listCompanyRoles(workspace.path), listCompanyProjects(workspace.path)]);
+    const projectSkills = Object.fromEntries(await Promise.all(projects.map(async project =>
+      [project.id, await readAdoptedProjectSkillNames(project.directory)])));
+    return jsonResponse({ items, projectSkills });
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills", "client", async (ctx) => {
