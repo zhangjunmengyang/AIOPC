@@ -2,6 +2,8 @@ import { Link } from "react-router";
 
 import { currentLocale } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { workspaceProjectsRoute } from "@/react-app/shell/workspace-routes";
+import { projectNameFromGroupId } from "./company-project";
 
 const sections = ["overview", "tasks", "routines"] as const;
 export type ProjectWorkSection = (typeof sections)[number];
@@ -22,6 +24,27 @@ export function readProjectWorkSection(search: string): ProjectWorkSection {
 
 export function projectWorkHref(projectHref: string, section: ProjectWorkSection): string {
   return section === "overview" ? projectHref : `${projectHref}?view=${section}`;
+}
+
+export function readProjectTaskId(search: string): string | undefined {
+  const params = new URLSearchParams(search);
+  const taskId = params.get("task");
+  return params.get("view") === "tasks" && isTaskId(taskId) ? taskId : undefined;
+}
+
+function isTaskId(taskId: string | null | undefined): taskId is string {
+  return typeof taskId === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(taskId);
+}
+
+export function projectTaskHref(projectHref: string, taskId?: string | null): string {
+  const board = projectWorkHref(projectHref, "tasks");
+  return taskId ? `${board}&task=${encodeURIComponent(taskId)}` : board;
+}
+
+export function sessionProjectTaskHref(workspaceId: string, meta?: { projectId?: string | null; taskId?: string | null }) {
+  const projectName = projectNameFromGroupId(meta?.projectId);
+  return workspaceId && projectName && isTaskId(meta?.taskId)
+    ? projectTaskHref(workspaceProjectsRoute(workspaceId, projectName), meta.taskId) : undefined;
 }
 
 export function ProjectWorkNavigation({ projectHref, current }: { projectHref: string; current: ProjectWorkSection }) {

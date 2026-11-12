@@ -140,6 +140,15 @@ test("session.read detail full returns what the real v2 engine stores", { timeou
   assert.match(String(content[4]?.output), /^L{4000}…\[\+5000 chars; read this message by messageId for more\]$/);
   assert.deepEqual(messages[3], { id: "msg_detail_04", type: "idle", time: { created: 1_012 }, outcome: "succeeded" });
 
+  const report = await request("/workspace/ws_detail/company-costs");
+  assert.ok(record(report) && record(report.sources) && Array.isArray(report.bySession));
+  assert.equal(report.sources.v2, "ready");
+  assert.equal(report.unreadableSessions, 0);
+  const costRow = report.bySession.find((row: unknown) => record(row) && row.id === "ses_detail");
+  assert.deepEqual(costRow?.usage, {
+    cost: turn.cost, input: 120, output: 40, reasoning: 10, cacheRead: 0, cacheWrite: 0, events: 1, unpricedEvents: 0,
+  });
+
   const newest = await query({ detail: "full", count: 2 });
   assert.deepEqual((Array.isArray(newest.messages) ? newest.messages : []).filter(record).map((message) => message.id), ["msg_detail_03", "msg_detail_04"]);
   const oldest = await query({ detail: "full", count: 1, from: "start" });

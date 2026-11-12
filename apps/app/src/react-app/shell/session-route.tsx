@@ -1,7 +1,7 @@
 import { requestSessionGroupMove } from "@/react-app/domains/session/sidebar/session-project-move";
 import { ProjectsPage } from "@/react-app/domains/aiopc/projects-page";
-import { ProjectWorkNavigation, readProjectWorkSection } from "@/react-app/domains/aiopc/project-work-navigation";
-import { TaskBoardPage } from "@/react-app/domains/aiopc/tasks/task-board-page";
+import { ProjectWorkNavigation, projectTaskHref, readProjectWorkSection, sessionProjectTaskHref } from "@/react-app/domains/aiopc/project-work-navigation";
+import { ProjectTasksOutlet } from "@/react-app/domains/aiopc/tasks/project-tasks-outlet";
 import type { ProjectTask } from "@/react-app/domains/aiopc/tasks/task-client";
 import { RoutinesPage } from "@/react-app/domains/automations/routines-page";
 import { useQuery } from "@tanstack/react-query";
@@ -153,6 +153,7 @@ import { SpacePage } from "@/react-app/domains/aiopc/space-page";
 import { InboxPage } from "@/react-app/domains/aiopc/inbox-page";
 import { TeamPage } from "@/react-app/domains/aiopc/team-page";
 import { teamText } from "@/react-app/domains/aiopc/team-text";
+import { CompanyPageOutlet } from "@/react-app/domains/aiopc/company-page-outlet";
 import {
 readManagedDisabledProviders,
 updateManagedDisabledProviders,
@@ -219,6 +220,7 @@ import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
+import { companyPageRoute, type CompanyPage } from "./company-page-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
 accountsRoute,
@@ -334,9 +336,10 @@ function focusedWorkbenchPaneOwner() {
     : null;
 }
 
-export function SessionRoute() {
+export function SessionRoute({ companyPage }: { companyPage?: CompanyPage } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { goalId, projectName: overviewProjectName } = useParams<{ goalId?: string; projectName?: string }>();
   const platform = usePlatform();
   const toggleSidebar = useUiStateStore((state) => state.toggleSidebar);
   const { config: shellConfig } = useShellConfig();
@@ -345,11 +348,10 @@ export function SessionRoute() {
   const teamRouteActive = location.pathname === "/team";
   const inboxRouteActive = location.pathname === "/inbox";
   const projectsRouteActive = /^\/workspace\/[^/]+\/projects(?:\/|$)/.test(location.pathname);
-  const { projectName: overviewProjectName } = useParams<{ projectName?: string }>();
   const projectWorkSection = readProjectWorkSection(location.search);
   const workspaceRoute = projectsRouteActive ? "projects" : spaceRouteActive ? "space" : accountsRouteActive ? "accounts"
     : teamRouteActive ? "team" : inboxRouteActive ? "inbox" : "session";
-  const pageRouteActive = workspaceRoute !== "session";
+  const pageRouteActive = workspaceRoute !== "session" || Boolean(companyPage);
   const local = useLocal();
   const sessionDraftScope = "local";
   const pendingConversations = usePendingConversationStore((state) => state.conversations);
@@ -415,6 +417,7 @@ export function SessionRoute() {
     preservePendingConversationRoute: Boolean(requestedPendingId && pendingConversations[requestedPendingId]?.scope === sessionDraftScope),
     developerMode,
     workspaceRoute,
+    companyPage,
     onServerSettingsChanged: () => undefined,
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -3131,7 +3134,8 @@ export function SessionRoute() {
       <ProjectWorkNavigation projectHref={projectHref} current={projectWorkSection} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {projectWorkSection === "tasks" ? (
-          <TaskBoardPage projectPath={projectPath} projectName={workProjectName} roles={taskRoles.data ?? []} sessions={sessions}
+          <ProjectTasksOutlet workspaceId={selectedWorkspaceId} projectId={projectGroupId} endpoint={selectedWorkspaceEndpoint}
+            projectPath={projectPath} projectName={workProjectName} roles={taskRoles.data ?? []} sessions={sessions}
             onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
             onStartSession={startTaskSession}
             onBindSession={(taskId, sessionId) => sessionManagementStore.getState().setSessionTask(selectedWorkspaceId, sessionId, taskId, null)}
@@ -3256,11 +3260,23 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={projectsRouteActive ? t("aiopc.projects.title") : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title")
+      primaryTitle={companyPage ? t(`aiopc.nav.${companyPage}`) : projectsRouteActive ? t("aiopc.projects.title") : spaceRouteActive ? t("aiopc.space.title") : accountsRouteActive ? t("aiopc.accounts.title")
         : teamRouteActive ? teamText("title") : inboxRouteActive ? t("aiopc.inbox.title") : undefined}
+      sessionTaskHref={selectedSessionId ? sessionProjectTaskHref(selectedWorkspaceId,
+        selectedWorkspaceGroupState?.sessionMeta?.[selectedSessionId]) : undefined}
       primarySurface={pageRouteActive || extensionsMainOpen ? "flat" : undefined}
       primarySlotIsConversation={!pageRouteActive && Boolean(pendingConversation)}
-      primarySlot={projectsRouteActive ? projectPage : spaceRouteActive ? (
+      primarySlot={companyPage ? (
+        <CompanyPageOutlet
+          page={companyPage}
+          goalId={goalId}
+          workspaceId={selectedWorkspaceId}
+          endpoint={selectedWorkspaceEndpoint}
+          loading={effectiveLoading}
+          onOpenSession={(sessionId) => navigateToWorkspaceSession(selectedWorkspaceId, sessionId)}
+          taskHref={(project, taskId) => projectTaskHref(workspaceProjectsRoute(selectedWorkspaceId, project.name), taskId)}
+        />
+      ) : projectsRouteActive ? projectPage : spaceRouteActive ? (
         <SpacePage workspaceRoot={selectedExecutionDirectory} onAskAi={(prompt) => void startAppConversation(prompt).catch(() => undefined)} />
       ) : accountsRouteActive ? (
         <AccountsPage workspaceRoot={selectedExecutionDirectory} />
@@ -3304,10 +3320,16 @@ export function SessionRoute() {
         onOpenTeam: () => navigate("/team"),
         inboxActive: inboxRouteActive,
         onOpenInbox: () => navigate("/inbox"),
+        companyPage,
+        onOpenCompanyPage: selectedWorkspaceId ? (page) => navigate(companyPageRoute(selectedWorkspaceId, page)) : undefined,
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
+          if (companyPage) {
+            navigate(companyPageRoute(workspaceId, companyPage));
+            return true;
+          }
           // Route adoption owns desktop persistence and server activation.
           // Centralizing those effects lets rapid navigation coalesce to the
           // last route instead of racing stale IPC and engine reloads.

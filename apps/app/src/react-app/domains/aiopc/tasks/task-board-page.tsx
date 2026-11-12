@@ -1,4 +1,4 @@
-import { useId, useState, type DragEvent } from "react";
+import { useId, useState, type DragEvent, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, MessageSquare, Plus, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,10 @@ export type TaskBoardPageProps = Pick<TaskDetailProps, "onOpenSession" | "onStar
   roles: readonly TaskRole[];
   sessions: readonly TaskSession[];
   onOpenDeliverable?: (deliverable: TaskDeliverable) => void | Promise<void>;
+  /** When onTaskIdChange is supplied, the route owns the open task. */
+  taskId?: string;
+  onTaskIdChange?: (id: string | null) => void;
+  renderTaskGoal?: (task: ProjectTask) => ReactNode;
 };
 
 type Editor = { mode: "create" } | { mode: "detail" | "edit"; id: string };
@@ -36,7 +40,9 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
 
 function ProjectTaskBoard(props: TaskBoardPageProps) {
   const { connection, tasks, saveTask } = useProjectTasks(props.projectPath);
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const routeTaskId = props.onTaskIdChange ? props.taskId ?? null : null;
+  const [previousRouteTaskId, setPreviousRouteTaskId] = useState(routeTaskId);
+  const [localEditor, setLocalEditor] = useState<Editor | null>(null);
   const [preview, setPreview] = useState<TaskDeliverable | null>(null);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
   const [dragging, setDragging] = useState<ProjectTask | null>(null);
@@ -44,6 +50,17 @@ function ProjectTaskBoard(props: TaskBoardPageProps) {
   const [error, setError] = useState("");
   const [dialogError, setDialogError] = useState("");
   const headingId = useId();
+  if (previousRouteTaskId !== routeTaskId) {
+    setPreviousRouteTaskId(routeTaskId);
+    setLocalEditor(null);
+    setPreview(null);
+    setDialogError("");
+  }
+  let editor = localEditor;
+  if (routeTaskId) {
+    const isEditing = localEditor?.mode === "edit" && localEditor.id === routeTaskId;
+    editor = tasks.data ? (isEditing ? localEditor : { mode: "detail", id: routeTaskId }) : null;
+  }
   const items = tasks.data?.items ?? [];
   const byStatus = Map.groupBy(items, (task) => task.status);
   const visibleStatus = statusFilter ?? TASK_STATUSES.find((status) => byStatus.has(status)) ?? "todo";
@@ -55,12 +72,22 @@ function ProjectTaskBoard(props: TaskBoardPageProps) {
 
   function showTask(id: string) {
     setDialogError("");
-    setEditor({ mode: "detail", id });
+    if (props.onTaskIdChange) {
+      setLocalEditor(null);
+      if (id !== routeTaskId) props.onTaskIdChange(id);
+    } else {
+      setLocalEditor({ mode: "detail", id });
+    }
+  }
+
+  function closeTask() {
+    setLocalEditor(null);
+    if (routeTaskId) props.onTaskIdChange?.(null);
   }
 
   function openSession(id: string) {
     props.onOpenSession(id);
-    setEditor(null);
+    setLocalEditor(null);
   }
 
   async function openDeliverable(deliverable: TaskDeliverable) {
@@ -122,7 +149,7 @@ function ProjectTaskBoard(props: TaskBoardPageProps) {
             <p className="mb-0.5 text-xs text-muted-foreground wrap-anywhere">{props.projectName}</p>
             <h1 id={headingId} className="text-xl font-semibold tracking-tight">{taskText("tasks")}</h1>
           </div>
-          <Button size="sm" onClick={() => { setDialogError(""); setEditor({ mode: "create" }); }}>
+          <Button size="sm" onClick={() => { setDialogError(""); setLocalEditor({ mode: "create" }); }}>
             <Plus className="size-4" aria-hidden />{taskText("newTask")}
           </Button>
         </header>
@@ -213,7 +240,7 @@ function ProjectTaskBoard(props: TaskBoardPageProps) {
       <Dialog open={Boolean(editor || preview)} onOpenChange={(open) => {
         if (open || saveTask.isPending) return;
         if (preview) setPreview(null);
-        else setEditor(null);
+        else closeTask();
       }}>
         <DialogContent className="max-h-[86dvh] overflow-y-auto lg:max-w-2xl">
           <DialogHeader className="pe-8">
@@ -227,12 +254,15 @@ function ProjectTaskBoard(props: TaskBoardPageProps) {
             onBack={editor ? () => setPreview(null) : undefined} />
             : editor?.mode === "create" || (editor?.mode === "edit" && selectedTask) ? (
               <TaskForm key={selectedTask?.id ?? "new"} task={selectedTask} items={items} roles={props.roles} busy={saveTask.isPending} onSave={save}
-                onCancel={() => selectedTask ? showTask(selectedTask.id) : setEditor(null)} />
+                onCancel={() => selectedTask ? showTask(selectedTask.id) : setLocalEditor(null)} />
             ) : selectedTask ? (
-              <TaskDetail key={selectedTask.id} task={selectedTask} items={items} roles={props.roles} sessions={props.sessions}
-                onShowTask={showTask} onOpenDeliverable={(item) => void openDeliverable(item)} onOpenSession={openSession}
-                onStartSession={props.onStartSession} onBindSession={props.onBindSession} onUnbindSession={props.onUnbindSession}
-                onEdit={() => setEditor({ mode: "edit", id: selectedTask.id })} />
+              <div key={selectedTask.id} className="space-y-5">
+                <TaskDetail task={selectedTask} items={items} roles={props.roles} sessions={props.sessions}
+                  onShowTask={showTask} onOpenDeliverable={(item) => void openDeliverable(item)} onOpenSession={openSession}
+                  onStartSession={props.onStartSession} onBindSession={props.onBindSession} onUnbindSession={props.onUnbindSession}
+                  onEdit={() => setLocalEditor({ mode: "edit", id: selectedTask.id })} />
+                {props.renderTaskGoal ? <div className="border-t border-border pt-4">{props.renderTaskGoal(selectedTask)}</div> : null}
+              </div>
             ) : null}
           {dialogError ? <p role="alert" className="text-sm text-destructive">{dialogError}</p> : null}
         </DialogContent>

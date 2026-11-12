@@ -27,6 +27,7 @@ import type {
   WorkspaceSessionGroup,
 } from "../../../../app/types";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router";
 import { TaskRecovery } from "@/components/chat/task-recovery";
 import { toast } from "@/components/ui/sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -53,7 +54,7 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { WorkbenchPanelGroup, PRIMARY_PANEL_ID, SECONDARY_PANEL_ID } from "./workbench-panel-group";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
-import { AppSidebar } from "../sidebar/app-sidebar";
+import { AppSidebar, type AppSidebarProps } from "../sidebar/app-sidebar";
 import { WorkbenchPaneStatus } from "./workbench-pane-status";
 import { MainSidebarControls } from "../sidebar/sidebar-chrome";
 import { MobileChatActions, MobileChatNavigation } from "./mobile-chat-navigation";
@@ -212,7 +213,7 @@ export type SessionPageSidebarProps = {
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
-};
+} & Pick<AppSidebarProps, "companyPage" | "onOpenCompanyPage">;
 
 export type SessionPageSurfaceProps = Omit<
   SessionSurfaceProps,
@@ -328,6 +329,7 @@ export type SessionPageProps = {
   /** Standalone pages use the main canvas instead of the inset conversation pane. */
   primarySurface?: "flat";
   primaryTitle?: string;
+  sessionTaskHref?: string;
   /** Replaces the header's title, e.g. a task on another computer's `Chat / Task` breadcrumb. */
   primaryHeader?: React.ReactNode;
   /** Open a task on another computer in the main pane. */
@@ -1367,6 +1369,8 @@ export function SessionPage(props: SessionPageProps) {
           onOpenTeam={props.sidebar.onOpenTeam}
           inboxActive={props.sidebar.inboxActive}
           onOpenInbox={props.sidebar.onOpenInbox}
+          companyPage={props.sidebar.companyPage}
+          onOpenCompanyPage={props.sidebar.onOpenCompanyPage}
           automationsActive={props.sidebar.automationsActive}
           automationsNeedAttention={props.sidebar.automationsNeedAttention}
           onOpenAutomations={props.sidebar.onOpenAutomations}
@@ -1482,6 +1486,11 @@ export function SessionPage(props: SessionPageProps) {
               <div ref={props.mainContentHeaderActionsRef} className="shrink-0 titlebar-no-drag" />
             ) : <div className="flex shrink-0 items-center gap-1.5 text-gray-10 titlebar-no-drag">
               <DesktopUpdateButton />
+              {props.sessionTaskHref && !hasMainContentTakeover ? (
+                <Link to={props.sessionTaskHref} className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+                  {t("aiopc.task.open")}
+                </Link>
+              ) : null}
               {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger

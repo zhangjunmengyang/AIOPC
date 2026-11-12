@@ -18,6 +18,7 @@ import { AppMenuProvider } from "./app-menu";
 import { OpenworkControlProvider, OpenworkRouteControlActions, useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { OpenworkContextPublisher } from "./openwork-context-publisher";
 import { SessionRoute } from "./session-route";
+import { COMPANY_PAGES, companyPagePattern } from "./company-page-routes";
 import { DesktopUpdaterProvider } from "../domains/settings/state/desktop-updater-provider";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
@@ -89,6 +90,9 @@ export function AppRoot() {
                 <Route path="/accounts" element={<SessionRoute />} />
                 <Route path="/team" element={<SessionRoute />} />
                 <Route path="/inbox" element={<SessionRoute />} />
+                {COMPANY_PAGES.map((page) => (
+                  <Route key={page} path={companyPagePattern(page)} element={<SessionRoute companyPage={page} />} />
+                ))}
                 <Route path="/workspace/:workspaceId/extensions/*" element={<SessionRoute />} />
                 <Route path="/extensions/*" element={<SessionRoute />} />
                 <Route path="/workspace/:workspaceId/settings/*" element={<SettingsRoute />} />

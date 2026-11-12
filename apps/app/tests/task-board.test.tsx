@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { currentLocale, setLocale, type Language } from "../src/i18n";
+import type { TaskBoardPageProps } from "../src/react-app/domains/aiopc/tasks/task-board-page";
 import type { ProjectTask } from "../src/react-app/domains/aiopc/tasks/task-client";
 
 const ownsDom = !GlobalRegistrator.isRegistered;
@@ -40,26 +41,29 @@ function button(label: string, scope: ParentNode = document) {
   return target;
 }
 
-async function renderBoard({ preview = false, item = task }: { preview?: boolean; item?: ProjectTask } = {}) {
+async function renderBoard({ preview = false, item = task, seedTasks = true, props }: {
+  preview?: boolean; item?: ProjectTask; seedTasks?: boolean; props?: Partial<TaskBoardPageProps>;
+} = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
   client.setQueryData(["aiopc", "connection"], { status: "ready", url: "http://localhost:3847", token: "board-test", error: "", home: "/company" });
-  client.setQueryData(["aiopc", projectPath, "tasks"], { items: [item, dependency] });
+  if (seedTasks) client.setQueryData(["aiopc", projectPath, "tasks"], { items: [item, dependency] });
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   const open = spyOn({ session(_id: string) {} }, "session");
   const linked: string[] = [];
   const unlinked: string[] = [];
   const deliverables: string[] = [];
-  await act(async () => root.render(<QueryClientProvider client={client}>
+  const render = (overrides = props) => act(async () => root.render(<QueryClientProvider client={client}>
     <TaskBoardPage projectPath={projectPath} projectName="Launch" roles={[{ name: "writer", label: "Content writer" }]}
       sessions={[{ id: "ses_draft", title: "Draft conversation", taskId: "launch-draft" },
         { id: "ses_other", title: "Other task's conversation", taskId: "research" },
         { id: "ses_free", title: "Unlinked conversation" }]}
       onOpenSession={open} onOpenDeliverable={preview ? undefined : (item) => { deliverables.push(item.path); }}
       onBindSession={async (taskId, sessionId) => { linked.push(`${taskId}/${sessionId}`); }}
-      onUnbindSession={async (taskId, sessionId) => { unlinked.push(`${taskId}/${sessionId}`); }} />
+      onUnbindSession={async (taskId, sessionId) => { unlinked.push(`${taskId}/${sessionId}`); }} {...overrides} />
   </QueryClientProvider>));
-  return { client, host, open, linked, unlinked, deliverables, close: async () => {
+  await render();
+  return { client, host, open, linked, unlinked, deliverables, render, close: async () => {
     await act(async () => root.unmount());
     client.clear();
     host.remove();
@@ -166,5 +170,64 @@ test("saves only changed fields and keeps the requested status of a dependency-b
   } finally {
     await board.close();
     fetchMock.mockRestore();
+  }
+});
+
+test("a task route opens after loading and renders the goal control for that task", async () => {
+  let respond: ((response: Response) => void) | undefined;
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => { respond = resolve; }));
+  const board = await renderBoard({
+    seedTasks: false,
+    props: { taskId: task.id, onTaskIdChange: () => undefined, renderTaskGoal: (item) => <p>Goal for {item.id}</p> },
+  });
+  try {
+    expect(board.host.textContent).toContain("Loading tasks");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => {
+      respond?.(Response.json({ items: [task, dependency] }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(task.title);
+    expect(dialog?.textContent).toContain(`Goal for ${task.id}`);
+  } finally {
+    await board.close();
+    fetchMock.mockRestore();
+  }
+});
+
+test("route-driven task details follow navigation, report a missing task, and request closing the route", async () => {
+  const changes: Array<string | null> = [];
+  const onTaskIdChange = (id: string | null) => { changes.push(id); };
+  const dialog = () => document.querySelector('[role="dialog"]');
+  const title = () => dialog()?.querySelector("h2")?.textContent;
+  const board = await renderBoard({ props: { onTaskIdChange } });
+  try {
+    await act(async () => button(task.title, board.host).click());
+    expect(changes).toEqual([task.id]);
+    expect(dialog()).toBeNull();
+
+    await board.render({ taskId: task.id, onTaskIdChange });
+    expect(title()).toBe(task.title);
+    await act(async () => button("Edit task", dialog()!).click());
+    expect(title()).toBe("Edit task");
+    await board.render({ taskId: dependency.id, onTaskIdChange });
+    expect(title()).toBe(dependency.title);
+    await board.render({ taskId: task.id, onTaskIdChange });
+    expect(title()).toBe(task.title);
+    await act(async () => button("Draft conversation", dialog()!).click());
+    expect(board.open).toHaveBeenCalledWith("ses_draft");
+    expect(changes).toEqual([task.id]);
+
+    const otherProject = "/company/projects/other";
+    await act(async () => board.client.setQueryData(["aiopc", otherProject, "tasks"], { items: [dependency] }));
+    await board.render({ projectPath: otherProject, projectName: "Other", taskId: task.id, onTaskIdChange });
+    expect(title()).toBe("This task is no longer available.");
+    await act(async () => button("Close", dialog()!).click());
+    expect(changes).toEqual([task.id, null]);
+    await board.render({ projectPath: otherProject, projectName: "Other", onTaskIdChange });
+    expect(dialog()).toBeNull();
+  } finally {
+    await board.close();
   }
 });

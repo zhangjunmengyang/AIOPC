@@ -113,6 +113,9 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
+import { registerCompanyOrgRoutes } from "./routes/company-org.js";
+import { registerCompanyGoalRoutes } from "./routes/company-goals.js";
+import { registerCompanyCostRoutes } from "./routes/company-costs.js";
 import { assertCompanyRoleSkillInput, companyRoleV1Prompt, listCompanyProjectSkillNames } from "./company-role-admission.js";
 import { listCompanyRoles, readRoleSkillPolicy } from "./company-roles.js";
 import { readSessionGroupState, registerCreatedSessionGroup, resolveSessionProject, resolveVerifiedSessionProjects, type SessionProject } from "./session-groups.js";
@@ -3079,6 +3082,48 @@ function createRoutes(
     ensureWritable,
     requireClientScope,
     resolveWorkspaceWithoutBootstrap,
+  });
+
+  const companyRouteContext = {
+    routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, resolveWorkspaceWithoutBootstrap,
+  };
+  registerCompanyOrgRoutes(companyRouteContext);
+  registerCompanyGoalRoutes(companyRouteContext);
+  registerCompanyCostRoutes({
+    routes,
+    config,
+    resolveWorkspaceWithoutBootstrap,
+    async readEngine(ctx, workspace, engine, path) {
+      const url = new URL(path, ctx.url);
+      const request = new Request(url, { signal: ctx.request.signal });
+      if (engine === "v2") {
+        const connection = engineV2Preview.connection();
+        const status = engineV2Preview.status();
+        if (!connection) {
+          if (!status.enabled && !status.chatRouting) return null;
+          throw new ApiError(503, "engine_unavailable", "OpenCode v2 is unavailable");
+        }
+        if (!ctx.actor) throw new ApiError(401, "unauthorized", "Client authorization required");
+        let incomplete = false;
+        const response = await proxyOpencodeV2Request({
+          config, request, url, workspace, connection, actor: ctx.actor,
+          proxyPath: `/opencode2${url.pathname}`,
+          logWarning(message, attributes) {
+            incomplete = true;
+            logger.log("warn", message, attributes);
+          },
+        });
+        if (incomplete) throw new ApiError(502, "incomplete_session_inventory", "Some OpenCode v2 sessions could not be read");
+        return response;
+      }
+      if (engineV2Preview.status().v2Only && !hasExternalOpencode(config)) return null;
+      if (!enginePoolForConfig(config) && !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) return null;
+      const proxyPath = `/opencode${url.pathname}`;
+      return sendWithOwnershipProof(
+        assertWorkspaceOwnsProxiedSessionRead(config, workspace, "GET", proxyPath, false, request.signal),
+        () => proxyOpencodeRequest({ config, request, url, workspace, proxyPath }),
+      );
+    },
   });
 
   registerClaudeImportRoutes({
