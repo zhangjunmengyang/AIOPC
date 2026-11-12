@@ -70,9 +70,53 @@ export async function createCompanyProject(companyRoot: string, name: string): P
   return { id: `proj:${name}`, name, directory };
 }
 
-/** The v1 plugin factory runs for the execution directory, not for each chat. */
-export function companyDirectoryForExecution(directory: string): string {
-  return basename(dirname(directory)) === "projects" ? dirname(dirname(directory)) : directory;
+/** A v1 engine serves multiple workspaces, so its CWD and Git root cannot identify every company. */
+export async function companyDirectoryForExecution(
+  directory: string,
+  worktree?: string,
+  sessionId?: string,
+): Promise<string | null> {
+  const execution = await realpath(directory).catch(() => resolve(directory));
+  if (basename(dirname(execution)) !== "projects") return directory;
+  const parent = dirname(dirname(execution));
+  const host = process.env.OPENWORK_SERVER_URL?.trim();
+  const token = process.env.OPENWORK_SERVER_TOKEN?.trim();
+  if (!host || !token) {
+    return worktree && (await realpath(worktree).catch(() => resolve(worktree))) === parent ? parent : null;
+  }
+
+  const signal = AbortSignal.timeout(1500);
+  const read = async <T>(path: string): Promise<T | null> => {
+    try {
+      const response = await fetch(new URL(path, host), {
+        headers: { Authorization: `Bearer ${token}` }, signal, redirect: "error",
+      });
+      return response.ok ? await response.json() as T : null;
+    } catch { return null; }
+  };
+  const workspaces = await read<{ items?: Array<{ id?: string; path?: string }> }>("/workspaces");
+  if (!Array.isArray(workspaces?.items)) return null;
+  const candidates = (await Promise.all(workspaces.items.map(async (item) => {
+    if (typeof item?.id !== "string" || !item.id || typeof item.path !== "string" || !isAbsolute(item.path)) return null;
+    const root = await realpath(item.path).catch(() => null);
+    if (root === execution) return { id: item.id, root: directory, projectId: null };
+    if (root === parent) return { id: item.id, root, projectId: `proj:${basename(execution)}` };
+    return null;
+  }))).filter(candidate => candidate !== null);
+  const roots = new Set(candidates.map(candidate => candidate.root));
+  if (roots.size <= 1) return candidates[0]?.root ?? null;
+  if (!sessionId) return null;
+
+  // The same folder can be both an imported company and a project of its
+  // parent. Read existing metadata without asking either engine to adopt it.
+  const matches = new Set(await Promise.all(candidates.map(async ({ id, root, projectId }) => {
+    const groups = await read<{ state?: { sessionMeta?: Record<string, { projectId?: string | null }> } }>(
+      `/workspace/${encodeURIComponent(id)}/session-groups`,
+    );
+    return groups?.state?.sessionMeta?.[sessionId]?.projectId === projectId ? root : null;
+  })));
+  matches.delete(null);
+  return matches.size === 1 ? matches.values().next().value ?? null : null;
 }
 
 export function companyProjectInstructions(companyDirectory: string, executionDirectory: string): string {

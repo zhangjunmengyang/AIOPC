@@ -163,14 +163,18 @@ function excerpt(content: string, query: string): string {
   return content.slice(from, from + 500).replace(/\s+/g, " ").trim();
 }
 
-export const OpenWorkCapabilitiesKnowledge = async (context?: Parameters<typeof workspaceFileHooks>[0]) => ({
+type Context = NonNullable<Parameters<typeof workspaceFileHooks>[0]> & { worktree?: string };
+
+export const OpenWorkCapabilitiesKnowledge = async (context?: Context) => ({
   ...workspaceFileHooks(context),
-  "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    if (context?.directory) correctWorkspaceRoot(output.system, context.directory);
+  "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
+    const directory = context?.directory;
+    const company = directory && await companyDirectoryForExecution(directory, context?.worktree, input.sessionID);
+    if (directory) correctWorkspaceRoot(output.system, directory);
     appendAgentInstructions(output.system,
       createInstructionSection("capabilities-knowledge", OPENWORK_CAPABILITIES_KNOWLEDGE),
-      ...(context?.directory ? [createInstructionSection("company-project", companyProjectInstructions(companyDirectoryForExecution(context.directory), context.directory))] : []),
-      ...(context?.directory ? [createInstructionSection("workspace-files", workspaceFileGuidance(context.directory))] : []));
+      ...(company && directory ? [createInstructionSection("company-project", companyProjectInstructions(company, directory))] : []),
+      ...(directory ? [createInstructionSection("workspace-files", workspaceFileGuidance(directory))] : []));
   },
   tool: {
     openwork_docs_search: {
