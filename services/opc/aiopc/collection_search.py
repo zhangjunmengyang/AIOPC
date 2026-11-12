@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 
 from filelock import AsyncFileLock, Timeout
 
+from aiopc import credentials
+
 _COLLECTION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _WORKER_ENV = (
     "PATH", "SYSTEMROOT", "WINDIR", "TMP", "TEMP", "TMPDIR", "SSL_CERT_FILE",
@@ -23,6 +25,15 @@ _WORKER_ENV = (
 
 class CollectionSearchError(ValueError):
     pass
+
+
+def _embedding_base_url(value: str) -> str:
+    base_url = value.strip().rstrip("/")
+    url = urlsplit(base_url)
+    if (url.scheme not in {"http", "https"} or not url.hostname
+            or url.username is not None or url.password is not None or url.query or url.fragment):
+        raise ValueError
+    return base_url
 
 
 class CollectionSearch:
@@ -84,17 +95,14 @@ class CollectionSearch:
     def _embedding(self) -> dict[str, Any] | None:
         env = self.environment
         provider = env.get("AIOPC_KB_EMBEDDING_PROVIDER", "").strip().lower()
-        if not provider:
+        if provider in {"", "off"}:
             return None
         if provider not in {"openai", "ollama"}:
             raise CollectionSearchError("qmd embedding 服务需为 openai 或 ollama")
         model = env.get("AIOPC_KB_EMBEDDING_MODEL", "").strip()
         default_url = "https://api.openai.com/v1" if provider == "openai" else "http://127.0.0.1:11434"
-        base_url = env.get("AIOPC_KB_EMBEDDING_BASE_URL", default_url).strip().rstrip("/")
         try:
-            url = urlsplit(base_url)
-            if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.query or url.fragment:
-                raise ValueError
+            base_url = _embedding_base_url(env.get("AIOPC_KB_EMBEDDING_BASE_URL", default_url))
             dimensions = int(env.get("AIOPC_KB_EMBEDDING_DIMENSIONS") or "0")
             if not model or not 0 <= dimensions <= 8192:
                 raise ValueError
@@ -106,6 +114,22 @@ class CollectionSearch:
         if key := env.get("AIOPC_KB_EMBEDDING_API_KEY", "").strip():
             settings["apiKey"] = key
         return settings
+
+    async def _legacy_project_embedding(self) -> dict[str, str] | None:
+        try:
+            profile = json.loads((self.home / "embedding-profile.json").read_text(encoding="utf-8"))
+            model, base_url = profile["model"], profile["base_url"]
+            if not isinstance(model, str) or not model.strip() or not isinstance(base_url, str):
+                return None
+            base_url = _embedding_base_url(base_url)
+        except (KeyError, OSError, TypeError, ValueError):
+            return None
+
+        stored = await asyncio.to_thread(credentials.load, "models", "embedding")
+        key = (stored or {}).get("api_key")
+        if not isinstance(key, str) or not key.strip():
+            return None
+        return {"provider": "openai", "model": model.strip(), "baseUrl": base_url, "apiKey": key.strip()}
 
     def _worker(self) -> tuple[Sequence[str], dict[str, str]]:
         configured = self.environment.get("AIOPC_QMD_RUNNER")
@@ -139,7 +163,13 @@ class CollectionSearch:
         digest = hashlib.sha256(f"{collection}\0{root}".encode()).hexdigest()
         db_path = index_directory / f"{digest}.sqlite"
         request = {"dbPath": str(db_path), "collection": collection, "root": str(root), "scopes": scopes, **options}
-        if embedding := self._embedding():
+        embedding = self._embedding()
+        # The old profile covered project files. Company and skills are separate collections.
+        if (embedding is None and collection.startswith("knowledge-")
+                and len(scopes) == 1 and scopes[0].startswith("project:")
+                and not any(key.startswith("AIOPC_KB_EMBEDDING_") for key in self.environment)):
+            embedding = await self._legacy_project_embedding()
+        if embedding:
             request["embedding"] = embedding
         command, environment = self._worker()
         try:

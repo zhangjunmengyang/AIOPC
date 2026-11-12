@@ -38,12 +38,14 @@ scope: project:auday
 
 | 变量 | 值 |
 | --- | --- |
-| `AIOPC_KB_EMBEDDING_PROVIDER` | `openai` 或 `ollama` |
+| `AIOPC_KB_EMBEDDING_PROVIDER` | `openai` 或 `ollama`。设为空值或 `off` 可关闭向量检索 |
 | `AIOPC_KB_EMBEDDING_BASE_URL` | OpenAI 兼容的 API 根地址（通常含 `/v1`），或 Ollama 服务根地址 |
 | `AIOPC_KB_EMBEDDING_MODEL` | 服务上的模型名 |
 | `AIOPC_KB_EMBEDDING_DIMENSIONS` | 可选。接口支持显式指定维度时填写 |
 | `AIOPC_KB_EMBEDDING_API_KEY` | 可选。服务要求认证时设置 |
 
 启用 embedding 后，所选范围的资料文字和查询文字会发送给已配置的服务。更换服务、模型或向量维度后，下一次刷新会重建向量。索引与解析缓存保存在 AIOPC 数据目录。查到的排序分数表示检索匹配度。
+
+如果没有设置 `AIOPC_KB_EMBEDDING_*`，只查单个项目时会沿用 AIOPC 数据目录里的 `embedding-profile.json` 和系统钥匙串里的 `AIOPC / models:embedding`。配置或密钥缺失时使用全文检索。公司资料、跨项目查询和技能库需要显式配置向量服务。
 
 PDF 和 DOCX 保留页码或段落。MarkItDown 在本机把 PPTX、XLSX 转成可检索文字。扫描件 OCR、语音转录和自动图像说明暂未接入。解析警告会随查询返回。
