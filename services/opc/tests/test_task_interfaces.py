@@ -76,3 +76,31 @@ async def test_mcp_create_uses_selected_project_and_keeps_markdown(tmp_path):
     await server.call_tool("task_create", {"project": "beta", "title": "视频脚本", "description": "列出分镜。"})
     documents = list((tmp_path / "beta" / "tasks").glob("*.md"))
     assert len(documents) == 1 and "列出分镜。" in documents[0].read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_task_scan_does_not_stall_other_opc_work(projects, monkeypatch):
+    import asyncio
+    import threading
+
+    from aiopc.tasks import TaskStore
+
+    entered = threading.Event()
+    release = threading.Event()
+    original = TaskStore.list
+
+    def slow_scan(self):
+        entered.set()
+        release.wait(timeout=0.2)
+        return original(self)
+
+    monkeypatch.setattr(TaskStore, "list", slow_scan)
+    server = FastMCP("test")
+    TaskTools(projects).register(lambda name, method, description, annotations: _tool(server, name, method, description, annotations))
+    request = asyncio.create_task(server.call_tool("task_list", {"project": "alpha"}))
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        assert not request.done()
+    finally:
+        release.set()
+        await request

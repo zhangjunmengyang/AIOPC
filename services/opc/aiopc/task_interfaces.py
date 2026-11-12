@@ -8,6 +8,7 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -33,27 +34,27 @@ class TaskTools:
     def __init__(self, resolve_project: Callable[[str], Path]):
         self.resolve_project = resolve_project
 
-    def list(self, project: str = "") -> dict[str, Any]:
-        return TaskStore(self.resolve_project(project)).list()
+    async def list(self, project: str = "") -> dict[str, Any]:
+        return await run_in_threadpool(TaskStore(self.resolve_project(project)).list)
 
-    def get(self, task_id: TaskId, project: str = "") -> dict[str, Any]:
-        return TaskStore(self.resolve_project(project)).get(task_id)
+    async def get(self, task_id: TaskId, project: str = "") -> dict[str, Any]:
+        return await run_in_threadpool(TaskStore(self.resolve_project(project)).get, task_id)
 
-    def create(self, title: Title, description: str = "", status: Status = "todo", assignee: Role | None = None,
+    async def create(self, title: Title, description: str = "", status: Status = "todo", assignee: Role | None = None,
                parent: TaskId | None = None, blocked_by: list[TaskId] | None = None,
                deliverables: list[TaskDeliverable] | None = None, project: str = "") -> dict[str, Any]:
-        return TaskStore(self.resolve_project(project)).create({
+        return await run_in_threadpool(TaskStore(self.resolve_project(project)).create, {
             "title": title, "description": description, "status": status, "assignee": assignee, "parent": parent,
             "blockedBy": blocked_by or [], "deliverables": deliverables or [],
         }, actor="agent")
 
-    def claim(self, task_id: TaskId, role: Role, project: str = "") -> dict[str, Any]:
-        return TaskStore(self.resolve_project(project)).claim(task_id, role)
+    async def claim(self, task_id: TaskId, role: Role, project: str = "") -> dict[str, Any]:
+        return await run_in_threadpool(TaskStore(self.resolve_project(project)).claim, task_id, role)
 
-    def update(self, task_id: TaskId, changes: TaskChanges, project: str = "",
+    async def update(self, task_id: TaskId, changes: TaskChanges, project: str = "",
                expected_updated_at: str | None = None) -> dict[str, Any]:
-        return TaskStore(self.resolve_project(project)).update(
-            task_id, changes.model_dump(exclude_unset=True), actor="agent", expected_updated_at=expected_updated_at,
+        return await run_in_threadpool(
+            TaskStore(self.resolve_project(project)).update, task_id, changes.model_dump(exclude_unset=True), actor="agent", expected_updated_at=expected_updated_at,
         )
 
     def register(self, register: Callable[[str, Callable, str, ToolAnnotations], None]) -> None:
@@ -72,8 +73,9 @@ def task_routes(
     async def collection(request: Request) -> Response:
         store = TaskStore(resolve_project(request))
         if request.method == "POST":
-            return respond({"item": store.create(await body(request))}, 201)
-        return respond(store.list(), 200)
+            item = await run_in_threadpool(store.create, await body(request))
+            return respond({"item": item}, 201)
+        return respond(await run_in_threadpool(store.list), 200)
 
     async def detail(request: Request) -> Response:
         store = TaskStore(resolve_project(request))
@@ -83,9 +85,9 @@ def task_routes(
             expected_updated_at = data.pop("expectedUpdatedAt", None)
             if expected_updated_at is not None and not isinstance(expected_updated_at, str):
                 raise TaskError("expectedUpdatedAt 必须是文字")
-            item = store.update(task_id, data, expected_updated_at=expected_updated_at)
+            item = await run_in_threadpool(store.update, task_id, data, expected_updated_at=expected_updated_at)
         else:
-            item = store.get(task_id)
+            item = await run_in_threadpool(store.get, task_id)
         return respond({"item": item}, 200)
 
     return [
